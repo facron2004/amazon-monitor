@@ -1,0 +1,33 @@
+{
+  "name": "amazon-keyword-competitor-monitor",
+  "version": "0.1.0",
+  "description": "Amazon 关键词竞品价格与排名监控系统",
+  "author": "Amazon Monitor Team",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "build:shared": "npm --workspace @amazon-monitor/shared run build",
+    "dev": "npm run build:shared && npm-run-all --parallel dev:api dev:web",
+    "dev:api": "npm --workspace @amazon-monitor/api run dev",
+    "dev:web": "npm --workspace @amazon-monitor/web run dev",
+    "test": "npm --workspace @amazon-monitor/shared run test && npm --workspace @amazon-monitor/api run test",
+    "build": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build"
+  },
+  "dependencies": {
+    "node-cron": "^4.2.1",
+    "playwright": "^1.57.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "cross-env": "^10.1.0",
+    "npm-run-all": "^4.1.5",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.13"
+  }
+}
