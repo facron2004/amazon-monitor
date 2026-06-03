@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   AlertTriangle,
   BarChart3,
@@ -66,8 +66,9 @@ const tabs: Array<{ key: TabKey; label: string; icon: typeof BarChart3 }> = [
   { key: "logs", label: "日志", icon: ClipboardList }
 ];
 
-const activeTab = ref<TabKey>("overview");
+const activeTab = ref<TabKey>("categories");
 const date = ref(isoDate());
+const categoryDataDate = ref(date.value);
 const loading = ref(false);
 const actionMessage = ref("");
 const errorMessage = ref("");
@@ -146,6 +147,7 @@ const selectedCompetitorKeywordId = ref<number | null>(null);
 const selectedCategoryId = ref<number | null>(null);
 const chartEl = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
+let categoryRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
 const keywordForm = ref<{
   keyword: string;
@@ -253,6 +255,7 @@ const visibleCompetitors = computed(() => {
   });
 });
 const topBrandMatrix = computed<BrandMatrixSnapshot[]>(() => categoryDetail.value?.brandMatrix ?? []);
+const categoryDataIsFallback = computed(() => activeTab.value === "categories" && categoryDataDate.value !== date.value);
 
 async function loadAll() {
   await loadCurrentView();
@@ -320,6 +323,24 @@ async function loadCategories() {
   await loadCategoryDetail();
 }
 
+async function resolveCategoryDataDate(categoryId: number | null): Promise<string> {
+  const currentRows = await api.bsrHistory({
+    date: date.value,
+    sourceType: "category_bestseller",
+    sourceId: categoryId,
+    limit: 1
+  });
+  if (currentRows.length > 0) {
+    return date.value;
+  }
+  const latestRows = await api.bsrHistory({
+    sourceType: "category_bestseller",
+    sourceId: categoryId,
+    limit: 1
+  });
+  return latestRows[0]?.snapshotDate ?? date.value;
+}
+
 async function loadCompetitors() {
   const [folderData, competitorData] = await Promise.all([
     api.competitorFolders(),
@@ -367,25 +388,27 @@ async function loadDetail() {
 }
 
 async function loadCategoryDetail() {
+  const dataDate = await resolveCategoryDataDate(selectedCategoryId.value);
+  categoryDataDate.value = dataDate;
   if (!selectedCategoryId.value) {
     categoryDetail.value = null;
-    categorySignals.value = await api.categorySignals(date.value);
-    bsrQuality.value = await api.bsrQuality({ date: date.value, sourceType: "category_bestseller" });
-    bsrRankChanges.value = await api.bsrChanges({ date: date.value, sourceType: "category_bestseller" });
-    actionInsights.value = await api.actionInsights({ date: date.value, sourceType: "category_bestseller" });
-    activityEvents.value = await api.activityEvents({ date: date.value });
-    priceHistory.value = await api.productPriceHistory({ date: date.value });
+    categorySignals.value = await api.categorySignals(dataDate);
+    bsrQuality.value = await api.bsrQuality({ date: dataDate, sourceType: "category_bestseller" });
+    bsrRankChanges.value = await api.bsrChanges({ date: dataDate, sourceType: "category_bestseller" });
+    actionInsights.value = await api.actionInsights({ date: dataDate, sourceType: "category_bestseller" });
+    activityEvents.value = await api.activityEvents({ date: dataDate });
+    priceHistory.value = await api.productPriceHistory({ date: dataDate });
     return;
   }
   const [detailData, signalsData, reportData, bsrQualityData, bsrChangesData, actionInsightData, activityEventData, priceHistoryData] = await Promise.all([
-    api.categoryDetail(selectedCategoryId.value, date.value),
-    api.categorySignals(date.value, selectedCategoryId.value),
-    api.categoryReport(date.value, selectedCategoryId.value),
-    api.bsrQuality({ date: date.value, sourceType: "category_bestseller", sourceId: selectedCategoryId.value }),
-    api.bsrChanges({ date: date.value, sourceType: "category_bestseller", sourceId: selectedCategoryId.value }),
-    api.actionInsights({ date: date.value, sourceType: "category_bestseller", sourceId: selectedCategoryId.value }),
-    api.activityEvents({ date: date.value, categoryId: selectedCategoryId.value }),
-    api.productPriceHistory({ date: date.value, categoryId: selectedCategoryId.value })
+    api.categoryDetail(selectedCategoryId.value, dataDate),
+    api.categorySignals(dataDate, selectedCategoryId.value),
+    api.categoryReport(dataDate, selectedCategoryId.value),
+    api.bsrQuality({ date: dataDate, sourceType: "category_bestseller", sourceId: selectedCategoryId.value }),
+    api.bsrChanges({ date: dataDate, sourceType: "category_bestseller", sourceId: selectedCategoryId.value }),
+    api.actionInsights({ date: dataDate, sourceType: "category_bestseller", sourceId: selectedCategoryId.value }),
+    api.activityEvents({ date: dataDate, categoryId: selectedCategoryId.value }),
+    api.productPriceHistory({ date: dataDate, categoryId: selectedCategoryId.value })
   ]);
   categoryDetail.value = detailData;
   categorySignals.value = signalsData;
@@ -832,7 +855,21 @@ onMounted(() => {
   loadCurrentView().catch((error) => {
     setError(error instanceof Error ? error.message : String(error));
   });
+  categoryRefreshTimer = setInterval(() => {
+    if (activeTab.value !== "categories" || loading.value) {
+      return;
+    }
+    loadCategories().catch((error) => {
+      errorMessage.value = error instanceof Error ? error.message : String(error);
+    });
+  }, 60_000);
   window.addEventListener("resize", () => chart?.resize());
+});
+
+onUnmounted(() => {
+  if (categoryRefreshTimer) {
+    clearInterval(categoryRefreshTimer);
+  }
 });
 </script>
 
@@ -989,6 +1026,10 @@ onMounted(() => {
               <span>采集当前类目</span>
             </button>
           </div>
+          <div class="data-date-bar">
+            <span>BSR 数据：{{ categoryDataDate }}</span>
+            <strong v-if="categoryDataIsFallback">当前日期暂无榜单，已沿用最近一次采集</strong>
+          </div>
           <form class="category-form" @submit.prevent="createCategory">
             <input v-model="categoryForm.name" placeholder="类目名称，如 Ice Makers" />
             <input v-model="categoryForm.marketplace" placeholder="amazon.com" />
@@ -1117,7 +1158,7 @@ onMounted(() => {
         <section class="panel dense-panel bsr-board-panel">
           <div class="panel-head">
             <h2>Best Sellers 榜单</h2>
-            <span>{{ topCategorySnapshots.length }} / {{ categoryDetail?.snapshots.length ?? 0 }} 个 ASIN</span>
+            <span>{{ categoryDataDate }} · {{ topCategorySnapshots.length }} / {{ categoryDetail?.snapshots.length ?? 0 }} ASIN</span>
           </div>
           <div class="panel-controls">
             <input v-model.trim="categoryProductQuery" placeholder="筛选 ASIN / 标题 / 品牌" />
@@ -1132,17 +1173,17 @@ onMounted(() => {
               <option value="all">全部</option>
             </select>
           </div>
-          <div class="table-wrap compact-scroll bsr-list-scroll">
+          <div class="table-wrap compact-scroll bsr-board-scroll">
             <table>
               <thead>
                 <tr>
                   <th>排名</th>
                   <th>商品</th>
                   <th>品牌</th>
-                  <th>价格</th>
-                  <th>Coupon / Deal</th>
-                  <th>评分</th>
-                  <th>外链</th>
+                  <th class="price-col">价格</th>
+                  <th class="promo-col">促销</th>
+                  <th class="rating-col">评分</th>
+                  <th class="link-col">外链</th>
                 </tr>
               </thead>
               <tbody>
@@ -1156,10 +1197,10 @@ onMounted(() => {
                     </div>
                   </td>
                   <td>{{ item.brand || 'Unknown' }}</td>
-                  <td>{{ formatMoney(item.currentPrice) }}</td>
-                  <td>{{ item.couponText || item.dealBadge || '-' }}</td>
-                  <td>{{ item.rating || '-' }} / {{ item.reviewCount || 0 }}</td>
-                  <td>
+                  <td class="price-col">{{ formatMoney(item.currentPrice) }}</td>
+                  <td class="promo-col" :title="item.couponText || item.dealBadge || ''">{{ item.couponText || item.dealBadge || '-' }}</td>
+                  <td class="rating-col">{{ item.rating || '-' }} / {{ item.reviewCount || 0 }}</td>
+                  <td class="link-col">
                     <button class="icon-button" title="打开 Amazon" type="button" @click="openCategoryProduct(item)">
                       <ExternalLink :size="17" />
                     </button>
@@ -1206,7 +1247,7 @@ onMounted(() => {
             <h2>BSR 榜单异动</h2>
             <span>{{ bsrRankChanges.length }} 条</span>
           </div>
-          <div class="table-wrap compact-scroll bsr-list-scroll">
+          <div class="table-wrap compact-scroll bsr-change-scroll">
             <table>
               <thead>
                 <tr>

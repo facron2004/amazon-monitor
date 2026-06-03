@@ -108,10 +108,15 @@ export const api = {
     request<CompetitorActivityEvent[]>(
       `/activity-events?date=${payload.date}${payload.categoryId ? `&categoryId=${payload.categoryId}` : ""}${payload.asin ? `&asin=${payload.asin}` : ""}${payload.brand ? `&brand=${encodeURIComponent(payload.brand)}` : ""}&limit=500`
     ),
-  bsrHistory: (payload: { date: string; sourceType?: BsrSourceType; sourceId?: number | null; category?: string | null }) =>
-    request<BsrRankHistory[]>(
-      `/bsr/history?date=${payload.date}${payload.sourceType ? `&sourceType=${payload.sourceType}` : ""}${payload.sourceId ? `&sourceId=${payload.sourceId}` : ""}${payload.category ? `&category=${encodeURIComponent(payload.category)}` : ""}&limit=500`
-    ),
+  bsrHistory: (payload: { date?: string; sourceType?: BsrSourceType; sourceId?: number | null; category?: string | null; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (payload.date) params.set("date", payload.date);
+    if (payload.sourceType) params.set("sourceType", payload.sourceType);
+    if (payload.sourceId) params.set("sourceId", String(payload.sourceId));
+    if (payload.category) params.set("category", payload.category);
+    params.set("limit", String(payload.limit ?? 500));
+    return request<BsrRankHistory[]>(`/bsr/history?${params.toString()}`);
+  },
   bsrQuality: (payload: { date: string; sourceType?: BsrSourceType; sourceId?: number | null; category?: string | null }) =>
     request<BsrSnapshotQuality[]>(
       `/bsr/quality?date=${payload.date}${payload.sourceType ? `&sourceType=${payload.sourceType}` : ""}${payload.sourceId ? `&sourceId=${payload.sourceId}` : ""}${payload.category ? `&category=${encodeURIComponent(payload.category)}` : ""}&limit=500`

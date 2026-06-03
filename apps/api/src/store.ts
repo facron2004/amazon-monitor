@@ -160,8 +160,17 @@ export function openAppStore(dbPath = "data/amazon-monitor.sqlite"): Store {
     mkdirSync(directory, { recursive: true });
   }
   const db = new DatabaseSync(dbPath);
+  configureDatabase(db);
   initSchema(db);
   return createStore(db);
+}
+
+function configureDatabase(db: DatabaseSync): void {
+  db.exec(`
+    PRAGMA busy_timeout = ${sqliteBusyTimeoutMs()};
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+  `);
 }
 
 export function initSchema(db: DatabaseSync): void {
@@ -845,21 +854,29 @@ export function createStore(db: DatabaseSync): Store {
     },
 
     deleteCategorySnapshotsForDate(categoryId, date) {
-      db.prepare("DELETE FROM amazon_bestseller_rank_snapshot WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
-      db.prepare("DELETE FROM amazon_bsr_rank_history WHERE source_type = 'category_bestseller' AND source_id = ? AND snapshot_date = ?").run(categoryId, date);
-      db.prepare("DELETE FROM amazon_bsr_snapshot_quality WHERE source_type = 'category_bestseller' AND source_id = ? AND snapshot_date = ?").run(
-        categoryId,
-        date
-      );
-      db.prepare("DELETE FROM amazon_product_price_history WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
-      db.prepare("DELETE FROM amazon_brand_matrix_snapshot WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
-      db.prepare("DELETE FROM amazon_competitor_signal_log WHERE source_type = 'category' AND category_id = ? AND signal_date = ?").run(categoryId, date);
-      db.prepare("DELETE FROM amazon_competitor_activity_event WHERE category_id = ? AND event_date = ?").run(categoryId, date);
-      db.prepare("DELETE FROM amazon_competitor_action_insight WHERE source_type = 'category_bestseller' AND source_id = ? AND insight_date = ?").run(
-        categoryId,
-        date
-      );
-      db.prepare("DELETE FROM amazon_category_daily_report WHERE category_id = ? AND report_date = ?").run(categoryId, date);
+      withTransaction(db, () => {
+        db.prepare("DELETE FROM amazon_bestseller_rank_snapshot WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
+        db.prepare("DELETE FROM amazon_bsr_rank_history WHERE source_type = 'category_bestseller' AND source_id = ? AND snapshot_date = ?").run(
+          categoryId,
+          date
+        );
+        db.prepare("DELETE FROM amazon_bsr_snapshot_quality WHERE source_type = 'category_bestseller' AND source_id = ? AND snapshot_date = ?").run(
+          categoryId,
+          date
+        );
+        db.prepare("DELETE FROM amazon_product_price_history WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
+        db.prepare("DELETE FROM amazon_brand_matrix_snapshot WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
+        db.prepare("DELETE FROM amazon_competitor_signal_log WHERE source_type = 'category' AND category_id = ? AND signal_date = ?").run(
+          categoryId,
+          date
+        );
+        db.prepare("DELETE FROM amazon_competitor_activity_event WHERE category_id = ? AND event_date = ?").run(categoryId, date);
+        db.prepare("DELETE FROM amazon_competitor_action_insight WHERE source_type = 'category_bestseller' AND source_id = ? AND insight_date = ?").run(
+          categoryId,
+          date
+        );
+        db.prepare("DELETE FROM amazon_category_daily_report WHERE category_id = ? AND report_date = ?").run(categoryId, date);
+      });
     },
 
     insertCategorySnapshots(items) {
@@ -1073,7 +1090,6 @@ export function createStore(db: DatabaseSync): Store {
     },
 
     replaceBrandMatrix(categoryId, date, items) {
-      db.prepare("DELETE FROM amazon_brand_matrix_snapshot WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
       const stmt = db.prepare(
         `INSERT INTO amazon_brand_matrix_snapshot
          (category_id, category_name, marketplace, snapshot_date, brand, product_count_top100, product_count_top50,
@@ -1082,6 +1098,7 @@ export function createStore(db: DatabaseSync): Store {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       withTransaction(db, () => {
+        db.prepare("DELETE FROM amazon_brand_matrix_snapshot WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
         for (const item of items) {
           stmt.run(
             item.categoryId,
@@ -1120,7 +1137,6 @@ export function createStore(db: DatabaseSync): Store {
     },
 
     replaceCategorySignals(categoryId, date, items) {
-      db.prepare("DELETE FROM amazon_competitor_signal_log WHERE source_type = 'category' AND category_id = ? AND signal_date = ?").run(categoryId, date);
       const stmt = db.prepare(
         `INSERT INTO amazon_competitor_signal_log
          (signal_date, source_type, category_id, category_name, marketplace, signal_type, alert_level, asin, brand,
@@ -1128,6 +1144,7 @@ export function createStore(db: DatabaseSync): Store {
          VALUES (?, 'category', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       withTransaction(db, () => {
+        db.prepare("DELETE FROM amazon_competitor_signal_log WHERE source_type = 'category' AND category_id = ? AND signal_date = ?").run(categoryId, date);
         for (const item of items) {
           stmt.run(
             item.signalDate,
@@ -2628,6 +2645,11 @@ function normalizeTopN(value: number | undefined): number {
     return 100;
   }
   return Math.min(100, Math.max(1, Math.floor(parsed)));
+}
+
+function sqliteBusyTimeoutMs(): number {
+  const value = Number(process.env.SQLITE_BUSY_TIMEOUT_MS ?? 10000);
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 10000;
 }
 
 function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {

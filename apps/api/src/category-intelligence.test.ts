@@ -339,6 +339,47 @@ describe("category competitor intelligence", () => {
     expect(quality.issue).toContain("Duplicate ranks: #3.");
   });
 
+  it("rejects category collection when duplicate ASINs hide missing unique products", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Appliances-Ice-Makers/zgbs/appliances/2399939011",
+      crawlTopN: 3,
+      status: "enabled"
+    });
+    const collector: AmazonBestSellerCollector = {
+      async collect() {
+        return [
+          {
+            pageNo: 1,
+            url: category.categoryUrl,
+            products: [
+              product(1, "B0UNIQUE001", "First Ice Maker", "Acme", 99, null, null),
+              product(2, "B0UNIQUE002", "Second Ice Maker", "Acme", 109, null, null),
+              product(3, "B0UNIQUE002", "Duplicate Ice Maker", "Acme", 119, null, null)
+            ]
+          }
+        ];
+      }
+    };
+
+    const failed = await runCategoryCollectionForMonitor(store, category.id, "2026-05-26", { collector });
+    const quality = store.listBsrSnapshotQuality({ date: "2026-05-26", sourceType: "category_bestseller", sourceId: category.id })[0];
+
+    expect(failed).toMatchObject({ status: "failed", successCount: 2, failCount: 1 });
+    expect(failed.errorMessage).toContain("expected 3, collected 2");
+    expect(store.listCategorySnapshots({ date: "2026-05-26", categoryId: category.id })).toHaveLength(0);
+    expect(store.listBsrRankHistory({ date: "2026-05-26", sourceType: "category_bestseller", sourceId: category.id })).toHaveLength(0);
+    expect(quality).toMatchObject({
+      actualCount: 2,
+      uniqueAsinCount: 2,
+      qualityStatus: "partial"
+    });
+  });
+
   it("normalizes Best Sellers page-local ranks across paginated category collection", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
@@ -382,6 +423,48 @@ describe("category competitor intelligence", () => {
       ["B0PAGE2001", 3, 3],
       ["B0PAGE2002", 4, 4]
     ]);
+  });
+
+  it("accepts a complete Top100 when an extra Best Sellers page fills a short earlier page", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Appliances-Ice-Makers/zgbs/appliances/2399939011",
+      crawlTopN: 100,
+      status: "enabled"
+    });
+    const makePage = (pageNo: number, count: number, prefix: string) =>
+      Array.from({ length: count }, (_, index) => {
+        const rank = index + 1;
+        return product(rank, `B0${prefix}${String(rank).padStart(6, "0")}`, `Headless Fill Ice Maker ${pageNo}-${rank}`, "Acme", 99 + rank, null, null);
+      });
+    const collector: AmazonBestSellerCollector = {
+      async collect() {
+        return [
+          { pageNo: 1, url: category.categoryUrl, products: makePage(1, 30, "P1") },
+          { pageNo: 2, url: `${category.categoryUrl}?pg=2`, products: makePage(2, 50, "P2") },
+          { pageNo: 3, url: `${category.categoryUrl}?pg=3`, products: makePage(3, 20, "P3") }
+        ];
+      }
+    };
+
+    const result = await runCategoryCollectionForMonitor(store, category.id, "2026-06-03", { collector });
+
+    expect(result).toMatchObject({ status: "success", successCount: 100, failCount: 0 });
+    const snapshots = store.getCategoryDetail(category.id, "2026-06-03").snapshots;
+    expect(snapshots).toHaveLength(100);
+    expect(snapshots.at(0)).toMatchObject({ rank: 1, bsrRank: 1 });
+    expect(snapshots.at(-1)).toMatchObject({ rank: 100, bsrRank: 100 });
+    expect(store.listBsrSnapshotQuality({ date: "2026-06-03", sourceType: "category_bestseller", sourceId: category.id })[0]).toMatchObject({
+      actualCount: 100,
+      uniqueRankCount: 100,
+      minRank: 1,
+      maxRank: 100,
+      qualityStatus: "ok"
+    });
   });
 
   it("keeps partial category BSR snapshots out of rank-change comparisons", () => {

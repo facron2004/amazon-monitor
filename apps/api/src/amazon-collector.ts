@@ -127,13 +127,17 @@ export class PlaywrightAmazonBestSellerCollector {
       const page = await context.newPage();
       await installCategoryResourceBlocker(page);
       const pages: Array<{ pageNo: number; products: BestSellerProductInput[]; url: string }> = [];
-      const pageCount = Math.max(1, Math.ceil(category.crawlTopN / bestSellerPageSize()));
+      const requiredPageCount = Math.max(1, Math.ceil(category.crawlTopN / bestSellerPageSize()));
+      const maxPageCount = requiredPageCount + bestSellerExtraPages();
+      const seenAsins = new Set<string>();
       let collected = 0;
 
-      for (let pageNo = 1; pageNo <= pageCount && collected < category.crawlTopN; pageNo += 1) {
+      for (let pageNo = 1; pageNo <= maxPageCount && collected < category.crawlTopN; pageNo += 1) {
         const url = buildBestSellerPageUrl(category.categoryUrl, pageNo);
         let inRange: BestSellerProductInput[] = [];
+        let newInRange: BestSellerProductInput[] = [];
         let loadedUrl = url;
+        let reachedOptionalEnd = false;
 
         for (let attempt = 1; attempt <= categoryRetryCount(); attempt += 1) {
           try {
@@ -144,9 +148,19 @@ export class PlaywrightAmazonBestSellerCollector {
             const expectedOnPage = Math.min(bestSellerPageSize(), category.crawlTopN - collected);
             const products = await extractBestSellerCardsWithScroll(page, category, pageNo, date, expectedOnPage);
             inRange = products.filter((product) => product.rank <= category.crawlTopN);
-            if (inRange.length === 0) {
+            newInRange = inRange.filter((product) => !seenAsins.has(product.asin));
+            if (newInRange.length === 0) {
+              if (pageNo > requiredPageCount && collected > 0) {
+                reachedOptionalEnd = true;
+                break;
+              }
               const screenshot = await saveCategoryCollectorScreenshot(page, category, pageNo, date, "empty");
-              throw new Error(`Amazon Best Sellers returned zero product cards for "${category.name}" page ${pageNo}. Screenshot: ${screenshot}`);
+              throw new Error(`Amazon Best Sellers returned zero new product cards for "${category.name}" page ${pageNo}. Screenshot: ${screenshot}`);
+            }
+            if (newInRange.length < expectedOnPage && attempt < categoryRetryCount()) {
+              throw new Error(
+                `Amazon Best Sellers short page for "${category.name}" page ${pageNo}: expected ${expectedOnPage}, collected ${newInRange.length}.`
+              );
             }
             loadedUrl = page.url();
             break;
@@ -159,10 +173,16 @@ export class PlaywrightAmazonBestSellerCollector {
           }
         }
 
-        collected += inRange.length;
-        pages.push({ pageNo, products: inRange, url: loadedUrl });
+        if (reachedOptionalEnd) {
+          break;
+        }
+        for (const product of newInRange) {
+          seenAsins.add(product.asin);
+        }
+        collected += newInRange.length;
+        pages.push({ pageNo, products: newInRange, url: loadedUrl });
 
-        if (pageNo < pageCount) {
+        if (pageNo < maxPageCount && collected < category.crawlTopN) {
           await page.waitForTimeout(Math.min(pageDelayMs(), 1500));
         }
       }
@@ -228,6 +248,7 @@ async function extractBestSellerCardsWithScroll(
   let products: BestSellerProductInput[] = [];
   let lastCount = -1;
   let stablePasses = 0;
+  const minPasses = Math.min(bestSellerScrollPasses(), bestSellerMinScrollPasses());
 
   for (let pass = 0; pass <= bestSellerScrollPasses(); pass += 1) {
     products = await page.evaluate(extractBestSellerCards, {
@@ -241,18 +262,37 @@ async function extractBestSellerCardsWithScroll(
 
     stablePasses = inRangeCount === lastCount ? stablePasses + 1 : 0;
     lastCount = inRangeCount;
-    if (pass >= bestSellerScrollPasses() || stablePasses >= bestSellerStablePasses()) {
+    if (pass >= bestSellerScrollPasses() || (pass >= minPasses && stablePasses >= bestSellerStablePasses())) {
       break;
     }
 
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight);
-    });
+    await scrollBestSellerPage(page, pass);
     await page.waitForTimeout(bestSellerScrollDelayMs());
     await assertCategoryNotBlocked(page, category, pageNo, date);
   }
 
   return products;
+}
+
+async function scrollBestSellerPage(page: Page, pass: number): Promise<void> {
+  await page.evaluate(({ pass: currentPass }) => {
+    const selectors = [
+      '[data-testid="product-card"]',
+      ".zg-grid-general-faceout",
+      ".p13n-sc-uncoverable-faceout",
+      "#gridItemRoot",
+      ".zg-item-immersion",
+      '[data-asin]:not([data-asin=""])'
+    ];
+    const cards = Array.from(new Set(selectors.flatMap((selector) => Array.from(document.querySelectorAll<HTMLElement>(selector)))));
+    const targetIndex = Math.min(cards.length - 1, Math.max(0, currentPass * 8 + 7));
+    cards[targetIndex]?.scrollIntoView({ block: "center", inline: "nearest" });
+    window.scrollBy(0, Math.max(700, Math.floor(window.innerHeight * 0.9)));
+    if (currentPass % 4 === 3) {
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+  }, { pass });
+  await page.mouse.wheel(0, Math.max(700, Math.floor(bestSellerViewportHeight() * 0.8))).catch(() => undefined);
 }
 
 function extractBestSellerCards(input: { categoryName: string; categoryUrl: string }): BestSellerProductInput[] {
@@ -272,9 +312,9 @@ function extractBestSellerCards(input: { categoryName: string; categoryUrl: stri
       }
       return "";
     },
-    findLine(root: HTMLElement, needles: string[]): string | null {
+    findPromoLine(root: HTMLElement, patterns: RegExp[]): string | null {
       const lines = root.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
-      return lines.find((line) => needles.some((needle) => line.toLowerCase().includes(needle.toLowerCase()))) ?? null;
+      return lines.find((line) => line.length <= 90 && patterns.some((pattern) => pattern.test(line))) ?? null;
     },
     findRankLine(root: HTMLElement): string {
       return root.innerText.split("\n").map((l) => l.trim()).find((line) => /^#\s*\d+/.test(line)) ?? "";
@@ -346,8 +386,8 @@ function extractBestSellerCards(input: { categoryName: string; categoryUrl: stri
       asin;
     const priceText = h.textOf(card, [".a-price .a-offscreen", "._cDEzb_p13n-sc-price_3mJ9Z"]);
     const originalPriceText = h.textOf(card, [".a-price.a-text-price .a-offscreen", ".a-text-price .a-offscreen"]);
-    const couponText = h.findLine(card, ["coupon"]);
-    const dealBadge = h.findLine(card, ["Limited Time Deal", "Prime Exclusive Deal", "Deal"]);
+    const couponText = h.findPromoLine(card, [/\bcoupon\b/i]);
+    const dealBadge = h.findPromoLine(card, [/\blimited\s+time\s+deal\b/i, /\bprime\s+exclusive\s+deal\b/i, /\bdeal\s+of\s+the\s+day\b/i, /\bdeal\b/i]);
     const ratingText = h.textOf(card, ["i.a-icon-star-small span.a-icon-alt", "i.a-icon-star span.a-icon-alt", '[aria-label*="out of 5 stars"]']);
     const reviewText = h.textOf(card, ['a[href*="customerReviews"] span', 'span[aria-label*="ratings"]', 'span[aria-label*="rating"]']);
 
@@ -391,9 +431,9 @@ function extractSearchCards(): SerpProductInput[] {
       }
       return "";
     },
-    findLine(root: HTMLElement, needles: string[]): string | null {
+    findPromoLine(root: HTMLElement, patterns: RegExp[]): string | null {
       const lines = root.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
-      return lines.find((line) => needles.some((needle) => line.toLowerCase().includes(needle.toLowerCase()))) ?? null;
+      return lines.find((line) => line.length <= 90 && patterns.some((pattern) => pattern.test(line))) ?? null;
     },
     findRankLine(root: HTMLElement): string {
       return root.innerText.split("\n").map((l) => l.trim()).find((line) => /^#\s*\d+/.test(line)) ?? "";
@@ -447,8 +487,8 @@ function extractSearchCards(): SerpProductInput[] {
       const link = h.firstHref(card, ['a[href*="/dp/"]', "h2 a", "a.a-link-normal.s-no-outline"]);
       const priceText = h.textOf(card, [".a-price .a-offscreen"]);
       const originalPriceText = h.textOf(card, [".a-price.a-text-price .a-offscreen", ".a-text-price .a-offscreen"]);
-      const couponText = h.findLine(card, ["coupon"]);
-      const dealBadge = h.findLine(card, ["Limited Time Deal", "Prime Exclusive Deal", "Deal"]);
+      const couponText = h.findPromoLine(card, [/\bcoupon\b/i]);
+      const dealBadge = h.findPromoLine(card, [/\blimited\s+time\s+deal\b/i, /\bprime\s+exclusive\s+deal\b/i, /\bdeal\s+of\s+the\s+day\b/i, /\bdeal\b/i]);
       const ratingText = h.textOf(card, ["i.a-icon-star-small span.a-icon-alt", "i.a-icon-star span.a-icon-alt", '[aria-label*="out of 5 stars"]']);
       const reviewText = h.textOf(card, ['a[href*="customerReviews"] span', 'span[aria-label*="ratings"]', 'span[aria-label*="rating"]']);
       const imageUrl = card.querySelector<HTMLImageElement>("img.s-image")?.src ?? "";
@@ -851,8 +891,16 @@ function bestSellerPageSize(): number {
   return Number(process.env.AMAZON_BESTSELLER_PAGE_SIZE ?? 50);
 }
 
+function bestSellerExtraPages(): number {
+  return Number(process.env.AMAZON_BESTSELLER_EXTRA_PAGES ?? 2);
+}
+
 function bestSellerScrollPasses(): number {
-  return Number(process.env.AMAZON_BESTSELLER_SCROLL_PASSES ?? 8);
+  return Number(process.env.AMAZON_BESTSELLER_SCROLL_PASSES ?? 12);
+}
+
+function bestSellerMinScrollPasses(): number {
+  return Number(process.env.AMAZON_BESTSELLER_MIN_SCROLL_PASSES ?? 6);
 }
 
 function bestSellerStablePasses(): number {
@@ -920,6 +968,7 @@ function isRetryableCategoryError(error: unknown): boolean {
     /temporary error page/i.test(message) ||
     /Something went wrong/i.test(message) ||
     /no-bestseller-cards/i.test(message) ||
+    /Best Sellers short page/i.test(message) ||
     /Best Sellers returned zero product cards/i.test(message) ||
     /Timeout .*product-card/i.test(message) ||
     /Timeout .*gridItemRoot/i.test(message)
