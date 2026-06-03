@@ -258,6 +258,7 @@ describe("category competitor intelligence", () => {
     expect(failed.status).toBe("failed");
     expect(failed.successCount).toBe(1);
     expect(failed.errorMessage).toContain("strict count failed");
+    expect(store.getCategoryMonitor(category.id)?.todayStatus).toBe("success");
     expect(store.listCategorySnapshots({ date: "2026-05-20", categoryId: category.id }).map((item) => item.asin)).toEqual([
       "B0STRICT001",
       "B0STRICT002"
@@ -289,6 +290,7 @@ describe("category competitor intelligence", () => {
 
     expect(failed.status).toBe("failed");
     expect(failed.successCount).toBe(1);
+    expect(store.getCategoryMonitor(category.id)?.todayStatus).toBe("failed");
     expect(store.listCategorySnapshots({ date: "2026-05-21", categoryId: category.id })).toHaveLength(0);
     expect(store.listBsrRankHistory({ date: "2026-05-21", sourceType: "category_bestseller", sourceId: category.id })).toHaveLength(0);
     expect(store.listBsrRankChanges({ date: "2026-05-21", sourceType: "category_bestseller", sourceId: category.id })).toHaveLength(0);

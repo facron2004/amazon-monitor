@@ -229,9 +229,23 @@ export async function runCategoryCollectionForMonitor(
       errorMessage: error instanceof Error ? error.message : String(error),
       retryCount: 0
     });
-    store.markCategoryCollection(category.id, "failed");
+    if (!hasOkCategoryBsrSnapshot(store, category.id, date)) {
+      store.markCategoryCollection(category.id, "failed");
+    }
     return log;
   }
+}
+
+function hasOkCategoryBsrSnapshot(store: Store, categoryId: number, date: string): boolean {
+  return (
+    store.listBsrSnapshotQuality({
+      date,
+      sourceType: "category_bestseller",
+      sourceId: categoryId,
+      qualityStatus: "ok",
+      limit: 1
+    }).length > 0
+  );
 }
 
 function dedupeProductsByAsin(products: BestSellerProductInput[]): BestSellerProductInput[] {
