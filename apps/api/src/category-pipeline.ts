@@ -19,6 +19,7 @@ export interface CollectedBestSellerPage {
   pageNo: number;
   products: BestSellerProductInput[];
   url: string;
+  retryCount?: number;
 }
 
 export interface AmazonBestSellerCollector {
@@ -39,6 +40,7 @@ class StrictBsrCountError extends Error {
   minRank: number | null;
   maxRank: number | null;
   pageCount: number;
+  retryCount: number;
 
   constructor(category: CategoryMonitor, pages: CollectedBestSellerPage[], products: BestSellerProductInput[], reason?: string) {
     const pageCounts = pages.map((page) => `p${page.pageNo}=${page.products.length}`).join(", ") || "none";
@@ -53,6 +55,7 @@ class StrictBsrCountError extends Error {
     this.minRank = ranks.length ? Math.min(...ranks) : null;
     this.maxRank = ranks.length ? Math.max(...ranks) : null;
     this.pageCount = pages.length;
+    this.retryCount = totalPageRetryCount(pages);
   }
 }
 
@@ -89,6 +92,7 @@ export async function runCategoryCollectionForMonitor(
 
   try {
     const pages = await collector.collect(category, date);
+    const retryCount = totalPageRetryCount(pages);
     const products = dedupeProductsByAsin(
       pages
         .reduce<{ items: BestSellerProductInput[]; seenCount: number }>(
@@ -192,7 +196,7 @@ export async function runCategoryCollectionForMonitor(
       successCount: snapshots.length,
       failCount: 0,
       errorMessage: null,
-      retryCount: 0
+      retryCount
     });
     store.markCategoryCollection(category.id, "success");
     return log;
@@ -227,13 +231,17 @@ export async function runCategoryCollectionForMonitor(
       successCount: error instanceof StrictBsrCountError ? error.actualCount : 0,
       failCount: 1,
       errorMessage: error instanceof Error ? error.message : String(error),
-      retryCount: 0
+      retryCount: error instanceof StrictBsrCountError ? error.retryCount : 0
     });
     if (!hasOkCategoryBsrSnapshot(store, category.id, date)) {
       store.markCategoryCollection(category.id, "failed");
     }
     return log;
   }
+}
+
+function totalPageRetryCount(pages: CollectedBestSellerPage[]): number {
+  return pages.reduce((sum, page) => sum + (page.retryCount ?? 0), 0);
 }
 
 function hasOkCategoryBsrSnapshot(store: Store, categoryId: number, date: string): boolean {

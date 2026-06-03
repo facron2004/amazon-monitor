@@ -271,6 +271,74 @@ describe("category competitor intelligence", () => {
     });
   });
 
+  it("records Best Sellers page retry counts in category task logs", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Appliances-Ice-Makers/zgbs/appliances/2399939011",
+      crawlTopN: 3,
+      status: "enabled"
+    });
+    const collector: AmazonBestSellerCollector = {
+      async collect() {
+        return [
+          {
+            pageNo: 1,
+            url: category.categoryUrl,
+            retryCount: 1,
+            products: [
+              product(1, "B0RETRY001", "Retry First Ice Maker", "Acme", 99, null, null),
+              product(2, "B0RETRY002", "Retry Second Ice Maker", "Acme", 109, null, null)
+            ]
+          },
+          {
+            pageNo: 2,
+            url: `${category.categoryUrl}?pg=2`,
+            retryCount: 2,
+            products: [product(3, "B0RETRY003", "Retry Third Ice Maker", "Acme", 119, null, null)]
+          }
+        ];
+      }
+    };
+
+    const log = await runCategoryCollectionForMonitor(store, category.id, "2026-05-27", { collector });
+
+    expect(log).toMatchObject({ status: "success", retryCount: 3, successCount: 3 });
+  });
+
+  it("keeps retry counts when strict BSR count fails", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Appliances-Ice-Makers/zgbs/appliances/2399939011",
+      crawlTopN: 2,
+      status: "enabled"
+    });
+    const collector: AmazonBestSellerCollector = {
+      async collect() {
+        return [
+          {
+            pageNo: 1,
+            url: category.categoryUrl,
+            retryCount: 2,
+            products: [product(1, "B0RETRYFAIL", "Retry Failed Ice Maker", "Acme", 99, null, null)]
+          }
+        ];
+      }
+    };
+
+    const log = await runCategoryCollectionForMonitor(store, category.id, "2026-05-28", { collector });
+
+    expect(log).toMatchObject({ status: "failed", retryCount: 2, successCount: 1 });
+    expect(log.errorMessage).toContain("strict count failed");
+  });
+
   it("records BSR quality when a new category collection cannot meet strict Top N", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);

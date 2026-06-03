@@ -103,7 +103,7 @@ export class PlaywrightAmazonSearchCollector implements AmazonSearchCollector {
 }
 
 export class PlaywrightAmazonBestSellerCollector {
-  async collect(category: CategoryMonitor, date: string): Promise<Array<{ pageNo: number; products: BestSellerProductInput[]; url: string }>> {
+  async collect(category: CategoryMonitor, date: string): Promise<Array<{ pageNo: number; products: BestSellerProductInput[]; url: string; retryCount?: number }>> {
     const browser = await chromium.launch({
       headless: process.env.PLAYWRIGHT_HEADLESS !== "false",
       args: ["--disable-blink-features=AutomationControlled"]
@@ -126,7 +126,7 @@ export class PlaywrightAmazonBestSellerCollector {
 
       const page = await context.newPage();
       await installCategoryResourceBlocker(page);
-      const pages: Array<{ pageNo: number; products: BestSellerProductInput[]; url: string }> = [];
+      const pages: Array<{ pageNo: number; products: BestSellerProductInput[]; url: string; retryCount?: number }> = [];
       const requiredPageCount = Math.max(1, Math.ceil(category.crawlTopN / bestSellerPageSize()));
       const maxPageCount = requiredPageCount + bestSellerExtraPages();
       const seenAsins = new Set<string>();
@@ -138,6 +138,7 @@ export class PlaywrightAmazonBestSellerCollector {
         let newInRange: BestSellerProductInput[] = [];
         let loadedUrl = url;
         let reachedOptionalEnd = false;
+        let retryCount = 0;
 
         for (let attempt = 1; attempt <= categoryRetryCount(); attempt += 1) {
           try {
@@ -168,6 +169,7 @@ export class PlaywrightAmazonBestSellerCollector {
             if (attempt >= categoryRetryCount() || !isRetryableCategoryError(error)) {
               throw error;
             }
+            retryCount += 1;
             await page.waitForTimeout(searchRetryDelayMs() * attempt);
             await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => undefined);
           }
@@ -180,7 +182,7 @@ export class PlaywrightAmazonBestSellerCollector {
           seenAsins.add(product.asin);
         }
         collected += newInRange.length;
-        pages.push({ pageNo, products: newInRange, url: loadedUrl });
+        pages.push({ pageNo, products: newInRange, url: loadedUrl, retryCount });
 
         if (pageNo < maxPageCount && collected < category.crawlTopN) {
           await page.waitForTimeout(Math.min(pageDelayMs(), 1500));
