@@ -8,6 +8,7 @@ import { sendDueNotificationSchedules } from "./notifier.js";
 import { runCategoryCollectionForAll } from "./category-pipeline.js";
 import { createApiApp } from "./server.js";
 import { runCollectionForAll } from "./pipeline.js";
+import { attachCronDiagnostics, createExclusiveCronRunner } from "./scheduler.js";
 import { openAppStore } from "./store.js";
 
 const port = Number(process.env.PORT ?? 4000);
@@ -22,20 +23,19 @@ const store = openAppStore(process.env.DB_PATH ?? defaultDbPath);
 
 function startCron() {
   if (process.env.ENABLE_CRON === "false") return;
-  cron.schedule(
+  const collectionTask = cron.schedule(
     "0 9 * * *",
-    () => {
-      Promise.all([runCollectionForAll(store), runCategoryCollectionForAll(store)]).catch((error) => console.error(error));
-    },
-    { timezone: "Asia/Shanghai" }
+    createExclusiveCronRunner("daily-collection", () => Promise.all([runCollectionForAll(store), runCategoryCollectionForAll(store)])),
+    { timezone: "Asia/Shanghai", name: "daily-collection", noOverlap: true }
   );
-  cron.schedule(
+  attachCronDiagnostics(collectionTask, "daily-collection");
+
+  const notificationTask = cron.schedule(
     "* * * * *",
-    () => {
-      sendDueNotificationSchedules(store).catch((error) => console.error(error));
-    },
-    { timezone: "Asia/Shanghai" }
+    createExclusiveCronRunner("notifications", () => sendDueNotificationSchedules(store)),
+    { timezone: "Asia/Shanghai", name: "notifications", noOverlap: true }
   );
+  attachCronDiagnostics(notificationTask, "notifications");
 }
 
 export function startServer(silent = false) {
