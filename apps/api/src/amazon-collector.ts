@@ -954,6 +954,7 @@ function includeLanguageQuery(): boolean {
 function isRetryableSearchError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
+    isRetryableAmazonNetworkError(message) ||
     /temporary error page/i.test(message) ||
     /Something went wrong/i.test(message) ||
     /no-search-cards/i.test(message) ||
@@ -965,6 +966,7 @@ function isRetryableSearchError(error: unknown): boolean {
 function isRetryableCategoryError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
+    isRetryableAmazonNetworkError(message) ||
     /temporary error page/i.test(message) ||
     /Something went wrong/i.test(message) ||
     /no-bestseller-cards/i.test(message) ||
@@ -972,5 +974,15 @@ function isRetryableCategoryError(error: unknown): boolean {
     /Best Sellers returned zero product cards/i.test(message) ||
     /Timeout .*product-card/i.test(message) ||
     /Timeout .*gridItemRoot/i.test(message)
+  );
+}
+
+export function isRetryableAmazonNetworkError(message: string): boolean {
+  return (
+    /net::ERR_CONNECTION_(?:CLOSED|RESET|ABORTED|TIMED_OUT)/i.test(message) ||
+    /net::ERR_(?:TIMED_OUT|INTERNET_DISCONNECTED|PROXY_CONNECTION_FAILED|TUNNEL_CONNECTION_FAILED)/i.test(message) ||
+    /Client network socket disconnected/i.test(message) ||
+    /socket hang up/i.test(message) ||
+    /ECONNRESET|ETIMEDOUT/i.test(message)
   );
 }

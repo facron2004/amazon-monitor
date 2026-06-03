@@ -303,8 +303,72 @@ describe("Amazon keyword monitor business rules", () => {
     expect(insights.find((insight) => insight.asin === "B0COOLICE1" && insight.insightType === "bsr_fast_rise")).toMatchObject({
       previousDate: "2026-05-22"
     });
+    expect(insights.find((insight) => insight.asin === "B0COOLICE1" && insight.insightType === "bsr_fast_rise")?.evidence).toContain(
+      "Evidence dates: 2026-05-22 -> 2026-05-23"
+    );
+    expect(insights.find((insight) => insight.asin === "B0COOLICE1" && insight.insightType === "price_drop_rank_lift")?.evidence).toContain(
+      "Source event: price_drop; event date: 2026-05-23; BSR path: #60 -> #25; price: $129.99 -> $99.99"
+    );
     expect(report).toContain("# Amazon 类目竞品情报日报");
     expect(report).toContain("活动事件");
     expect(report).toContain("B0NEWICE01");
+  });
+
+  it("adds representative ASIN rank evidence to brand matrix push events", () => {
+    const category: CategoryMonitor = {
+      id: 7,
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://amazon.com/bestsellers/ice-makers",
+      categoryPath: null,
+      crawlTopN: 100,
+      status: "enabled",
+      createdAt: "2026-05-22",
+      updatedAt: "2026-05-22",
+      lastCollectedAt: null,
+      todayStatus: "pending"
+    };
+    const baseProduct = (partial: Partial<BestSellerProductInput> & { rank: number; asin: string }): BestSellerProductInput => ({
+      title: "Traceable Ice Maker",
+      brand: "TraceCo",
+      imageUrl: `https://example.com/${partial.asin}.jpg`,
+      productUrl: `https://amazon.com/dp/${partial.asin}`,
+      currentPrice: 109.99,
+      originalPrice: null,
+      couponText: null,
+      currency: "$",
+      rating: 4.5,
+      reviewCount: 1000,
+      isPrime: true,
+      dealBadge: null,
+      ...partial
+    });
+    const yesterday = decorateBestsellerSnapshots({
+      categoryId: category.id,
+      categoryName: category.name,
+      marketplace: category.marketplace,
+      snapshotDate: "2026-05-22",
+      products: [
+        baseProduct({ rank: 60, asin: "B0TRACE001", currentPrice: 129.99 }),
+        baseProduct({ rank: 70, asin: "B0TRACE002", currentPrice: 119.99 })
+      ]
+    });
+    const today = decorateBestsellerSnapshots({
+      categoryId: category.id,
+      categoryName: category.name,
+      marketplace: category.marketplace,
+      snapshotDate: "2026-05-23",
+      products: [
+        baseProduct({ rank: 8, asin: "B0TRACE001", currentPrice: 99.99, couponText: "Save $20 with coupon" }),
+        baseProduct({ rank: 14, asin: "B0TRACE002", currentPrice: 99.99, dealBadge: "Limited Time Deal" }),
+        baseProduct({ rank: 31, asin: "B0TRACE003", currentPrice: 89.99, couponText: "Save 10% with coupon" })
+      ]
+    });
+    const brandMatrix = buildBrandMatrixSnapshots({ category, date: "2026-05-23", today, yesterday });
+    const events = buildCategoryActivityEvents({ category, date: "2026-05-23", today, yesterday, brandMatrix });
+
+    const brandEvent = events.find((event) => event.eventType === "brand_matrix_push");
+
+    expect(brandEvent?.eventSummary).toContain("Top ASINs: B0TRACE001 (#8), B0TRACE002 (#14), B0TRACE003 (#31).");
   });
 });

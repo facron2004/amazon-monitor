@@ -1161,6 +1161,7 @@ export function buildCategoryActivityEvents(input: CategoryActivityEventInput): 
     if (activeCount < 2 || activityCount < 2) {
       continue;
     }
+    const topAsinEvidence = formatBrandTopAsinEvidence(brand, input.today);
     events.push({
       eventKey: `brand_matrix_push:${brand.brand}`,
       eventDate: input.date,
@@ -1183,7 +1184,7 @@ export function buildCategoryActivityEvents(input: CategoryActivityEventInput): 
       rankChange: null,
       keywordRankBefore: null,
       keywordRankAfter: null,
-      eventSummary: `${brand.brand} has ${brand.productCountTop100} Top100 ASINs; ${activeCount} are new or rising, and ${activityCount} have price/coupon/deal activity.`,
+      eventSummary: `${brand.brand} has ${brand.productCountTop100} Top100 ASINs; ${activeCount} are new or rising, and ${activityCount} have price/coupon/deal activity.${topAsinEvidence ? ` ${topAsinEvidence}` : ""}`,
       possibleStrategy: "Possible brand matrix push across multiple ASINs.",
       suggestedAction: "Watch whether this brand expands Top50/Top20 share over the next 7 days."
     });
@@ -1219,7 +1220,7 @@ export function buildCompetitorActionInsights(input: CompetitorActionInsightInpu
         rankChange: null,
         price: change.currentPrice,
         productUrl: change.productUrl,
-        evidence: `${change.asin} entered ${change.category} Best Sellers at #${change.currentRank}.`,
+        evidence: `${change.asin} entered ${change.category} Best Sellers at #${change.currentRank}. Evidence dates: ${formatEvidenceDatePath(change.previousDate, input.date)}.`,
         inferredAction: "New listing, relaunch, promotion, ads, or external traffic may be pushing the product into the list.",
         suggestedResponse: change.currentRank <= 50 ? "Track this ASIN daily for 7 days and review price, coupon, deal, and keyword rank changes." : "Keep monitoring; promote to watchlist if rank keeps improving."
       });
@@ -1245,7 +1246,7 @@ export function buildCompetitorActionInsights(input: CompetitorActionInsightInpu
         rankChange: rankMove,
         price: change.currentPrice,
         productUrl: change.productUrl,
-        evidence: `${change.asin} moved from #${change.previousRank} to #${change.currentRank}, up ${rankMove} places.`,
+        evidence: `${change.asin} moved from #${change.previousRank} to #${change.currentRank}, up ${rankMove} places. Evidence dates: ${formatEvidenceDatePath(change.previousDate, input.date)}.`,
         inferredAction: "Fast BSR lift often points to a promotion, advertising push, off-site traffic, or demand spike.",
         suggestedResponse: "Check same-day price, coupon, deal, review, and keyword-rank signals, then compare the next 3-day rank path."
       });
@@ -1271,7 +1272,7 @@ export function buildCompetitorActionInsights(input: CompetitorActionInsightInpu
         rankChange: rankMove,
         price: change.currentPrice,
         productUrl: change.productUrl,
-        evidence: `${change.asin} moved down ${Math.abs(rankMove)} places from #${change.previousRank} to #${change.currentRank}.`,
+        evidence: `${change.asin} moved down ${Math.abs(rankMove)} places from #${change.previousRank} to #${change.currentRank}. Evidence dates: ${formatEvidenceDatePath(change.previousDate, input.date)}.`,
         inferredAction: "The product may have lost traffic, ended an activity, changed price, or faced stronger competitors.",
         suggestedResponse: "Use this as a decay signal and compare against activity end, price rise, stock, and review changes."
       });
@@ -1297,7 +1298,7 @@ export function buildCompetitorActionInsights(input: CompetitorActionInsightInpu
         rankChange: null,
         price: change.currentPrice,
         productUrl: change.productUrl,
-        evidence: `${change.asin} dropped out of ${change.category} after ranking #${change.previousRank}.`,
+        evidence: `${change.asin} dropped out of ${change.category} after ranking #${change.previousRank}. Evidence dates: ${formatEvidenceDatePath(change.previousDate, input.date)}.`,
         inferredAction: "The product lost enough sales velocity to leave the tracked Best Sellers scope.",
         suggestedResponse: "Check whether this was activity-end decay, stock issue, price change, or a temporary Amazon ranking fluctuation."
       });
@@ -1367,7 +1368,7 @@ export function buildCompetitorActionInsights(input: CompetitorActionInsightInpu
       rankChange,
       price: event.priceAfter,
       productUrl: change?.productUrl ?? amazonProductUrl(event.marketplace, event.asin),
-      evidence: `${event.eventSummary} BSR path: ${formatRankPath(previousRank, currentRank)}.`,
+      evidence: formatActivityInsightEvidence(event, previousRank, currentRank),
       inferredAction: event.possibleStrategy,
       suggestedResponse: event.suggestedAction
     });
@@ -1762,6 +1763,35 @@ function actionInsightChangeKey(change: BsrRankChange): string {
 
 function actionInsightChangeKeyFromEvent(event: CompetitorActivityEvent): string {
   return ["category_bestseller", event.categoryId, event.marketplace, event.categoryName, event.asin ?? ""].join("|");
+}
+
+function formatBrandTopAsinEvidence(brand: BrandMatrixSnapshot, today: BestsellerRankSnapshot[]): string {
+  const byAsin = new Map(today.map((item) => [item.asin, item]));
+  const items = brand.topAsins
+    .map((asin) => {
+      const snapshot = byAsin.get(asin);
+      return snapshot ? `${asin} (#${snapshot.rank})` : asin;
+    })
+    .slice(0, 5);
+  return items.length ? `Top ASINs: ${items.join(", ")}.` : "";
+}
+
+function formatActivityInsightEvidence(event: CompetitorActivityEvent, previousRank: NullableNumber, currentRank: NullableNumber): string {
+  const details = [`Source event: ${event.eventType}`, `event date: ${event.eventDate}`, `BSR path: ${formatRankPath(previousRank, currentRank)}`];
+  if (event.priceBefore !== null || event.priceAfter !== null) {
+    details.push(`price: ${formatNullableMoney(event.priceBefore)} -> ${formatNullableMoney(event.priceAfter)}`);
+  }
+  if (event.couponBefore || event.couponAfter) {
+    details.push(`coupon: ${event.couponBefore ?? "-"} -> ${event.couponAfter ?? "-"}`);
+  }
+  if (event.dealType) {
+    details.push(`deal: ${event.dealType}`);
+  }
+  return `${event.eventSummary} ${details.join("; ")}.`;
+}
+
+function formatEvidenceDatePath(previousDate: string | null, currentDate: string): string {
+  return previousDate ? `${previousDate} -> ${currentDate}` : currentDate;
 }
 
 function activityEventInsightType(eventType: ActivityEventType): CompetitorActionInsightType | null {

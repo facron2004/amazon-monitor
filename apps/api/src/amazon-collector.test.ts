@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { KeywordMonitor } from "@amazon-monitor/shared";
-import { SEARCH_CARD_SELECTOR, buildBestSellerPageUrl, buildSearchUrl, runLimitedConcurrency } from "./amazon-collector.js";
+import { SEARCH_CARD_SELECTOR, buildBestSellerPageUrl, buildSearchUrl, isRetryableAmazonNetworkError, runLimitedConcurrency } from "./amazon-collector.js";
 
 describe("amazon collector concurrency", () => {
   it("runs detail work with a bounded concurrency limit and preserves order", async () => {
@@ -63,5 +63,17 @@ describe("amazon best seller url", () => {
     expect(buildBestSellerPageUrl(base, 2)).toBe(
       "https://www.amazon.com/Best-Sellers-Home-Kitchen-Ice-Makers/zgbs/home-garden/2399939011?ref_=zg_bs_nav&pg=2"
     );
+  });
+});
+
+describe("amazon collector retry rules", () => {
+  it("retries transient network disconnects from Playwright navigation", () => {
+    expect(
+      isRetryableAmazonNetworkError(
+        "page.goto: net::ERR_CONNECTION_CLOSED at https://www.amazon.com/Best-Sellers-Appliances-Ice-Makers/zgbs/appliances/2399939011"
+      )
+    ).toBe(true);
+    expect(isRetryableAmazonNetworkError("Client network socket disconnected before secure TLS connection was established")).toBe(true);
+    expect(isRetryableAmazonNetworkError("Amazon Best Sellers strict count failed for Ice makers")).toBe(false);
   });
 });

@@ -569,6 +569,14 @@ function openCategoryProduct(item: BestsellerRankSnapshot) {
   window.open(`/api/category-products/${encodeURIComponent(item.asin)}/open${query}`, "_blank", "noopener,noreferrer");
 }
 
+function openActivityProduct(item: CompetitorActivityEvent) {
+  if (!item.asin) {
+    return;
+  }
+  const query = item.categoryId ? `?categoryId=${item.categoryId}` : "";
+  window.open(`/api/category-products/${encodeURIComponent(item.asin)}/open${query}`, "_blank", "noopener,noreferrer");
+}
+
 async function updateAlert(alert: AlertLog, status: AlertLog["status"]) {
   if (!alert.id) {
     return;
@@ -1349,6 +1357,7 @@ onUnmounted(() => {
                   <th>价格</th>
                   <th>系统判断</th>
                   <th>建议动作</th>
+                  <th>外链</th>
                 </tr>
               </thead>
               <tbody>
@@ -1363,6 +1372,12 @@ onUnmounted(() => {
                   <td>{{ formatMoney(item.priceBefore) }} → {{ formatMoney(item.priceAfter) }}</td>
                   <td class="target-cell">{{ item.possibleStrategy }}</td>
                   <td class="target-cell">{{ item.suggestedAction }}</td>
+                  <td class="link-col">
+                    <button v-if="item.asin" class="icon-button" title="打开 Amazon" type="button" @click="openActivityProduct(item)">
+                      <ExternalLink :size="16" />
+                    </button>
+                    <span v-else>-</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
