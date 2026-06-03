@@ -235,6 +235,7 @@ export function initSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_bestseller_asin_date ON amazon_bestseller_rank_snapshot(asin, snapshot_date);
     CREATE INDEX IF NOT EXISTS idx_bestseller_activity_calendar ON amazon_bestseller_rank_snapshot(asin, marketplace, snapshot_date, rank_no);
     CREATE INDEX IF NOT EXISTS idx_bestseller_rank ON amazon_bestseller_rank_snapshot(category_id, rank_no);
+    CREATE INDEX IF NOT EXISTS idx_bestseller_category_date_rank ON amazon_bestseller_rank_snapshot(category_id, snapshot_date, rank_no);
 
     CREATE TABLE IF NOT EXISTS amazon_bsr_rank_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,6 +260,7 @@ export function initSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_bsr_history_date ON amazon_bsr_rank_history(snapshot_date);
     CREATE INDEX IF NOT EXISTS idx_bsr_history_scope ON amazon_bsr_rank_history(source_type, source_id, snapshot_date, category);
     CREATE INDEX IF NOT EXISTS idx_bsr_history_asin ON amazon_bsr_rank_history(asin, marketplace, category, snapshot_date);
+    CREATE INDEX IF NOT EXISTS idx_bsr_history_scope_rank ON amazon_bsr_rank_history(source_type, source_id, snapshot_date DESC, category, rank_no);
 
     CREATE TABLE IF NOT EXISTS amazon_bsr_snapshot_quality (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
