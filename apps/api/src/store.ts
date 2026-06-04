@@ -284,6 +284,7 @@ export function initSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_bsr_quality_date ON amazon_bsr_snapshot_quality(snapshot_date, source_type, source_id);
     CREATE INDEX IF NOT EXISTS idx_bsr_quality_status ON amazon_bsr_snapshot_quality(quality_status, snapshot_date);
     CREATE INDEX IF NOT EXISTS idx_bsr_quality_scope_status ON amazon_bsr_snapshot_quality(snapshot_date, source_type, source_id, category, quality_status);
+    CREATE INDEX IF NOT EXISTS idx_bsr_quality_latest_ok ON amazon_bsr_snapshot_quality(source_type, source_id, quality_status, snapshot_date DESC, category);
 
     CREATE TABLE IF NOT EXISTS amazon_product_master (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1498,15 +1499,18 @@ export function createStore(db: DatabaseSync): Store {
         whereEq("quality_status", filter.qualityStatus)
       );
       const limit = filter.limit ? `LIMIT ${Number(filter.limit)}` : "";
+      const orderBy = filter.qualityStatus
+        ? "ORDER BY snapshot_date DESC, source_type, source_id, category"
+        : `ORDER BY snapshot_date DESC,
+              CASE quality_status WHEN 'partial' THEN 1 WHEN 'empty' THEN 2 ELSE 3 END,
+              source_type,
+              source_id,
+              category`;
       return (
         db
           .prepare(
             `SELECT * FROM amazon_bsr_snapshot_quality ${where}
-             ORDER BY snapshot_date DESC,
-              CASE quality_status WHEN 'partial' THEN 1 WHEN 'empty' THEN 2 ELSE 3 END,
-              source_type,
-              source_id,
-              category
+             ${orderBy}
              ${limit}`
           )
           .all(...params) as unknown as BsrSnapshotQualityRow[]

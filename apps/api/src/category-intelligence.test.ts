@@ -30,9 +30,13 @@ describe("category competitor intelligence", () => {
       (db.prepare("PRAGMA index_list(amazon_bestseller_rank_snapshot)").all() as Array<{ name: string }>).map((item) => item.name)
     );
     const bsrIndexes = new Set((db.prepare("PRAGMA index_list(amazon_bsr_rank_history)").all() as Array<{ name: string }>).map((item) => item.name));
+    const bsrQualityIndexes = new Set(
+      (db.prepare("PRAGMA index_list(amazon_bsr_snapshot_quality)").all() as Array<{ name: string }>).map((item) => item.name)
+    );
 
     expect(bestsellerIndexes.has("idx_bestseller_category_date_rank")).toBe(true);
     expect(bsrIndexes.has("idx_bsr_history_scope_rank")).toBe(true);
+    expect(bsrQualityIndexes.has("idx_bsr_quality_latest_ok")).toBe(true);
   });
 
   it("persists best seller snapshots, brand matrix, signals, product links, and report from category collection", async () => {
