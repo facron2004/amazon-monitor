@@ -324,21 +324,23 @@ async function loadCategories() {
 }
 
 async function resolveCategoryDataDate(categoryId: number | null): Promise<string> {
-  const currentRows = await api.bsrHistory({
+  const currentOkRows = await api.bsrQuality({
     date: date.value,
     sourceType: "category_bestseller",
     sourceId: categoryId,
+    qualityStatus: "ok",
     limit: 1
   });
-  if (currentRows.length > 0) {
+  if (currentOkRows.length > 0) {
     return date.value;
   }
-  const latestRows = await api.bsrHistory({
+  const latestOkRows = await api.bsrQuality({
     sourceType: "category_bestseller",
     sourceId: categoryId,
+    qualityStatus: "ok",
     limit: 1
   });
-  return latestRows[0]?.snapshotDate ?? date.value;
+  return latestOkRows[0]?.snapshotDate ?? date.value;
 }
 
 async function loadCompetitors() {
