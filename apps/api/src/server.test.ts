@@ -51,7 +51,7 @@ describe("api routes", () => {
     expect(bsrChanges.body[0]).toMatchObject({ asin: "B0ACME600F", changeType: "new_entry", currentRank: 18, previousRank: null });
 
     const actionInsights = await request(app).get(`/api/action-insights?date=2026-05-17&sourceType=keyword_detail&sourceId=${created.body.id}`).expect(200);
-    expect(actionInsights.body[0]).toMatchObject({ asin: "B0ACME600F", insightType: "bsr_new_entry", currentRank: 18 });
+    expect(actionInsights.body).toEqual([]);
 
     await request(app).post("/api/collect/run").send({ keywordId: created.body.id, date: "2026-05-18" }).expect(200);
     const unchangedHidden = await request(app)

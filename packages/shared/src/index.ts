@@ -1201,7 +1201,7 @@ export function buildCompetitorActionInsights(input: CompetitorActionInsightInpu
     changesByAsin.set(actionInsightChangeKey(change), change);
     const rankMove = change.rankChange ?? 0;
 
-    if (change.changeType === "new_entry" && change.currentRank !== null) {
+    if (change.changeType === "new_entry" && change.currentRank !== null && change.previousDate !== null) {
       pushActionInsight(insights, {
         insightDate: input.date,
         sourceType: change.sourceType,

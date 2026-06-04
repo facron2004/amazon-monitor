@@ -15,6 +15,7 @@ import {
   selectSpecificBestsellerRank,
   summarizePriceBand,
   type BestSellerProductInput,
+  type BsrRankChange,
   type CategoryMonitor,
   type SerpProductInput
 } from "./index";
@@ -312,6 +313,34 @@ describe("Amazon keyword monitor business rules", () => {
     expect(report).toContain("# Amazon 类目竞品情报日报");
     expect(report).toContain("活动事件");
     expect(report).toContain("B0NEWICE01");
+  });
+
+  it("does not infer a BSR new-entry action when no previous BSR baseline exists", () => {
+    const newEntryWithoutBaseline: BsrRankChange = {
+      snapshotDate: "2026-05-23",
+      previousDate: null,
+      sourceType: "category_bestseller",
+      sourceId: 7,
+      sourceName: "Ice Makers",
+      marketplace: "amazon.com",
+      category: "Ice Makers",
+      asin: "B0FIRSTDAY1",
+      title: "First Day Ice Maker",
+      brand: "FreshCo",
+      currentRank: 12,
+      previousRank: null,
+      rankChange: null,
+      changeType: "new_entry",
+      productUrl: "https://amazon.com/dp/B0FIRSTDAY1",
+      currentPrice: 89.99
+    };
+
+    const insights = buildCompetitorActionInsights({
+      date: "2026-05-23",
+      bsrChanges: [newEntryWithoutBaseline]
+    });
+
+    expect(insights).toEqual([]);
   });
 
   it("adds representative ASIN rank evidence to brand matrix push events", () => {

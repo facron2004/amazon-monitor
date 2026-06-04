@@ -220,7 +220,7 @@ describe("category competitor intelligence", () => {
     const actionInsights = await request(app)
       .get(`/api/action-insights?date=2026-05-19&sourceType=category_bestseller&sourceId=${created.body.id}`)
       .expect(200);
-    expect(actionInsights.body[0]).toMatchObject({ asin: "B0API00001", insightType: "bsr_new_entry", currentRank: 1, previousDate: null });
+    expect(actionInsights.body).toEqual([]);
 
     const competitors = await request(app).get("/api/competitors?sourceType=category").expect(200);
     expect(competitors.body[0]).toMatchObject({ asin: "B0API00001", sourceType: "category", latestCategoryRank: 1, competitorTier: "core" });
