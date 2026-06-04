@@ -3149,12 +3149,14 @@ function canWriteActionInsightsForScope(db: DatabaseSync, sourceType: BsrSourceT
   const params: SQLInputValue[] = sourceId === null ? [date, sourceType] : [date, sourceType, sourceId];
   const row = db
     .prepare(
-      `SELECT COUNT(*) AS bad_count
+      `SELECT
+        SUM(CASE WHEN quality_status = 'ok' THEN 1 ELSE 0 END) AS ok_count,
+        SUM(CASE WHEN quality_status <> 'ok' THEN 1 ELSE 0 END) AS bad_count
        FROM amazon_bsr_snapshot_quality
-       WHERE snapshot_date = ? AND source_type = ? AND ${sourceClause} AND quality_status <> 'ok'`
+       WHERE snapshot_date = ? AND source_type = ? AND ${sourceClause}`
     )
-    .get(...params) as { bad_count: number } | undefined;
-  return (row?.bad_count ?? 0) === 0;
+    .get(...params) as { ok_count: number | null; bad_count: number | null } | undefined;
+  return (row?.ok_count ?? 0) > 0 && (row?.bad_count ?? 0) === 0;
 }
 
 function upsertCompetitorActionInsights(db: DatabaseSync, items: CompetitorActionInsight[]): void {

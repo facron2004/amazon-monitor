@@ -845,6 +845,58 @@ describe("category competitor intelligence", () => {
     expect(insights).toHaveLength(1);
     expect(insights[0]).toMatchObject({ brand: "Acme", insightType: "brand_push", evidence: "Updated Acme evidence." });
   });
+
+  it("does not write category action insights without an ok BSR quality row", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Appliances-Ice-Makers/zgbs/appliances/2399939011",
+      crawlTopN: 1,
+      status: "enabled"
+    });
+    store.replaceBsrRankHistoryForDate({
+      sourceType: "category_bestseller",
+      sourceId: category.id,
+      date: "2026-05-24",
+      items: bsrItems(category, "2026-05-24", 1)
+    });
+    db.exec("DELETE FROM amazon_bsr_snapshot_quality");
+
+    store.replaceCompetitorActionInsights({
+      sourceType: "category_bestseller",
+      sourceId: category.id,
+      date: "2026-05-24",
+      items: [
+        {
+          insightDate: "2026-05-24",
+          previousDate: null,
+          sourceType: "category_bestseller",
+          sourceId: category.id,
+          sourceName: category.name,
+          marketplace: category.marketplace,
+          category: category.name,
+          asin: "B0BSR00001",
+          brand: "Acme",
+          title: "Acme Ice Maker",
+          insightType: "bsr_new_entry",
+          confidence: "high",
+          currentRank: 1,
+          previousRank: null,
+          rankChange: null,
+          price: 99,
+          productUrl: "https://www.amazon.com/dp/B0BSR00001",
+          evidence: "Entered the BSR chart.",
+          inferredAction: "Possible launch push.",
+          suggestedResponse: "Track the ASIN."
+        }
+      ]
+    });
+
+    expect(store.listCompetitorActionInsights({ date: "2026-05-24", sourceType: "category_bestseller", sourceId: category.id })).toEqual([]);
+  });
 });
 
 function product(
