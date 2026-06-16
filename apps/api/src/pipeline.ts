@@ -12,6 +12,7 @@ import {
   type SerpSnapshot
 } from "@amazon-monitor/shared";
 import { PlaywrightAmazonSearchCollector, runLimitedConcurrency, type AmazonSearchCollector } from "./amazon-collector.js";
+import { formatDuration, ts } from "./log.js";
 import type { Store } from "./store.js";
 
 export interface CollectionOptions {
@@ -45,11 +46,15 @@ export async function runCollectionForKeyword(
   }
 
   const startTime = new Date().toISOString();
+  const t0 = Date.now();
   const collector = options.collector ?? defaultCollector;
 
   try {
+    console.log(`[${ts()}] [Pipeline] Collecting keyword="${keyword.keyword}" marketplace=${keyword.marketplace} pages=${keyword.crawlPages}...`);
     const pages = await collector.collect(keyword, date);
-    const snapshots = pages.flatMap((page) =>
+    const t1 = Date.now();
+    console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing snapshots...`);
+    const allSnapshots = pages.flatMap((page) =>
       decorateSnapshotRanks({
         keywordId: keyword.id,
         keyword: keyword.keyword,
@@ -61,6 +66,14 @@ export async function runCollectionForKeyword(
       })
     );
 
+    // Deduplicate: same ASIN may appear across pages (organic + sponsored). Keep first occurrence (best rank).
+    const seenAsins = new Set<string>();
+    const snapshots = allSnapshots.filter((s) => {
+      if (seenAsins.has(s.asin)) return false;
+      seenAsins.add(s.asin);
+      return true;
+    });
+
     if (snapshots.length === 0) {
       throw new Error(`No Amazon search cards collected for "${keyword.keyword}".`);
     }
@@ -68,32 +81,11 @@ export async function runCollectionForKeyword(
     const previous = store.getPreviousSnapshots(keyword.id, date);
     const historyLowestPrices = store.getHistoryLowestPrices(snapshots.map((item) => item.asin));
 
-    store.deleteSnapshotsForKeywordDate(keyword.id, date);
-    store.insertSnapshots(snapshots);
-    store.replaceBsrRankHistoryForDate({
-      sourceType: "keyword_detail",
-      sourceId: keyword.id,
-      date,
-      items: buildKeywordBsrRankHistory(keyword, snapshots)
-    });
-    store.replaceCompetitorActionInsights({
-      sourceType: "keyword_detail",
-      sourceId: keyword.id,
-      date,
-      items: buildCompetitorActionInsights({
-        date,
-        bsrChanges: store.listBsrRankChanges({ date, sourceType: "keyword_detail", sourceId: keyword.id })
-      })
-    });
-
     const analysis = analyzeDailyChanges({
       today: snapshots,
       yesterday: previous,
       historyLowestPrices
     });
-    store.insertDailyChanges(analysis.changes);
-    store.insertAlerts(analysis.alerts);
-    store.upsertCompetitorsFromSnapshots(snapshots);
 
     const report = buildDailyReportMarkdown({
       date,
@@ -101,7 +93,35 @@ export async function runCollectionForKeyword(
       analysis,
       priceBand: summarizePriceBand(snapshots, 20)
     });
-    store.saveDailyReport(date, keyword.keyword, report);
+
+    const t2 = Date.now();
+    console.log(`[${ts()}] [Pipeline] Analysis done in ${formatDuration(t2 - t1)} — ${snapshots.length} snapshots, storing...`);
+    store.runInTransaction(() => {
+      store.deleteSnapshotsForKeywordDate(keyword.id, date);
+      store.insertSnapshots(snapshots);
+      store.replaceBsrRankHistoryForDate({
+        sourceType: "keyword_detail",
+        sourceId: keyword.id,
+        date,
+        items: buildKeywordBsrRankHistory(keyword, snapshots)
+      });
+      store.replaceCompetitorActionInsights({
+        sourceType: "keyword_detail",
+        sourceId: keyword.id,
+        date,
+        items: buildCompetitorActionInsights({
+          date,
+          bsrChanges: store.listBsrRankChanges({ date, sourceType: "keyword_detail", sourceId: keyword.id })
+        })
+      });
+      store.insertDailyChanges(analysis.changes);
+      store.insertAlerts(analysis.alerts);
+      store.upsertCompetitorsFromSnapshots(snapshots);
+      store.saveDailyReport(date, keyword.keyword, report);
+    });
+
+    const totalMs = Date.now() - t0;
+    console.log(`[${ts()}] [Pipeline] ✓ Keyword "${keyword.keyword}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)}`);
 
     const log = store.insertTaskLog({
       taskType: "keyword_collect",
@@ -120,6 +140,8 @@ export async function runCollectionForKeyword(
     markKeywordCollected(store, keyword, "success");
     return log;
   } catch (error) {
+    const totalMs = Date.now() - t0;
+    console.error(`[${ts()}] [Pipeline] ✗ Keyword "${keyword.keyword}" FAILED after ${formatDuration(totalMs)}: ${error instanceof Error ? error.message : String(error)}`);
     const log = store.insertTaskLog({
       taskType: "keyword_collect",
       keywordId: keyword.id,

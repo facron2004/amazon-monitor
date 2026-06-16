@@ -6,12 +6,20 @@ import {
   buildCategoryReportMarkdown,
   decorateBestsellerSnapshots,
   describeRankCoverageGaps,
-  type BsrRankHistory,
   type BestSellerProductInput,
   type CategoryMonitor,
   type CollectTaskLog
 } from "@amazon-monitor/shared";
 import { PlaywrightAmazonBestSellerCollector, runLimitedConcurrency } from "./amazon-collector.js";
+import {
+  buildCategoryBsrRankHistory,
+  dedupeProductsByAsin,
+  normalizeBestSellerPageRanks,
+  preserveKnownCommercialFields,
+  strictBsrRankCoverageIssue,
+  totalPageRetryCount
+} from "./category-pipeline-helpers.js";
+import { formatDuration, ts } from "./log.js";
 import type { Store } from "./store.js";
 import { isoDate } from "./pipeline.js";
 
@@ -88,10 +96,14 @@ export async function runCategoryCollectionForMonitor(
   }
 
   const startTime = new Date().toISOString();
+  const t0 = Date.now();
   const collector = options.collector ?? defaultCategoryCollector;
 
   try {
+    console.log(`[${ts()}] [Pipeline] Collecting category="${category.name}" marketplace=${category.marketplace} topN=${category.crawlTopN}...`);
     const pages = await collector.collect(category, date);
+    const t1 = Date.now();
+    console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing products...`);
     const retryCount = totalPageRetryCount(pages);
     const products = dedupeProductsByAsin(
       pages
@@ -117,7 +129,7 @@ export async function runCategoryCollectionForMonitor(
     if (rankCoverageIssue) {
       throw new StrictBsrCountError(category, pages, products, rankCoverageIssue);
     }
-    const snapshots = decorateBestsellerSnapshots({
+    const decoratedSnapshots = decorateBestsellerSnapshots({
       categoryId: category.id,
       categoryName: category.name,
       marketplace: category.marketplace,
@@ -125,11 +137,14 @@ export async function runCategoryCollectionForMonitor(
       products
     });
 
-    if (snapshots.length === 0) {
+    if (decoratedSnapshots.length === 0) {
       throw new Error(`No Amazon Best Sellers products collected for "${category.name}".`);
     }
 
     const previous = store.getPreviousCategorySnapshots(category.id, date);
+    const snapshots = preserveKnownCommercialFields(decoratedSnapshots, previous);
+    const t2 = Date.now();
+    console.log(`[${ts()}] [Pipeline] Processing done in ${formatDuration(t2 - t1)} — ${snapshots.length} products, analyzing & storing...`);
     const brandMatrix = buildBrandMatrixSnapshots({
       category,
       date,
@@ -184,6 +199,9 @@ export async function runCategoryCollectionForMonitor(
     store.replaceCategoryActivityEvents(category.id, date, activityEvents);
     store.saveCategoryReport(date, category.id, report);
 
+    const totalMs = Date.now() - t0;
+    console.log(`[${ts()}] [Pipeline] ✓ Category "${category.name}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)} (${snapshots.length} products)`);
+
     const log = store.insertTaskLog({
       taskType: "category_collect",
       keywordId: null,
@@ -201,6 +219,8 @@ export async function runCategoryCollectionForMonitor(
     store.markCategoryCollection(category.id, "success");
     return log;
   } catch (error) {
+    const totalMs = Date.now() - t0;
+    console.error(`[${ts()}] [Pipeline] ✗ Category "${category.name}" FAILED after ${formatDuration(totalMs)}: ${error instanceof Error ? error.message : String(error)}`);
     if (error instanceof StrictBsrCountError) {
       store.recordBsrSnapshotQuality({
         snapshotDate: date,
@@ -240,10 +260,6 @@ export async function runCategoryCollectionForMonitor(
   }
 }
 
-function totalPageRetryCount(pages: CollectedBestSellerPage[]): number {
-  return pages.reduce((sum, page) => sum + (page.retryCount ?? 0), 0);
-}
-
 function hasOkCategoryBsrSnapshot(store: Store, categoryId: number, date: string): boolean {
   return (
     store.listBsrSnapshotQuality({
@@ -256,81 +272,8 @@ function hasOkCategoryBsrSnapshot(store: Store, categoryId: number, date: string
   );
 }
 
-function dedupeProductsByAsin(products: BestSellerProductInput[]): BestSellerProductInput[] {
-  const seen = new Set<string>();
-  const result: BestSellerProductInput[] = [];
-  for (const product of products) {
-    if (seen.has(product.asin)) {
-      continue;
-    }
-    seen.add(product.asin);
-    result.push(product);
-  }
-  return result;
-}
-
-function buildCategoryBsrRankHistory(category: CategoryMonitor, snapshots: ReturnType<typeof decorateBestsellerSnapshots>): BsrRankHistory[] {
-  return snapshots.map((item) => ({
-    snapshotDate: item.snapshotDate,
-    sourceType: "category_bestseller",
-    sourceId: category.id,
-    sourceName: category.name,
-    marketplace: item.marketplace,
-    asin: item.asin,
-    title: item.title,
-    brand: item.brand,
-    category: item.categoryName,
-    rank: item.rank,
-    rankUrl: category.categoryUrl,
-    productUrl: item.productUrl,
-    currentPrice: item.currentPrice,
-    parentRank: null,
-    isSpecificRank: true
-  }));
-}
-
 function categoryCollectionConcurrency(): number {
   return Number(process.env.AMAZON_COLLECT_CATEGORY_CONCURRENCY ?? 1);
 }
 
-function strictBsrRankCoverageIssue(products: BestSellerProductInput[], expectedCount: number): string | null {
-  const ranks = products.map((product) => product.rank);
-  const uniqueRankCount = new Set(ranks).size;
-  if (uniqueRankCount < expectedCount) {
-    const detail = describeRankCoverageGaps(ranks, expectedCount);
-    return `Expected ${expectedCount} unique ranks, collected ${uniqueRankCount}.${detail ? ` ${detail}` : ""}`;
-  }
-
-  const minRank = ranks.length ? Math.min(...ranks) : null;
-  if (minRank !== 1) {
-    return `Expected rank coverage to start at #1, started at #${minRank ?? "none"}`;
-  }
-
-  const maxRank = ranks.length ? Math.max(...ranks) : null;
-  if (maxRank !== expectedCount) {
-    return `Expected max rank ${expectedCount}, collected max rank ${maxRank ?? "none"}`;
-  }
-
-  return null;
-}
-
-export function normalizeBestSellerPageRanks(products: BestSellerProductInput[], previousCount: number): BestSellerProductInput[] {
-  if (previousCount <= 0 || products.length === 0) {
-    return products;
-  }
-
-  const ranks = products.map((product) => product.rank).filter((rank) => Number.isFinite(rank) && rank > 0);
-  const minRank = ranks.length ? Math.min(...ranks) : null;
-  if (minRank === null || minRank > previousCount) {
-    return products;
-  }
-
-  return products.map((product) => {
-    const rank = product.rank + previousCount;
-    return {
-      ...product,
-      rank,
-      bsrRank: product.bsrRank === product.rank ? rank : product.bsrRank
-    };
-  });
-}
+export { normalizeBestSellerPageRanks };

@@ -33,10 +33,36 @@ describe("category competitor intelligence", () => {
     const bsrQualityIndexes = new Set(
       (db.prepare("PRAGMA index_list(amazon_bsr_snapshot_quality)").all() as Array<{ name: string }>).map((item) => item.name)
     );
+    const priceHistoryIndexes = new Set(
+      (db.prepare("PRAGMA index_list(amazon_product_price_history)").all() as Array<{ name: string }>).map((item) => item.name)
+    );
+    const keywordSnapshotIndexes = new Set(
+      (db.prepare("PRAGMA index_list(amazon_keyword_serp_snapshot)").all() as Array<{ name: string }>).map((item) => item.name)
+    );
+    const activityEventColumns = new Set(
+      (db.prepare("PRAGMA table_info(amazon_competitor_activity_event)").all() as Array<{ name: string }>).map((item) => item.name)
+    );
 
     expect(bestsellerIndexes.has("idx_bestseller_category_date_rank")).toBe(true);
+    expect(bestsellerIndexes.has("idx_bestseller_promo_lookup")).toBe(true);
+    expect(bestsellerIndexes.has("idx_bestseller_asin_date_rank")).toBe(true);
+    expect(bestsellerIndexes.has("idx_bestseller_price_low_lookup")).toBe(true);
     expect(bsrIndexes.has("idx_bsr_history_scope_rank")).toBe(true);
     expect(bsrQualityIndexes.has("idx_bsr_quality_latest_ok")).toBe(true);
+    expect(priceHistoryIndexes.has("idx_product_price_history_promo_lookup")).toBe(true);
+    expect(keywordSnapshotIndexes.has("idx_keyword_promo_lookup")).toBe(true);
+    expect(keywordSnapshotIndexes.has("idx_keyword_link_lookup")).toBe(true);
+    expect(activityEventColumns.has("review_count_before")).toBe(true);
+    expect(activityEventColumns.has("review_count_after")).toBe(true);
+    expect(activityEventColumns.has("review_count_change")).toBe(true);
+
+    const alertIndexes = new Set((db.prepare("PRAGMA index_list(amazon_alert_log)").all() as Array<{ name: string }>).map((item) => item.name));
+    const dailyChangeIndexes = new Set(
+      (db.prepare("PRAGMA index_list(amazon_competitor_daily_change)").all() as Array<{ name: string }>).map((item) => item.name)
+    );
+    expect(alertIndexes.has("idx_alert_date_status")).toBe(true);
+    expect(alertIndexes.has("idx_alert_date_keyword_status")).toBe(true);
+    expect(dailyChangeIndexes.has("idx_daily_change_date_keyword")).toBe(true);
   });
 
   it("persists best seller snapshots, brand matrix, signals, product links, and report from category collection", async () => {
@@ -53,12 +79,12 @@ describe("category competitor intelligence", () => {
     });
     const collector = new ControlledBestSellerCollector({
       "2026-05-18": top100Products([
-        product(3, "B0COOLICE1", "Acme Countertop Ice Maker", "Acme", 129.99, null, null),
+        product(3, "B0COOLICE1", "Acme Bullet Countertop Ice Maker", "Acme", 129.99, null, null),
         product(24, "B0FREEZE24", "FreezePro Nugget Ice Maker", "FreezePro", 219.99, null, null),
         product(68, "B0DROPONLY", "Old Brand Ice Machine", "OldBrand", 179.99, null, null)
       ]),
       "2026-05-19": top100Products([
-        product(2, "B0COOLICE1", "Acme Countertop Ice Maker", "Acme", 109.99, "Save $20 with coupon", "Limited Time Deal"),
+        { ...product(2, "B0COOLICE1", "Acme Bullet Countertop Ice Maker", "Acme", 109.99, "Save $20 with coupon", "Limited Time Deal"), reviewCount: 1244 },
         product(18, "B0NEWBURST", "GlacierMini Portable Ice Maker", "GlacierMini", 89.99, null, "Prime Exclusive Deal"),
         product(51, "B0FREEZE24", "FreezePro Nugget Ice Maker", "FreezePro", 219.99, null, null)
       ])
@@ -78,6 +104,8 @@ describe("category competitor intelligence", () => {
     ]);
     expect(detail.snapshots.find((item) => item.asin === "B0COOLICE1")).toMatchObject({
       rank: 2,
+      iceType: "bullet",
+      reviewCount: 1244,
       couponValue: 20,
       finalEstimatedPrice: 89.99
     });
@@ -138,18 +166,26 @@ describe("category competitor intelligence", () => {
       store
         .listProductPriceHistory({ date: "2026-05-19", categoryId: category.id })
         .filter((item) => ["B0NEWBURST", "B0COOLICE1", "B0FREEZE24"].includes(item.asin))
-        .map((item) => [item.asin, item.currentPrice, item.t30LowPrice])
+        .map((item) => [item.asin, item.currentPrice, item.t30LowPrice, item.reviewCount, item.previousReviewCount, item.reviewCountChange, item.iceType])
     ).toEqual([
-      ["B0NEWBURST", 89.99, 89.99],
-      ["B0COOLICE1", 109.99, 109.99],
-      ["B0FREEZE24", 219.99, 219.99]
+      ["B0NEWBURST", 89.99, 89.99, 1200, null, null, "unknown"],
+      ["B0COOLICE1", 109.99, 109.99, 1244, 1200, 44, "bullet"],
+      ["B0FREEZE24", 219.99, 219.99, 1200, 1200, 0, "nugget"]
     ]);
     expect(store.listCategoryActivityEvents({ date: "2026-05-19", categoryId: category.id })).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ asin: "B0NEWBURST", eventType: "new_entry_top50" }),
         expect.objectContaining({ asin: "B0COOLICE1", eventType: "price_drop" }),
         expect.objectContaining({ asin: "B0COOLICE1", eventType: "coupon_start" }),
-        expect.objectContaining({ asin: "B0COOLICE1", eventType: "deal_start" })
+        expect.objectContaining({ asin: "B0COOLICE1", eventType: "deal_start" }),
+        expect.objectContaining({
+          asin: "B0COOLICE1",
+          eventType: "review_growth",
+          eventLevel: "medium",
+          reviewCountBefore: 1200,
+          reviewCountAfter: 1244,
+          reviewCountChange: 44
+        })
       ])
     );
     expect(store.listCompetitorActionInsights({ date: "2026-05-19", sourceType: "category_bestseller", sourceId: category.id })).toEqual(
@@ -167,14 +203,22 @@ describe("category competitor intelligence", () => {
         ["B0DROPONLY", 68, "watch"]
       ])
     );
+    expect(store.listCompetitors({ sourceType: "category" }).find((item) => item.asin === "B0COOLICE1")).toMatchObject({
+      latestReviewCount: 1244,
+      iceType: "bullet",
+      couponText: "Save $20 with coupon",
+      dealBadge: "Limited Time Deal"
+    });
     const calendar = store.getProductActivityCalendar("B0COOLICE1", { date: "2026-05-19" });
     expect(calendar?.summary).toMatchObject({
       activeDays: 2,
       bestCategoryRank: 2,
-      latestCategoryRank: 2
+      latestCategoryRank: 2,
+      latestReviewCount: 1244,
+      reviewCountChange: 44
     });
     expect(calendar?.summary.eventCount).toBeGreaterThanOrEqual(4);
-    expect(calendar?.days[0].events.map((event) => event.eventType)).toEqual(expect.arrayContaining(["price_drop", "coupon_start", "deal_start"]));
+    expect(calendar?.days[0].events.map((event) => event.eventType)).toEqual(expect.arrayContaining(["price_drop", "coupon_start", "deal_start", "review_growth"]));
     expect(calendar?.days[0].actionInsights.map((insight) => insight.insightType)).toEqual(expect.arrayContaining(["price_drop_rank_lift"]));
     expect(store.getCategoryProductLink("B0NEWBURST", category.id)?.url).toContain("/dp/B0NEWBURST");
     expect(store.getDashboardSummary("2026-05-19").categorySnapshotCount).toBe(100);
@@ -200,7 +244,8 @@ describe("category competitor intelligence", () => {
       })
       .expect(201);
 
-    await request(app).post(`/api/categories/${created.body.id}/collect`).send({ date: "2026-05-19" }).expect(200);
+    await request(app).post(`/api/categories/${created.body.id}/collect`).send({ date: "2026-05-19" }).expect(202);
+    await runCategoryCollectionForMonitor(store, created.body.id, "2026-05-19", { collector });
 
     const detail = await request(app).get(`/api/categories/${created.body.id}/detail?date=2026-05-19`).expect(200);
     expect(detail.body.brandMatrix[0]).toMatchObject({ brand: "Acme", productCountTop20: 1 });
@@ -209,7 +254,16 @@ describe("category competitor intelligence", () => {
     expect(signals.body[0]).toMatchObject({ asin: "B0API00001", signalType: "new_top_20" });
 
     const priceHistory = await request(app).get(`/api/product-price-history?date=2026-05-19&categoryId=${created.body.id}`).expect(200);
-    expect(priceHistory.body[0]).toMatchObject({ asin: "B0API00001", currentPrice: 99.99, t30LowPrice: 99.99 });
+    expect(priceHistory.body[0]).toMatchObject({
+      asin: "B0API00001",
+      currentPrice: 99.99,
+      t30LowPrice: 99.99,
+      reviewCount: 1200,
+      previousReviewCount: null,
+      reviewCountChange: null,
+      iceType: "unknown",
+      imageUrl: "https://example.com/B0API00001.jpg"
+    });
 
     const bsrQuality = await request(app).get(`/api/bsr/quality?date=2026-05-19&sourceType=category_bestseller&sourceId=${created.body.id}`).expect(200);
     expect(bsrQuality.body[0]).toMatchObject({ expectedCount: 1, actualCount: 1, qualityStatus: "ok" });
@@ -232,6 +286,88 @@ describe("category competitor intelligence", () => {
       .get(`/api/category-products/B0API00001/open?categoryId=${created.body.id}`)
       .expect(302)
       .expect("Location", /\/dp\/B0API00001/);
+  });
+
+  it("does not use obviously wrong previous review counts as daily growth baselines", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Home-Kitchen-Ice-Makers/zgbs/home-garden/2399939011",
+      categoryPath: "Home & Kitchen > Ice Makers",
+      crawlTopN: 1,
+      status: "enabled"
+    });
+    const collector = new ControlledBestSellerCollector({
+      "2026-05-18": [{ ...product(1, "B0BADREV22", "ORFLROA Nugget Ice Maker", "ORFLROA", 129.99, null, null), reviewCount: 22 }],
+      "2026-05-19": [{ ...product(1, "B0BADREV22", "ORFLROA Nugget Ice Maker", "ORFLROA", 129.99, null, null), reviewCount: 12221 }]
+    });
+
+    await runCategoryCollectionForMonitor(store, category.id, "2026-05-18", { collector });
+    await runCategoryCollectionForMonitor(store, category.id, "2026-05-19", { collector });
+
+    expect(store.listProductPriceHistory({ date: "2026-05-19", categoryId: category.id })[0]).toMatchObject({
+      asin: "B0BADREV22",
+      reviewCount: 12221,
+      previousReviewCount: null,
+      reviewCountChange: null
+    });
+    expect(store.listCategoryActivityEvents({ date: "2026-05-19", categoryId: category.id }).map((event) => event.eventType)).not.toContain("review_growth");
+  });
+
+  it("hides legacy low-signal review growth events from activity views", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Home-Kitchen-Ice-Makers/zgbs/home-garden/2399939011",
+      categoryPath: "Home & Kitchen > Ice Makers",
+      crawlTopN: 1,
+      status: "enabled"
+    });
+
+    db.prepare(
+      `INSERT INTO amazon_competitor_activity_event
+       (event_key, event_date, event_type, event_level, category_id, category_name, marketplace, asin, brand, title,
+        price_before, price_after, price_change_rate, review_count_before, review_count_after, review_count_change,
+        coupon_before, coupon_after, deal_type, rank_before, rank_after, rank_change,
+        keyword_rank_before, keyword_rank_after, event_summary, possible_strategy, suggested_action)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "review_growth:B0SMALLREV1",
+      "2026-05-19",
+      "review_growth",
+      "low",
+      category.id,
+      category.name,
+      category.marketplace,
+      "B0SMALLREV1",
+      "Acme",
+      "Small Review Change Ice Maker",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      10,
+      10,
+      0,
+      null,
+      null,
+      "B0SMALLREV1 reviews grew from 1000 to 1001, up 1.",
+      "legacy",
+      "legacy"
+    );
+
+    expect(store.listCategoryActivityEvents({ date: "2026-05-19", categoryId: category.id })).toEqual([]);
   });
 
   it("fails category collection when Best Sellers count is below the configured Top N and keeps existing rows", async () => {

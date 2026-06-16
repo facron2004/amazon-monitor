@@ -1,18 +1,46 @@
 node_modules/
 dist/
+dist-electron/
 .vite/
+
+# Environment
+.env
+
+# Logs
+*.log
+*.err.log
+.logs/
+
+# Data & databases
 data/*.sqlite
 data/*.sqlite-*
 data/*.png
 data/*.xlsx
 data/collector-screenshots/
 apps/api/data/
-*.log
-.env
-.logs/
-.playwright-mcp/
+
+# Screenshots & temporary images
 amazon-monitor-dashboard*.png
 amazon-*.png
 localhost-*.png
+tmp-ui-check/
+
+# Playwright
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Build artifacts
 release/
-dist-electron/
+*.tsbuildinfo
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+
+# AI tool directories
+.claude/
+.workbuddy/
+
+# Generated output
+output/

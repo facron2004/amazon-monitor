@@ -1,0 +1,429 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Amazon Monitor API",
+    "description": "API for Amazon Keyword Competitor Price and Rank Monitor System",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key"
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "System health status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "service": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/summary": {
+      "get": {
+        "summary": "Get Dashboard Summary metrics",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date" },
+            "description": "Date in YYYY-MM-DD format"
+          }
+        ],
+        "responses": {
+          "200": { "description": "Dashboard summary details" }
+        }
+      }
+    },
+    "/keywords": {
+      "get": {
+        "summary": "List monitored keywords",
+        "responses": {
+          "200": { "description": "List of keywords" }
+        }
+      },
+      "post": {
+        "summary": "Create keyword monitor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["keyword"],
+                "properties": {
+                  "keyword": { "type": "string" },
+                  "marketplace": { "type": "string", "default": "amazon.com" },
+                  "folderName": { "type": "string" },
+                  "status": { "type": "string", "enum": ["enabled", "disabled"], "default": "enabled" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Keyword created" }
+        }
+      }
+    },
+    "/keywords/{id}": {
+      "patch": {
+        "summary": "Update keyword monitor",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "keyword": { "type": "string" },
+                  "marketplace": { "type": "string" },
+                  "folderName": { "type": "string" },
+                  "status": { "type": "string", "enum": ["enabled", "disabled"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Keyword updated" }
+        }
+      },
+      "delete": {
+        "summary": "Delete keyword monitor",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "204": { "description": "Deleted successfully" }
+        }
+      }
+    },
+    "/keywords/{id}/detail": {
+      "get": {
+        "summary": "Get keyword details, snapshots, changes, and alerts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Detail information of keyword" }
+        }
+      }
+    },
+    "/categories": {
+      "get": {
+        "summary": "List monitored categories",
+        "responses": {
+          "200": { "description": "List of category monitors" }
+        }
+      },
+      "post": {
+        "summary": "Create category monitor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "categoryUrl"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "marketplace": { "type": "string", "default": "amazon.com" },
+                  "categoryUrl": { "type": "string" },
+                  "categoryPath": { "type": "string" },
+                  "crawlTopN": { "type": "integer", "default": 100 },
+                  "status": { "type": "string", "enum": ["enabled", "disabled"], "default": "enabled" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Category created" }
+        }
+      }
+    },
+    "/categories/{id}": {
+      "patch": {
+        "summary": "Update category monitor",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "marketplace": { "type": "string" },
+                  "categoryUrl": { "type": "string" },
+                  "categoryPath": { "type": "string" },
+                  "crawlTopN": { "type": "integer" },
+                  "status": { "type": "string", "enum": ["enabled", "disabled"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Category updated" }
+        }
+      },
+      "delete": {
+        "summary": "Delete category monitor",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "204": { "description": "Deleted successfully" }
+        }
+      }
+    },
+    "/categories/{id}/detail": {
+      "get": {
+        "summary": "Get category detail details, snapshots, brand matrix, and signals",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Detail information of category" }
+        }
+      }
+    },
+    "/collect/run": {
+      "post": {
+        "summary": "Trigger keyword collection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["date"],
+                "properties": {
+                  "keywordId": { "type": "integer", "description": "If provided, only collects this keyword; otherwise, collects all." },
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Collection run task logs" }
+        }
+      }
+    },
+    "/categories/{id}/collect": {
+      "post": {
+        "summary": "Trigger category collection",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Collection run task log" }
+        }
+      }
+    },
+    "/categories/collect/run": {
+      "post": {
+        "summary": "Trigger collection run for all categories",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["date"],
+                "properties": {
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Collection run task logs for all categories" }
+        }
+      }
+    },
+    "/product-price-history": {
+      "get": {
+        "summary": "List product price history",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string" } },
+          { "name": "categoryId", "in": "query", "schema": { "type": "integer" } },
+          { "name": "asin", "in": "query", "schema": { "type": "string" } },
+          { "name": "marketplace", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "List of price history items" }
+        }
+      }
+    },
+    "/competitors": {
+      "get": {
+        "summary": "List tracked competitors pool",
+        "parameters": [
+          { "name": "keywordId", "in": "query", "schema": { "type": "integer" } },
+          { "name": "keyword", "in": "query", "schema": { "type": "string" } },
+          { "name": "sourceType", "in": "query", "schema": { "type": "string" } },
+          { "name": "tier", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "List of competitors" }
+        }
+      }
+    },
+    "/competitors/{asin}/key": {
+      "patch": {
+        "summary": "Update key competitor status for an ASIN",
+        "parameters": [
+          { "name": "asin", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["isKeyCompetitor"],
+                "properties": {
+                  "isKeyCompetitor": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated competitor item" }
+        }
+      }
+    },
+    "/alerts": {
+      "get": {
+        "summary": "List alerts logs",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "List of alert items" }
+        }
+      }
+    },
+    "/alerts/{id}/status": {
+      "patch": {
+        "summary": "Update alert status (e.g. marked as read/resolved)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated alert item" }
+        }
+      }
+    },
+    "/reports/daily": {
+      "get": {
+        "summary": "Get markdown daily report summary",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string" } },
+          { "name": "keyword", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Markdown daily report" }
+        }
+      }
+    },
+    "/reports/daily.xlsx": {
+      "get": {
+        "summary": "Download daily report Excel file",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Excel file download",
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/task-logs": {
+      "get": {
+        "summary": "Get collection task logs",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "List of collect task logs" }
+        }
+      }
+    }
+  }
+}

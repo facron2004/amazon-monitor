@@ -5,6 +5,7 @@ import type { SerpProductInput } from "@amazon-monitor/shared";
 import type { AmazonSearchCollector, CollectedSearchPage } from "./amazon-collector.js";
 import { createApiApp } from "./server.js";
 import { createStore, initSchema } from "./store.js";
+import { runCollectionForKeyword } from "./pipeline.js";
 import { DAILY_REPORT_SHEET_NAMES, getWorkbookSheetNames } from "./test-support/xlsx.js";
 
 class ControlledAmazonSearchCollector implements AmazonSearchCollector {
@@ -34,8 +35,9 @@ describe("api routes", () => {
       .send({ keyword: "cordless leaf blower", marketplace: "amazon.com", crawlPages: 1 })
       .expect(201);
 
-    const collect = await request(app).post("/api/collect/run").send({ keywordId: created.body.id, date: "2026-05-17" }).expect(200);
-    expect(collect.body.status).toBe("success");
+    const collect = await request(app).post("/api/collect/run").send({ keywordId: created.body.id, date: "2026-05-17" }).expect(202);
+    expect(collect.body.status).toBe("pending");
+    await runCollectionForKeyword(store, created.body.id, "2026-05-17", { collector: new ControlledAmazonSearchCollector() });
 
     const folders = await request(app).get("/api/competitor-folders").expect(200);
     expect(folders.body[0]).toMatchObject({ keywordId: created.body.id, competitorCount: 1 });
@@ -53,7 +55,9 @@ describe("api routes", () => {
     const actionInsights = await request(app).get(`/api/action-insights?date=2026-05-17&sourceType=keyword_detail&sourceId=${created.body.id}`).expect(200);
     expect(actionInsights.body).toEqual([]);
 
-    await request(app).post("/api/collect/run").send({ keywordId: created.body.id, date: "2026-05-18" }).expect(200);
+    await request(app).post("/api/collect/run").send({ keywordId: created.body.id, date: "2026-05-18" }).expect(202);
+    await runCollectionForKeyword(store, created.body.id, "2026-05-18", { collector: new ControlledAmazonSearchCollector() });
+
     const unchangedHidden = await request(app)
       .get(`/api/bsr/changes?date=2026-05-18&sourceType=keyword_detail&sourceId=${created.body.id}`)
       .expect(200);
@@ -117,3 +121,101 @@ function product(asin: string, title: string, currentPrice: number): SerpProduct
     detailCollectedAt: "2026-05-17T00:00:00.000Z"
   };
 }
+
+describe("api authentication and docs", () => {
+  const originalApiKey = process.env.AMAZON_MONITOR_API_KEY;
+
+  it("serves OpenAPI document and Swagger UI without authentication", async () => {
+    process.env.AMAZON_MONITOR_API_KEY = "test-secret-key";
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+
+    await request(app).get("/api-docs").expect(200);
+    await request(app).get("/api/openapi.json").expect(200);
+    await request(app).get("/api/health").expect(200);
+
+    if (originalApiKey) {
+      process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
+    } else {
+      delete process.env.AMAZON_MONITOR_API_KEY;
+    }
+  });
+
+  it("enforces API key validation when AMAZON_MONITOR_API_KEY is configured", async () => {
+    process.env.AMAZON_MONITOR_API_KEY = "test-secret-key";
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+
+    // 1. Unauthenticated request should return 401
+    const unauthResponse = await request(app)
+      .get("/api/dashboard/summary?date=2026-05-17")
+      .expect(401);
+    expect(unauthResponse.body.message).toContain("Unauthorized");
+
+    // 2. Request with incorrect key should return 401
+    await request(app)
+      .get("/api/dashboard/summary?date=2026-05-17")
+      .set("Authorization", "Bearer wrong-key")
+      .expect(401);
+
+    // 3. Request with correct key should return 200
+    await request(app)
+      .get("/api/dashboard/summary?date=2026-05-17")
+      .set("Authorization", "Bearer test-secret-key")
+      .expect(200);
+
+    if (originalApiKey) {
+      process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
+    } else {
+      delete process.env.AMAZON_MONITOR_API_KEY;
+    }
+  });
+});
+
+describe("queue routing", () => {
+  it("allows pushing, listing, and retrieving job status via API", async () => {
+    delete process.env.AMAZON_MONITOR_API_KEY;
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+
+    const created = await request(app)
+      .post("/api/keywords")
+      .send({ keyword: "test keyword", marketplace: "amazon.com", crawlPages: 1 })
+      .expect(201);
+
+    const postRes = await request(app)
+      .post("/api/collect/run")
+      .send({ keywordId: created.body.id, date: "2026-06-11" })
+      .expect(202);
+
+    expect(postRes.body).toMatchObject({
+      taskType: "keyword",
+      targetId: created.body.id,
+      date: "2026-06-11",
+      status: "pending"
+    });
+
+    const listRes = await request(app)
+      .get("/api/collect/jobs")
+      .expect(200);
+
+    expect(listRes.body).toHaveLength(1);
+    expect(listRes.body[0].id).toBe(postRes.body.id);
+
+    const getRes = await request(app)
+      .get(`/api/collect/jobs/${postRes.body.id}`)
+      .expect(200);
+
+    expect(getRes.body).toMatchObject(postRes.body);
+
+    await request(app)
+      .get("/api/collect/jobs/99999")
+      .expect(404);
+  });
+});

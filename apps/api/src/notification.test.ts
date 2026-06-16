@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import type { NotificationSchedule } from "@amazon-monitor/shared";
+import { decorateBestsellerSnapshots, type NotificationSchedule } from "@amazon-monitor/shared";
 import { createApiApp } from "./server.js";
 import { createStore, initSchema } from "./store.js";
 import { buildReportExcelDownloadUrl, resolveSmtpConfig, sendDueNotificationSchedules, sendNotificationSchedule, type NotificationSender } from "./notifier.js";
@@ -71,6 +71,39 @@ describe("notification schedules", () => {
     initSchema(db);
     const store = createStore(db);
     store.saveDailyReport("2026-05-19", "cordless leaf blower", "# Report");
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers-Appliances-Ice-Makers/zgbs/appliances/2399939011",
+      crawlTopN: 100,
+      status: "enabled"
+    });
+    store.insertCategorySnapshots(
+      decorateBestsellerSnapshots({
+        categoryId: category.id,
+        categoryName: category.name,
+        marketplace: category.marketplace,
+        snapshotDate: "2026-05-19",
+        products: [
+          {
+            rank: 1,
+            asin: "B0IMGTEST1",
+            title: "Acme Nugget Countertop Ice Maker",
+            brand: "Acme",
+            imageUrl: "https://example.com/B0IMGTEST1.jpg",
+            productUrl: "https://www.amazon.com/dp/B0IMGTEST1",
+            currentPrice: 99.99,
+            originalPrice: null,
+            couponText: "Save $5 with coupon",
+            currency: "$",
+            rating: 4.7,
+            reviewCount: 1234,
+            isPrime: true,
+            dealBadge: "Limited Time Deal"
+          }
+        ]
+      })
+    );
     const sender = new RecordingNotificationSender();
     const app = createApiApp(store, { notificationSender: sender });
 
@@ -96,15 +129,27 @@ describe("notification schedules", () => {
     const send = await request(app).post(`/api/notifications/schedules/${created.body.id}/send`).send({ date: "2026-05-19" }).expect(200);
     expect(send.body.status).toBe("success");
     expect(sender.sent).toHaveLength(1);
+    expect(sender.sent[0].content).toContain("BSR Coupon / Deal");
+    expect(sender.sent[0].content).toContain("Save $5 with coupon / Limited Time Deal");
     expect(sender.sent[0].htmlContent).toContain("Excel");
+    expect(sender.sent[0].htmlContent).toContain("BSR Coupon / Deal");
+    expect(sender.sent[0].htmlContent).toContain("Save $5 with coupon / Limited Time Deal");
     const attachment = sender.sent[0].attachments?.[0];
     expect(attachment?.filename).toBe("amazon-monitor-2026-05-19.xlsx");
     expect(attachment?.contentType).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     expect(attachment?.content.subarray(0, 2).toString("utf8")).toBe("PK");
     expect(getWorkbookSheetNames(attachment?.content ?? Buffer.alloc(0))).toEqual(DAILY_REPORT_SHEET_NAMES);
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet1.xml")).toContain("报告日期");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet11.xml")).toContain("唯一排名");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet13.xml")).toContain("对比日期");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet1.xml")).toContain("Report Date");
+    const bestsellerSheet = readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet2.xml");
+    expect(bestsellerSheet).toContain("Ice Type");
+    expect(bestsellerSheet).toContain("Coupon / Deal");
+    expect(bestsellerSheet).toContain("Save $5 with coupon / Limited Time Deal");
+    expect(bestsellerSheet).toContain("Image Preview");
+    expect(bestsellerSheet).toContain("IMAGE(");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet6.xml")).toContain("Review Change");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet11.xml")).toContain("Unique Ranks");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet13.xml")).toContain("Previous Date");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet14.xml")).toContain("Current Top10 ASINs");
 
     const schedules = await request(app).get("/api/notifications/schedules").expect(200);
     expect(schedules.body[0]).toMatchObject({ lastStatus: "success", lastSentDate: "2026-05-19" });

@@ -1,20 +1,21 @@
 import { inflateRawSync } from "node:zlib";
 
 export const DAILY_REPORT_SHEET_NAMES = [
-  "总览",
-  "类目榜单",
-  "品牌矩阵",
-  "异动信号",
-  "活动价格",
-  "价格历史",
-  "活动事件",
-  "关键词排名",
-  "竞品池",
-  "BSR历史",
-  "BSR质量",
-  "BSR异动",
-  "动作洞察",
-  "告警日志"
+  "Summary",
+  "Category Bestsellers",
+  "Brand Matrix",
+  "Category Signals",
+  "Promo Price Signals",
+  "Price Review History",
+  "Activity Events",
+  "Keyword Rankings",
+  "Competitor Pool",
+  "BSR History",
+  "BSR Quality",
+  "BSR Changes",
+  "Action Insights",
+  "Brand Top10 Changes",
+  "Alert Log"
 ];
 
 export function getWorkbookSheetNames(buffer: Buffer): string[] {

@@ -5,6 +5,10 @@
   "author": "Amazon Monitor Team",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  },
   "workspaces": [
     "packages/shared",
     "apps/api",
@@ -16,11 +20,13 @@
     "dev:api": "npm --workspace @amazon-monitor/api run dev",
     "dev:web": "npm --workspace @amazon-monitor/web run dev",
     "test": "npm --workspace @amazon-monitor/shared run test && npm --workspace @amazon-monitor/api run test",
-    "build": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build"
-  },
-  "dependencies": {
-    "node-cron": "^4.2.1",
-    "playwright": "^1.57.0"
+    "build": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build",
+    "start": "node apps/api/dist/index.js",
+    "collect": "cross-env ENABLE_CRON=false tsx apps/api/src/cli.ts collect",
+    "collect:keyword": "cross-env ENABLE_CRON=false tsx apps/api/src/cli.ts keyword",
+    "collect:category": "cross-env ENABLE_CRON=false tsx apps/api/src/cli.ts category",
+    "collect:quality": "cross-env ENABLE_CRON=false tsx apps/api/src/cli.ts quality",
+    "worker": "cross-env ENABLE_CRON=false tsx apps/api/src/worker.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

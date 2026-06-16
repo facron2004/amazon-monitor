@@ -27,7 +27,7 @@ describe("collection pipeline", () => {
     const keyword = store.createKeyword({
       keyword: "cordless leaf blower",
       marketplace: "amazon.com",
-      zipCode: "90001",
+      zipCode: "97201",
       language: "en_US",
       categoryTag: "yard tools",
       crawlPages: 1,
@@ -53,6 +53,8 @@ describe("collection pipeline", () => {
     expect(snapshots).toHaveLength(2);
     expect(snapshots[0].bsrRank).toBe(12);
     expect(snapshots[0].bestsellerRanks[0]).toMatchObject({ rank: 12, category: "Leaf Blowers" });
+    expect(snapshots[0].iceType).toBe("unknown");
+    expect(snapshots[1].iceType).toBe("bullet");
     const bsrHistory = store.listBsrRankHistory({ date: "2026-05-17", sourceType: "keyword_detail", sourceId: keyword.id });
     expect(bsrHistory).toHaveLength(1);
     expect(bsrHistory[0]).toMatchObject({
@@ -79,7 +81,11 @@ describe("collection pipeline", () => {
       competitorCount: 3
     });
     expect(store.getProductLink("B0ACME600F", keyword.id)?.url).toContain("/dp/B0ACME600F");
-    expect(store.listCompetitors({ keywordId: keyword.id }).find((item) => item.asin === "B0ACME600F")?.latestBsrRank).toBe(12);
+    expect(store.listCompetitors({ keywordId: keyword.id }).find((item) => item.asin === "B0ACME600F")).toMatchObject({
+      latestBsrRank: 12,
+      couponText: "Save $10 with coupon",
+      dealBadge: null
+    });
     expect(store.listAlerts({ date: "2026-05-17" }).map((alert) => alert.alertType)).toEqual(
       expect.arrayContaining(["significant_price_drop", "new_coupon", "new_sponsored", "new_asin_entered", "dropped_from_results"])
     );
@@ -122,6 +128,7 @@ function product(asin: string, title: string, currentPrice: number, couponText: 
     currency: "$",
     rating: 4.4,
     reviewCount: 500,
+    iceType: asin === "B0VOLTMAX9" ? "bullet" : "unknown",
     isSponsored,
     isPrime: true,
     dealBadge: null,

@@ -1,0 +1,14 @@
+services:
+  amazon-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amazon-monitor
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./data:/app/data
+      - ./data/collector-screenshots:/app/data/collector-screenshots
+    env_file:
+      - .env
+    restart: unless-stopped

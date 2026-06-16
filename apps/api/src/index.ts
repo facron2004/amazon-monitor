@@ -5,11 +5,11 @@ loadEnv();
 
 import cron from "node-cron";
 import { sendDueNotificationSchedules } from "./notifier.js";
-import { runCategoryCollectionForAll } from "./category-pipeline.js";
 import { createApiApp } from "./server.js";
-import { runCollectionForAll } from "./pipeline.js";
+import { isoDate } from "./pipeline.js";
 import { attachCronDiagnostics, createExclusiveCronRunner } from "./scheduler.js";
 import { openAppStore } from "./store.js";
+import { startWorker } from "./worker.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const defaultDbPath = (() => {
@@ -19,13 +19,34 @@ const defaultDbPath = (() => {
     return "data/amazon-monitor.sqlite";
   }
 })();
+
+// Set default WEB_DIST_PATH if not provided
+if (!process.env.WEB_DIST_PATH) {
+  try {
+    process.env.WEB_DIST_PATH = fileURLToPath(new URL("../../web/dist", import.meta.url));
+  } catch {
+    // Fallback for production builds
+    process.env.WEB_DIST_PATH = "apps/web/dist";
+  }
+}
+
 const store = openAppStore(process.env.DB_PATH ?? defaultDbPath);
 
 function startCron() {
   if (process.env.ENABLE_CRON === "false") return;
   const collectionTask = cron.schedule(
     "0 9 * * *",
-    createExclusiveCronRunner("daily-collection", () => Promise.all([runCollectionForAll(store), runCategoryCollectionForAll(store)])),
+    createExclusiveCronRunner("daily-collection", async () => {
+      const date = isoDate();
+      const keywords = store.listKeywords().filter((k) => k.status === "enabled");
+      for (const k of keywords) {
+        store.pushJob("keyword", k.id, date);
+      }
+      const categories = store.listCategoryMonitors().filter((c) => c.status === "enabled");
+      for (const c of categories) {
+        store.pushJob("category", c.id, date);
+      }
+    }),
     { timezone: "Asia/Shanghai", name: "daily-collection", noOverlap: true }
   );
   attachCronDiagnostics(collectionTask, "daily-collection");
@@ -40,6 +61,11 @@ function startCron() {
 
 export function startServer(silent = false) {
   startCron();
+  if (process.env.RUN_WORKER !== "false") {
+    startWorker(store).catch((err) => {
+      console.error("[Worker] Failed to start background worker thread:", err);
+    });
+  }
   return createApiApp(store).listen(port, () => {
     if (!silent) console.log(`Amazon monitor API listening on http://localhost:${port}`);
   });
