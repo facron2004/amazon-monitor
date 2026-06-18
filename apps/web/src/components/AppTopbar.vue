@@ -1,17 +1,10 @@
 <script setup lang="ts">
-import AppTopbarHero from "./AppTopbarHero.vue";
-import AppTopbarStatusPanel from "./AppTopbarStatusPanel.vue";
+import { CalendarDays, Menu, Radar } from "@lucide/vue";
 
 defineProps<{
   loading: boolean;
-  actionMessage: string;
-  errorMessage: string;
   activeTabLabel: string;
   selectedDate: string;
-  categoryCount: number;
-  keywordCount: number;
-  pendingAlertCount: number;
-  scheduleCount: number;
 }>();
 
 const emit = defineEmits<{
@@ -21,21 +14,17 @@ const emit = defineEmits<{
 
 <template>
   <header class="topbar">
-    <AppTopbarHero
-      :loading="loading"
-      :active-tab-label="activeTabLabel"
-      :selected-date="selectedDate"
-      @toggle-sidebar="emit('toggle-sidebar')"
-    />
-    <AppTopbarStatusPanel
-      :loading="loading"
-      :action-message="actionMessage"
-      :error-message="errorMessage"
-      :active-tab-label="activeTabLabel"
-      :category-count="categoryCount"
-      :keyword-count="keywordCount"
-      :pending-alert-count="pendingAlertCount"
-      :schedule-count="scheduleCount"
-    />
+    <button class="icon-button topbar-toggle" type="button" aria-label="切换导航" @click="emit('toggle-sidebar')">
+      <Menu :size="18" />
+    </button>
+    <span class="topbar-tab-label">{{ activeTabLabel }}</span>
+    <span class="topbar-date">
+      <CalendarDays :size="14" />
+      <span>{{ selectedDate }}</span>
+    </span>
+    <span :class="['topbar-status', loading ? 'is-live' : '']">
+      <Radar :size="14" />
+      <span>{{ loading ? "采集中" : "就绪" }}</span>
+    </span>
   </header>
 </template>

@@ -101,14 +101,8 @@ const {
     <main class="main">
       <AppTopbar
         :loading="loading"
-        :action-message="actionMessage"
-        :error-message="errorMessage"
         :active-tab-label="activeTabLabel"
         :selected-date="date"
-        :category-count="categories.length"
-        :keyword-count="keywords.length"
-        :pending-alert-count="pendingAlerts.length"
-        :schedule-count="notificationSchedules.length"
         @toggle-sidebar="toggleSidebar"
       />
 

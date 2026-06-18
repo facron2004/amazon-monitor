@@ -128,19 +128,44 @@
 
 /* Main Dashboard Area */
 .main {
-  padding: 32px 40px;
-  display: grid;
-  gap: 24px;
-  align-content: start;
+  padding: 12px 24px 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  gap: 12px;
 }
 
 .topbar {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 20px;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.topbar-tab-label {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.topbar-date,
+.topbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.topbar-status.is-live {
+  color: var(--color-success);
+  border-color: var(--color-success-bg);
+  background: var(--color-success-bg);
 }
 
 .eyebrow {
@@ -216,8 +241,12 @@ h2 {
 }
 
 .view {
-  display: grid;
-  gap: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Metric Cards */
@@ -343,13 +372,18 @@ h2 {
 .split {
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  gap: 20px;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Panel Design */
 .panel {
-  padding: 24px;
+  padding: 16px 20px;
   min-width: 0;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .dense-panel {
