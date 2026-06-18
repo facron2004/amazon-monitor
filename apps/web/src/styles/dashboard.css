@@ -9,19 +9,29 @@
 }
 
 .metric {
-  padding: 16px 18px;
-  gap: 4px;
-  border-radius: 18px;
+  padding: 10px 14px;
+  gap: 2px;
+  border-radius: 14px;
 }
 
 .metric strong {
-  font-size: 28px;
+  font-size: 22px;
+  margin-top: 4px;
 }
 
 .metric-note {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.45;
+  display: none;
+}
+
+.metric-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.metric-icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .panel {
