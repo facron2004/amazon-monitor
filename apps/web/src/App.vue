@@ -24,7 +24,6 @@ const {
   actionMessage,
   errorMessage,
   activeTabLabel,
-  summary,
   alerts,
   changes,
   logs,
@@ -115,7 +114,6 @@ const {
 
       <OverviewView
         v-if="activeTab === 'overview'"
-        :summary="summary"
         :keywords="keywords"
         :high-alerts="highAlerts"
         :pending-alerts-count="pendingAlerts.length"

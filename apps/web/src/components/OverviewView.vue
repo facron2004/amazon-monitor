@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import type { AlertLog, DashboardSummary, KeywordMonitor } from "@amazon-monitor/shared";
+import type { AlertLog, KeywordMonitor } from "@amazon-monitor/shared";
 import OverviewAlertsPanel from "./OverviewAlertsPanel.vue";
 import OverviewKeywordHealthPanel from "./OverviewKeywordHealthPanel.vue";
-import OverviewMetricsGrid from "./OverviewMetricsGrid.vue";
 
 interface Props {
-  summary: DashboardSummary | null;
   keywords: KeywordMonitor[];
   highAlerts: AlertLog[];
   pendingAlertsCount: number;
@@ -30,8 +28,6 @@ function handleSelectKeyword(keywordId: number) {
 
 <template>
   <section class="view">
-    <OverviewMetricsGrid :summary="summary" />
-
     <div class="split">
       <OverviewAlertsPanel :high-alerts="highAlerts" :pending-alerts-count="pendingAlertsCount" @update-alert="handleUpdateAlert" />
 
