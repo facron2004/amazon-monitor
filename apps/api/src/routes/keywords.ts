@@ -4,7 +4,7 @@ import { ts } from "../log.js";
 import { isoDate, runCollectionForAll, runCollectionForKeyword } from "../pipeline.js";
 import type { Store } from "../store.js";
 import { asyncHandler, getDate, optionalNumber, optionalString } from "./http-utils.js";
-import { keywordInputSchema, validateBody, validateIdParam } from "./validation.js";
+import { keywordInputSchema, keywordPatchSchema, validateBody, validateIdParam } from "./validation.js";
 
 export function registerKeywordRoutes(app: Express, store: Store, options: { collector?: AmazonSearchCollector; collectLimiter?: RequestHandler } = {}): void {
   app.get("/api/keywords", (_request, response) => {
@@ -28,15 +28,16 @@ export function registerKeywordRoutes(app: Express, store: Store, options: { col
 
   app.patch("/api/keywords/:id", asyncHandler(async (request, response) => {
     const id = validateIdParam(request.params.id);
+    const data = validateBody(keywordPatchSchema, request.body);
     response.json(
       store.updateKeyword(id, {
-        keyword: request.body.keyword,
-        marketplace: request.body.marketplace,
-        zipCode: request.body.zipCode,
-        language: request.body.language,
-        categoryTag: request.body.categoryTag,
-        crawlPages: request.body.crawlPages === undefined ? undefined : Number(request.body.crawlPages),
-        status: request.body.status
+        keyword: data.keyword,
+        marketplace: data.marketplace,
+        zipCode: data.zipCode,
+        language: data.language,
+        categoryTag: data.categoryTag,
+        crawlPages: data.crawlPages,
+        status: data.status
       })
     );
   }));

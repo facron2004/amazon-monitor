@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { Store } from "../store.js";
 import { optionalNumber, optionalString } from "./http-utils.js";
+import { competitorKeySchema, limitDaysQuerySchema, validateBody, validateQuery } from "./validation.js";
 
 function isAmazonUrl(url: string): boolean {
   try {
@@ -72,10 +73,11 @@ export function registerCompetitorRoutes(app: Express, store: Store): void {
   });
 
   app.get("/api/products/:asin/activity-calendar", (request, response) => {
+    const query = validateQuery(limitDaysQuerySchema, request.query);
     const result = store.getProductActivityCalendar(request.params.asin, {
       marketplace: optionalString(request.query.marketplace),
       date: optionalString(request.query.date),
-      limitDays: request.query.limitDays ? Number(request.query.limitDays) : undefined
+      limitDays: query.limitDays
     });
     if (!result) {
       response.status(404).json({ message: "product activity calendar not found" });
@@ -85,7 +87,8 @@ export function registerCompetitorRoutes(app: Express, store: Store): void {
   });
 
   app.patch("/api/competitors/:asin/key", (request, response) => {
-    const result = store.setKeyCompetitor(request.params.asin, Boolean(request.body?.isKeyCompetitor));
+    const data = validateBody(competitorKeySchema, request.body);
+    const result = store.setKeyCompetitor(request.params.asin, data.isKeyCompetitor);
     if (!result) {
       response.status(404).json({ message: "competitor not found" });
       return;

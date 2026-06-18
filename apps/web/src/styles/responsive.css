@@ -1,0 +1,73 @@
+/* Responsive Media Queries */
+@media (max-width: 1120px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .nav,
+  .side-tools {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .side-tools {
+    border-top: none;
+    padding-top: 0;
+    gap: 8px;
+  }
+
+  .metrics,
+  .calendar-summary,
+  .split {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .keyword-form,
+  .category-form,
+  .panel-controls,
+  .notification-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .main {
+    padding: 20px;
+  }
+
+  .topbar,
+  .panel-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .nav,
+  .side-tools,
+  .metrics,
+  .calendar-summary,
+  .split,
+  .keyword-form,
+  .category-form,
+  .panel-controls,
+  .notification-form {
+    grid-template-columns: 1fr;
+  }
+
+  .product-row {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .rank-box,
+  .price-box {
+    grid-column: 2;
+  }
+}
+

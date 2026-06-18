@@ -3,6 +3,7 @@ import { loadEnv } from "./notifier.js";
 
 loadEnv();
 
+import type { CollectTaskLog } from "@amazon-monitor/shared";
 import { runCategoryCollectionForMonitor } from "./category-pipeline.js";
 import { formatDuration, ts } from "./log.js";
 import { runCollectionForKeyword } from "./pipeline.js";
@@ -39,12 +40,17 @@ export async function startWorker(storeInstance?: any) {
           console.log(`[${ts()}] [Worker:${laneId}] ▶ Job #${job.id} STARTED | type=${job.taskType}, targetId=${job.targetId}, date=${job.date} | queue_position=${jobsProcessed}`);
 
           try {
+            let log: CollectTaskLog;
             if (job.taskType === "keyword") {
-              await runCollectionForKeyword(store, job.targetId, job.date);
+              log = await runCollectionForKeyword(store, job.targetId, job.date);
             } else if (job.taskType === "category") {
-              await runCategoryCollectionForMonitor(store, job.targetId, job.date);
+              log = await runCategoryCollectionForMonitor(store, job.targetId, job.date);
             } else {
               throw new Error(`Unknown task type: ${job.taskType}`);
+            }
+
+            if (log.status === "failed") {
+              throw new Error(log.errorMessage ?? "Collection failed");
             }
 
             store.completeJob(job.id);

@@ -3,8 +3,8 @@ import { runCategoryCollectionForAll, runCategoryCollectionForMonitor, type Amaz
 import { ts } from "../log.js";
 import { isoDate } from "../pipeline.js";
 import type { Store } from "../store.js";
-import { asyncHandler, getDate, optionalNumber, optionalString } from "./http-utils.js";
-import { validateIdParam } from "./validation.js";
+import { asyncHandler, getDate, optionalString } from "./http-utils.js";
+import { categoryInputSchema, categoryPatchSchema, categorySignalQuerySchema, validateBody, validateIdParam, validateQuery } from "./validation.js";
 
 export function registerCategoryRoutes(app: Express, store: Store, options: { categoryCollector?: AmazonBestSellerCollector; collectLimiter?: RequestHandler } = {}): void {
   const collectGuard: RequestHandler[] = options.collectLimiter ? [options.collectLimiter] : [];
@@ -14,15 +14,15 @@ export function registerCategoryRoutes(app: Express, store: Store, options: { ca
   });
 
   app.post("/api/categories", asyncHandler(async (request, response) => {
-    const body = request.body ?? {};
+    const data = validateBody(categoryInputSchema, request.body);
     response.status(201).json(
       store.createCategoryMonitor({
-        name: String(body.name ?? ""),
-        marketplace: String(body.marketplace ?? "amazon.com"),
-        categoryUrl: String(body.categoryUrl ?? ""),
-        categoryPath: optionalString(body.categoryPath) ?? null,
-        crawlTopN: body.crawlTopN === undefined ? 100 : Number(body.crawlTopN),
-        status: body.status === "disabled" ? "disabled" : "enabled"
+        name: data.name,
+        marketplace: data.marketplace,
+        categoryUrl: data.categoryUrl,
+        categoryPath: data.categoryPath ?? null,
+        crawlTopN: data.crawlTopN ?? 100,
+        status: data.status === "disabled" ? "disabled" : "enabled"
       })
     );
   }));
@@ -37,14 +37,15 @@ export function registerCategoryRoutes(app: Express, store: Store, options: { ca
 
   app.patch("/api/categories/:id", asyncHandler(async (request, response) => {
     const id = validateIdParam(request.params.id);
+    const data = validateBody(categoryPatchSchema, request.body);
     response.json(
       store.updateCategoryMonitor(id, {
-        name: request.body.name,
-        marketplace: request.body.marketplace,
-        categoryUrl: request.body.categoryUrl,
-        categoryPath: request.body.categoryPath,
-        crawlTopN: request.body.crawlTopN === undefined ? undefined : Number(request.body.crawlTopN),
-        status: request.body.status
+        name: data.name,
+        marketplace: data.marketplace,
+        categoryUrl: data.categoryUrl,
+        categoryPath: data.categoryPath,
+        crawlTopN: data.crawlTopN,
+        status: data.status
       })
     );
   }));
@@ -69,12 +70,13 @@ export function registerCategoryRoutes(app: Express, store: Store, options: { ca
   }));
 
   app.get("/api/category-signals", (request, response) => {
+    const query = validateQuery(categorySignalQuerySchema, request.query);
     response.json(
       store.listCategorySignals({
-        date: optionalString(request.query.date),
-        categoryId: optionalNumber(request.query.categoryId),
-        limit: optionalNumber(request.query.limit),
-        offset: optionalNumber(request.query.offset)
+        date: query.date,
+        categoryId: query.categoryId,
+        limit: query.limit,
+        offset: query.offset
       })
     );
   });

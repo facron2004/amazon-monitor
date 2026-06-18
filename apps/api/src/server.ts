@@ -112,6 +112,9 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
       "   Set this environment variable before deploying to production."
     );
   }
+  if (isProduction && !apiKey) {
+    throw new Error("AMAZON_MONITOR_API_KEY is required in production");
+  }
   app.use((req, res, next) => {
     // Health check and static frontend files are always public
     if (
@@ -176,10 +179,11 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   // Global error handler — sanitize messages in production
   app.use((error: unknown, _req: Request, response: Response, _next: Function) => {
     console.error("[API Error]", error);
-    const message = isProduction
+    const statusCode = (error as { statusCode?: number })?.statusCode ?? 500;
+    const message = isProduction && statusCode >= 500
       ? "Internal server error"
       : (error instanceof Error ? error.message : String(error));
-    response.status(500).json({ message });
+    response.status(statusCode).json({ message });
   });
 
   return app;

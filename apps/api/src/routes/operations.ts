@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { Store } from "../store.js";
 import { optionalNumber, optionalString } from "./http-utils.js";
+import { alertStatusSchema, paginationQuerySchema, validateBody, validateIdParam, validateQuery } from "./validation.js";
 
 export function registerOperationRoutes(app: Express, store: Store): void {
   app.get("/api/alerts", (request, response) => {
@@ -15,7 +16,9 @@ export function registerOperationRoutes(app: Express, store: Store): void {
   });
 
   app.patch("/api/alerts/:id/status", (request, response) => {
-    const result = store.updateAlertStatus(Number(request.params.id), request.body?.status ?? "viewed");
+    const id = validateIdParam(request.params.id);
+    const data = validateBody(alertStatusSchema, request.body);
+    const result = store.updateAlertStatus(id, data.status ?? "viewed");
     if (!result) {
       response.status(404).json({ message: "alert not found" });
       return;
@@ -33,16 +36,18 @@ export function registerOperationRoutes(app: Express, store: Store): void {
   });
 
   app.get("/api/task-logs", (request, response) => {
-    response.json(store.listTaskLogs(optionalNumber(request.query.limit) ?? 50, optionalNumber(request.query.offset) ?? 0));
+    const query = validateQuery(paginationQuerySchema, request.query);
+    response.json(store.listTaskLogs(query.limit ?? 50, query.offset ?? 0));
   });
 
   app.get("/api/collect/jobs", (request, response) => {
-    const limit = optionalNumber(request.query.limit) ?? 50;
-    response.json(store.listJobs(limit, optionalNumber(request.query.offset) ?? 0));
+    const query = validateQuery(paginationQuerySchema, request.query);
+    response.json(store.listJobs(query.limit ?? 50, query.offset ?? 0));
   });
 
   app.get("/api/collect/jobs/:id", (request, response) => {
-    const job = store.getJobStatus(Number(request.params.id));
+    const id = validateIdParam(request.params.id);
+    const job = store.getJobStatus(id);
     if (!job) {
       response.status(404).json({ message: "Job not found" });
       return;

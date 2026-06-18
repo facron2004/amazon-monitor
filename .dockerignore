@@ -1,0 +1,42 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.env
+*.log
+*.err.log
+.logs/
+.cache
+.vite
+coverage
+.DS_Store
+Thumbs.db
+
+# Data & databases
+data/*.sqlite
+data/*.sqlite-*
+data/*.bak*
+data/*.png
+data/*.xlsx
+data/collector-screenshots
+apps/api/data
+
+# Playwright
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Build artifacts
+release/
+*.tsbuildinfo
+
+# IDE / OS
+.idea/
+.vscode/
+
+# AI tool directories
+.claude/
+.workbuddy/
+
+# Generated output
+output/

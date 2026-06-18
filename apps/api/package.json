@@ -5,10 +5,12 @@
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--no-warnings tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && shx cp src/openapi.json dist/openapi.json",
     "start": "node --no-warnings dist/index.js",
     "pretest": "npm --workspace @amazon-monitor/shared run build",
-    "test": "cross-env NODE_OPTIONS=--no-warnings vitest run src",
+    "test": "npm run test:unit",
+    "test:unit": "cross-env NODE_OPTIONS=--no-warnings vitest run src --exclude '**/*.browser.test.ts'",
+    "test:browser": "playwright install chromium && cross-env NODE_OPTIONS=--no-warnings vitest run src/**/*.browser.test.ts",
     "worker": "cross-env NODE_OPTIONS=--no-warnings tsx src/worker.ts"
   },
   "dependencies": {
@@ -28,6 +30,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.0",
     "@types/supertest": "^6.0.3",
+    "shx": "^0.3.4",
     "supertest": "^7.1.4"
   }
 }

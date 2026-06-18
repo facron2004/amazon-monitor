@@ -1,0 +1,210 @@
+:root {
+  --font-family: "Noto Sans SC", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  
+  /* Color Palette - Premium Big Tech Light Theme (Slate & Indigo Accent) */
+  --bg-base: #f8fafc;         /* Slate 50 - Very clean canvas background */
+  --bg-surface: #ffffff;      /* Pure white for panels & metrics */
+  --bg-sidebar: #ffffff;      /* Modern light sidebar */
+  
+  --text-primary: #0f172a;    /* Slate 900 - Premium deep dark */
+  --text-secondary: #475569;  /* Slate 600 - Perfect for body and labels */
+  --text-muted: #94a3b8;     /* Slate 400 - Elegant placeholder/muted */
+  
+  --color-primary: #4f46e5;         /* Indigo 600 - High-end tech accent */
+  --color-primary-hover: #4338ca;   /* Indigo 700 */
+  --color-primary-light: #f5f3ff;   /* Violet 50 - Active button background */
+  --color-primary-border: #e0e7ff;  /* Indigo 100 */
+  
+  --color-success: #16a34a;         /* Emerald 600 */
+  --color-success-bg: #f0fdf4;      /* Emerald 50 */
+  --color-success-text: #166534;    /* Emerald 800 */
+  
+  --color-danger: #dc2626;          /* Red 600 */
+  --color-danger-bg: #fef2f2;       /* Red 50 */
+  --color-danger-text: #991b1b;     /* Red 800 */
+  
+  --color-warning: #ea580c;         /* Amber 600 */
+  --color-warning-bg: #fffbeb;      /* Amber 50 */
+  --color-warning-text: #92400e;    /* Amber 800 */
+  
+  --color-info: #0284c7;            /* Sky 600 */
+  --color-info-bg: #f0f9ff;         /* Sky 50 */
+  --color-info-text: #075985;       /* Sky 800 */
+
+  --border-color: #e2e8f0;          /* Slate 200 - Extremely thin & light border */
+  --border-color-hover: #cbd5e1;    /* Slate 300 */
+  
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  
+  /* Shadows - Layered Airy Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.05), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 20px -3px rgba(15, 23, 42, 0.04), 0 4px 12px -4px rgba(15, 23, 42, 0.03);
+  --shadow-glow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+  --shadow-toast: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 16px -6px rgba(15, 23, 42, 0.1);
+  
+  /* Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:root {
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--bg-base);
+}
+
+/* Scrollbar Style */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Common form elements */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+button {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  min-height: 38px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+}
+
+button:hover {
+  border-color: var(--border-color-hover);
+  color: var(--text-primary);
+  background: #f8fafc;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+input:hover,
+select:hover {
+  border-color: var(--border-color-hover);
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Table Style - Premium Big Tech Clean Look */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+}
+
+th,
+td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  vertical-align: middle;
+}
+
+th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  background: #f8fafc;
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--border-color);
+}
+
+th:first-child {
+  border-top-left-radius: var(--radius-sm);
+}
+
+th:last-child {
+  border-top-right-radius: var(--radius-sm);
+}
+
+tbody tr {
+  transition: background-color var(--transition-fast);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tr.selected,
+tbody tr:hover {
+  background: #f8fafc;
+}
+
+tr.selected {
+  background: var(--color-primary-light);
+}
+
