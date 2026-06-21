@@ -20,6 +20,8 @@ import {
   totalPageRetryCount
 } from "./category-pipeline-helpers.js";
 import { formatDuration, ts } from "./log.js";
+import { generateInsightEvents } from "./insights/insight-event-generator.js";
+import { evaluateDueInsightEventReviews } from "./insights/review-evaluator.js";
 import type { Store } from "./store.js";
 import { isoDate } from "./pipeline.js";
 
@@ -198,6 +200,10 @@ export async function runCategoryCollectionForMonitor(
     store.replaceCategorySignals(category.id, date, signals);
     store.replaceCategoryActivityEvents(category.id, date, activityEvents);
     store.saveCategoryReport(date, category.id, report);
+    generateInsightEvents(store, date, { categoryId: category.id });
+    // 当 review_due_date <= date 时(通常为事件日 +1/+3/+7 天),evaluator 会自动
+    // 复盘一批事件;当天采集时 review_due_date 还未到,evaluator 拿到空集是正常的。
+    evaluateDueInsightEventReviews(store, date, { categoryId: category.id });
 
     const totalMs = Date.now() - t0;
     console.log(`[${ts()}] [Pipeline] ✓ Category "${category.name}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)} (${snapshots.length} products)`);

@@ -1,5 +1,7 @@
 import type {
   AlertLog,
+  AsinWatchState,
+  AsinWatchStateInput,
   BestsellerRankSnapshot,
   BrandMatrixSnapshot,
   BsrRankChange,
@@ -18,6 +20,10 @@ import type {
   CompetitorTier,
   DailyChange,
   DashboardSummary,
+  InsightEvent,
+  InsightEventInput,
+  InsightEventListParams,
+  InsightReviewResult,
   KeywordMonitor,
   KeywordMonitorInput,
   NotificationSchedule,
@@ -92,6 +98,20 @@ export interface BsrStore {
   }): CompetitorActionInsight[];
 }
 
+export interface InsightEventStore {
+  listInsightEvents(params?: InsightEventListParams): InsightEvent[];
+  getInsightEvent(id: string): InsightEvent | null;
+  upsertInsightEvent(event: InsightEventInput): InsightEvent;
+  updateInsightEventStatus(id: string, status: InsightEvent["status"], reviewDueDate?: string | null): InsightEvent | null;
+  updateInsightEventNote(id: string, note: string): InsightEvent | null;
+  listReviewDueEvents(date: string): InsightEvent[];
+  claimReviewDueEvents(date: string, claimId: string, options?: { categoryId?: number; limit?: number }): InsightEvent[];
+  releaseReviewClaim(claimId: string): void;
+  markInsightEventReviewed(id: string, result: InsightReviewResult, note?: string | null, nextReviewDueDate?: string | null): InsightEvent | null;
+  listAsinWatchStates(): AsinWatchState[];
+  upsertAsinWatchState(state: AsinWatchStateInput): AsinWatchState;
+}
+
 export interface KeywordSnapshotStore {
   deleteSnapshotsForKeywordDate(keywordId: number, date: string): void;
   insertSnapshots(items: SerpSnapshot[]): void;
@@ -160,6 +180,7 @@ export interface Store extends
   MonitorStore,
   CategorySnapshotStore,
   BsrStore,
+  InsightEventStore,
   KeywordSnapshotStore,
   CompetitorStore,
   NotificationStore,
