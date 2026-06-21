@@ -100,6 +100,7 @@ export type ActivityEventType =
   | "new_entry_top50"
   | "review_growth"
   | "brand_matrix_push"
+  | "brand_matrix_drop"
   | "activity_end_rank_drop";
 
 export interface CompetitorActivityEvent {

@@ -173,14 +173,21 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       return this.getInsightEvent(id);
     },
 
-    updateInsightEventNote(id, note) {
+        updateInsightEventNote(id, note) {
       const now = nowIso();
+      // 同样把空字符串 / 纯空白归一为 null。但 null 在这里是"未提供"语义,
+      // 不应覆盖已有的 user_note——否则前端清空输入框会把历史备注一并刷掉。
+      // 只有真的提供了非空内容才执行 UPDATE + 写 history。
+      const normalizedNote = note && note.trim().length > 0 ? note : null;
+      if (normalizedNote === null) {
+        return this.getInsightEvent(id);
+      }
       withTransaction(db, () => {
-        db.prepare("UPDATE insight_events SET user_note = ?, updated_at = ? WHERE id = ?").run(note, now, id);
+        db.prepare("UPDATE insight_events SET user_note = ?, updated_at = ? WHERE id = ?").run(normalizedNote, now, id);
         db.prepare("INSERT INTO insight_event_notes (id, event_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
           randomUUID(),
           id,
-          note,
+          normalizedNote,
           now,
           now
         );
@@ -189,9 +196,15 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
     },
 
     listReviewDueEvents(date) {
-      const { sql: where, params } = buildWhere(whereLte("review_due_date", date), { clause: "review_due_date IS NOT NULL" }, {
-        clause: "status != 'REVIEWED'"
-      });
+      // 状态白名单:只把系统仍然"需要自动复盘"的事件拉出来。
+      // 之前 `status != 'REVIEWED'` 把 WATCHING / FOLLOWED / IGNORED 一并捞回,
+      // 然后 markInsightEventReviewed 会把用户手动设的状态强制刷成 REVIEW_PENDING/REVIEWED,
+      // 用户的"已忽略"决定被悄悄覆盖。
+      const { sql: where, params } = buildWhere(
+        whereLte("review_due_date", date),
+        { clause: "review_due_date IS NOT NULL" },
+        { clause: "status IN ('TODO','REVIEW_PENDING')" }
+      );
       return (
         db
           .prepare(
@@ -221,7 +234,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         const { sql: where, params: whereParams } = buildWhere(
           whereLte("review_due_date", date),
           { clause: "review_due_date IS NOT NULL" },
-          { clause: "status != 'REVIEWED'" },
+          { clause: "status IN ('TODO','REVIEW_PENDING')" },
           options.categoryId !== undefined ? whereEq("category_id", options.categoryId) : null,
           { clause: "NOT EXISTS (SELECT 1 FROM insight_review_claims c WHERE c.event_id = insight_events.id)" }
         );
@@ -253,21 +266,35 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
 
     markInsightEventReviewed(id, result, note, nextReviewDueDate = null) {
       const now = nowIso();
-      const nextStatus: InsightEvent["status"] = nextReviewDueDate ? "REVIEW_PENDING" : "REVIEWED";
+      // 把空字符串 / 纯空白归一为 null,避免 COALESCE 把现有 user_note 错刷成 ""。
+      // (route 接收的 body.note 是 nullable 但用户可能传空字符串。)
+      const normalizedNote = note && note.trim().length > 0 ? note : null;
+      // 守卫用户手动设的状态:如果用户已经把事件标成 WATCHING / FOLLOWED / IGNORED,
+      // 自动复盘不应覆盖他们的决定——但允许在原状态上记录 review_result / review_due_date。
+      const current = this.getInsightEvent(id);
+      if (!current) {
+        return null;
+      }
+      const userStatus = new Set<InsightEvent["status"]>(["WATCHING", "FOLLOWED", "IGNORED"]);
+      const shouldFlipStatus = !userStatus.has(current.status);
+      const nextStatus: InsightEvent["status"] = shouldFlipStatus
+        ? nextReviewDueDate ? "REVIEW_PENDING" : "REVIEWED"
+        : current.status;
       withTransaction(db, () => {
-        db.prepare("UPDATE insight_events SET status = ?, review_result = ?, review_due_date = COALESCE(?, review_due_date), user_note = COALESCE(?, user_note), updated_at = ? WHERE id = ?").run(
-          nextStatus,
-          result,
-          nextReviewDueDate,
-          note ?? null,
-          now,
-          id
-        );
-        if (note) {
+        db.prepare(
+          `UPDATE insight_events
+           SET status = ?,
+               review_result = ?,
+               review_due_date = COALESCE(?, review_due_date),
+               user_note = COALESCE(?, user_note),
+               updated_at = ?
+           WHERE id = ?`
+        ).run(nextStatus, result, nextReviewDueDate, normalizedNote, now, id);
+        if (normalizedNote) {
           db.prepare("INSERT INTO insight_event_notes (id, event_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
             randomUUID(),
             id,
-            note,
+            normalizedNote,
             now,
             now
           );

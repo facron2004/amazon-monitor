@@ -151,7 +151,7 @@ function insightFromActivityEvent(context: CategoryInsightContext, event: Compet
     reviewCount: event.reviewCountAfter ?? snapshot?.reviewCount ?? null,
     reviewCountChange: event.reviewCountChange ?? null,
     brand,
-    daysListed: competitor ? daysBetween(competitor.firstSeenDate, context.date) + 1 : event.rankBefore === null ? 1 : null
+    daysListed: competitor ? daysBetween(competitor.firstSeenDate, context.date) + 1 : null
   }));
   const priceLowWindow = event.priceChangeRate !== null && event.priceChangeRate < 0 && price ? priceLowWindowFor(price) : null;
   return buildInsightEvent(context, {
@@ -317,7 +317,7 @@ function insightFromSignal(context: CategoryInsightContext, signal: CategorySign
     reviewCount: snapshot?.reviewCount ?? null,
     reviewCountChange: price?.reviewCountChange ?? null,
     brand,
-    daysListed: competitor ? daysBetween(competitor.firstSeenDate, context.date) + 1 : 1
+    daysListed: competitor ? daysBetween(competitor.firstSeenDate, context.date) + 1 : null
   }));
   return buildInsightEvent(context, {
     eventType: "NEW_PRODUCT_BREAKOUT",
@@ -491,6 +491,7 @@ function mapActivityEventType(event: CompetitorActivityEvent): InsightEventType 
   if (event.eventType === "deal_end") return "DEAL_REMOVED";
   if (event.eventType === "review_growth") return "REVIEW_SPIKE";
   if (event.eventType === "brand_matrix_push") return "BRAND_MATRIX_SURGE";
+  if (event.eventType === "brand_matrix_drop") return "BRAND_MATRIX_DROP";
   if (event.eventType === "activity_end_rank_drop") return "RANK_DROP";
   return null;
 }

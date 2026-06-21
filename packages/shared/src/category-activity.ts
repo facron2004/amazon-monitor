@@ -222,6 +222,40 @@ export function buildCategoryActivityEvents(input: CategoryActivityEventInput): 
     });
   }
 
+  // 对称信号:品牌矩阵下滑(brand.droppedCount >= 2)—— 之前只 emit push 不 emit drop,
+  // 让 BRAND_MATRIX_DROP 这个 InsightEventType 永远收不到数据,等于死代码。
+  for (const brand of input.brandMatrix) {
+    if (brand.droppedCount < 2) {
+      continue;
+    }
+    events.push({
+      eventKey: `brand_matrix_drop:${brand.brand}`,
+      eventDate: input.date,
+      eventType: "brand_matrix_drop",
+      eventLevel: brand.droppedCount >= 3 ? "high" : "medium",
+      categoryId: input.category.id,
+      categoryName: input.category.name,
+      marketplace: input.category.marketplace,
+      asin: null,
+      brand: brand.brand,
+      title: null,
+      priceBefore: null,
+      priceAfter: null,
+      priceChangeRate: null,
+      couponBefore: null,
+      couponAfter: null,
+      dealType: null,
+      rankBefore: null,
+      rankAfter: brand.bestRank,
+      rankChange: null,
+      keywordRankBefore: null,
+      keywordRankAfter: null,
+      eventSummary: `${brand.brand} has ${brand.droppedCount} ASINs dropping out of Top100; current Top100 share is ${brand.productCountTop100}.`,
+      possibleStrategy: "Possible brand matrix pullback across multiple ASINs.",
+      suggestedAction: "Check whether this brand is pausing activity or losing competitiveness, and whether the drop continues over the next 3-7 days."
+    });
+  }
+
   return events.sort((a, b) => eventPriority(b) - eventPriority(a));
 }
 
@@ -243,6 +277,7 @@ function eventPriority(event: CompetitorActivityEvent): number {
   const levelScore: Record<AlertLevel, number> = { critical: 400, high: 300, medium: 200, low: 100 };
   const typeScore: Record<ActivityEventType, number> = {
     brand_matrix_push: 30,
+    brand_matrix_drop: 30,
     new_entry_top50: 28,
     rank_surge: 26,
     price_drop: 24,

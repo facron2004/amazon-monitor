@@ -50,7 +50,16 @@ export function inferAttribution(input: AttributionInput): AttributionResult {
     tags.push("COUPON_DRIVEN");
   }
 
-  if (!input.dealBefore && Boolean(input.dealAfter) && (isTopRank(input.currentRank, 50) || (rankChange !== null && rankChange >= 20))) {
+  // DEAL_DRIVEN 只在 deal 是**新加**的(非历史 badge)且排名**提升**时打,
+  // 避免 RANK_DROP 路径误把"长期挂着 deal 但跌出 Top50"标成 deal 驱动——
+  // 旧实现里 `isTopRank(currentRank, 50)` 这条分支不检查 rankChange 方向,任何
+  // Top50 内且挂着 deal 的跌位事件都会被误标。
+  if (
+    !input.dealBefore &&
+    Boolean(input.dealAfter) &&
+    rankChange !== null &&
+    rankChange >= 20
+  ) {
     tags.push("DEAL_DRIVEN");
   }
 
