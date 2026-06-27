@@ -1,8 +1,12 @@
 import { computed, ref, type Ref } from "vue";
 import { storeToRefs } from "pinia";
 import { isoDate } from "@amazon-monitor/shared";
+import type { CollectionFreshness, InsightEvent, QueueStats, WorkerStatus } from "@amazon-monitor/shared";
 import { categoryApi } from "../api-categories";
+import { collectApi } from "../api-collect";
 import { useCategoryStore } from "../stores/category";
+import { useDashboardStore } from "../stores/dashboard";
+import { useInsightEventsStore } from "../stores/insightEvents";
 import { loadAppView, clearViewCache, type AppViewLoaders } from "./app-view-loader";
 import { useAuthGuard } from "./useAuthGuard";
 import { useAppViewEffects } from "./useAppViewEffects";
@@ -30,17 +34,22 @@ export function useAppController() {
   const categoriesLoading = ref(false);
   const keywordsLoading = ref(false);
   const competitorsLoading = ref(false);
+  const actionCenterLoading = ref(false);
   const alertsLoading = ref(false);
   const reportsLoading = ref(false);
   const notificationsLoading = ref(false);
   const logsLoading = ref(false);
   const collecting = ref(false);
+  const freshness = ref<CollectionFreshness[]>([]);
+  const queueStats = ref<QueueStats | null>(null);
+  const workerStatus = ref<WorkerStatus | null>(null);
 
   const loadingMap: Record<TabKey, Ref<boolean>> = {
     overview: overviewLoading,
     categories: categoriesLoading,
     keywords: keywordsLoading,
     competitors: competitorsLoading,
+    "action-center": actionCenterLoading,
     alerts: alertsLoading,
     reports: reportsLoading,
     notifications: notificationsLoading,
@@ -49,7 +58,7 @@ export function useAppController() {
 
   const loading = computed(() =>
     overviewLoading.value || categoriesLoading.value || keywordsLoading.value ||
-    competitorsLoading.value || alertsLoading.value || reportsLoading.value ||
+    competitorsLoading.value || actionCenterLoading.value || alertsLoading.value || reportsLoading.value ||
     notificationsLoading.value || logsLoading.value || collecting.value
   );
 
@@ -57,8 +66,11 @@ export function useAppController() {
   const activeTabLabel = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.label ?? "总览");
 
   const dashboard = useDashboardData(date);
+  const dashboardStore = useDashboardStore();
+  const { collectJobs } = storeToRefs(dashboardStore);
 
   const categoryStore = useCategoryStore();
+  const insightEventsStore = useInsightEventsStore();
   const { categories: categoryMonitors, selectedCategoryId } = storeToRefs(categoryStore);
 
   const category = useCategoryIntelligence({
@@ -84,21 +96,122 @@ export function useAppController() {
   const notifications = useNotifications({ date, clearMessages, setAction, setError });
 
   const appViewLoaders: AppViewLoaders = {
-    overview: async () => {
-      keywords.setKeywords(await dashboard.loadOverview());
+    overview: async (signal?: AbortSignal) => {
+      await Promise.all([
+        keywords.setKeywords(await dashboard.loadOverview()),
+        insightEventsStore.loadTopSummary(date.value, signal)
+      ]);
     },
     categories: category.loadCategories,
     keywords: keywords.loadKeywords,
     competitors: competitors.loadCompetitors,
+    "action-center": async (signal?: AbortSignal) => {
+      await Promise.all([
+        insightEventsStore.loadEvents(date.value, signal),
+        insightEventsStore.loadReviewDueEvents(date.value, signal),
+        insightEventsStore.loadWatchStates(signal)
+      ]);
+    },
     alerts: dashboard.loadAlerts,
     reports: dashboard.loadReport,
     notifications: notifications.loadNotifications,
-    logs: dashboard.loadLogs
+    logs: async () => {
+      await Promise.all([dashboard.loadLogs(), dashboardStore.loadCollectJobs()]);
+    }
   };
 
   async function loadAll() {
     clearViewCache();
+    await Promise.all([loadFreshness(), loadQueueStats(), loadWorkerStatus()]);
     await loadCurrentView(true);
+  }
+
+  /**
+   * Per-load AbortController. We replace this on every `loadCurrentView`
+   * call, aborting any in-flight request left over from the previous tab or
+   * date. Stores / loaders receive the new `signal` and forward it to fetch
+   * so cancelled requests don't write stale state when they eventually return.
+   *
+   * `acquireLoadSignal` is exposed to `useAppViewEffects` so non-tab-change
+   * triggers (selectedKeywordId, filter changes, polling) reuse the same
+   * lifecycle — picking up the same signal that the next `loadCurrentView`
+   * call will abort.
+   */
+  let loadSignalController: AbortController | null = null;
+  function acquireLoadSignal(): AbortSignal | undefined {
+    if (loadSignalController?.signal.aborted) return undefined;
+    return loadSignalController?.signal;
+  }
+
+  async function loadCurrentView(force = false) {
+    loadSignalController?.abort();
+    const controller = new AbortController();
+    loadSignalController = controller;
+    const tabLoading = loadingMap[activeTab.value];
+    tabLoading.value = true;
+    errorMessage.value = "";
+
+    try {
+      await loadAppView(activeTab.value, appViewLoaders, date.value, force, controller.signal);
+    } catch (error) {
+      // Swallow AbortError — the next load supersedes this one intentionally.
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      errorMessage.value = toErrorMessage(error);
+    } finally {
+      if (loadSignalController === controller) {
+        tabLoading.value = false;
+      }
+    }
+  }
+
+  /**
+   * Switch to Action Center and open the drawer for the given event's ASIN.
+   * Used by Overview's "今日必看" panel.
+   */
+  async function openActionCenterForEvent(event: InsightEvent) {
+    activeTab.value = "action-center";
+    await insightEventsStore.loadEventDetail(event.id);
+  }
+
+  /**
+   * Fetch the latest collection queue snapshot for the dashboard freshness badge.
+   * Independent of the active tab — the badge should always reflect reality,
+   * even before the user lands on a data tab. Errors are swallowed so a flaky
+   * queue doesn't block the rest of the dashboard.
+   */
+  async function loadFreshness() {
+    try {
+      freshness.value = await collectApi.fetchFreshness();
+    } catch {
+      // Keep previous value; badge will simply not refresh this round.
+    }
+  }
+
+  /**
+   * Queue health snapshot for the topbar "pending/processing/oldest" badge.
+   * Runs alongside `loadFreshness` on `loadAll` and silently no-ops on error
+   * so a stalled queue can't break the rest of the UI.
+   */
+  async function loadQueueStats() {
+    try {
+      queueStats.value = await collectApi.fetchQueueStats();
+    } catch {
+      // Keep previous value.
+    }
+  }
+
+  /**
+   * Background Worker health snapshot — last heart-beat, uptime, current
+   * job. Drives the topbar "online / stale / offline" dot. Like
+   * `loadQueueStats`, this is unconditional on tab so a dead Worker is
+   * visible from any view the moment the user opens the dashboard.
+   */
+  async function loadWorkerStatus() {
+    try {
+      workerStatus.value = await collectApi.fetchWorkerStatus();
+    } catch {
+      // Keep previous value.
+    }
   }
 
   function toggleSidebar() {
@@ -107,20 +220,6 @@ export function useAppController() {
 
   function closeSidebar() {
     sidebarOpen.value = false;
-  }
-
-  async function loadCurrentView(force = false) {
-    const tabLoading = loadingMap[activeTab.value];
-    tabLoading.value = true;
-    errorMessage.value = "";
-
-    try {
-      await loadAppView(activeTab.value, appViewLoaders, date.value, force);
-    } catch (error) {
-      errorMessage.value = toErrorMessage(error);
-    } finally {
-      tabLoading.value = false;
-    }
   }
 
   function handleOverviewSelectKeyword(id: number) {
@@ -147,6 +246,7 @@ export function useAppController() {
     selectedCategoryId,
     competitorSourceFilter: competitors.competitorSourceFilter,
     competitorTierFilter: competitors.competitorTierFilter,
+    acquireLoadSignal,
     loadCurrentView,
     loadKeywordDetail: keywords.loadDetail,
     loadCategoryDetail: category.loadCategoryDetail,
@@ -167,14 +267,26 @@ export function useAppController() {
     date,
     loading,
     collecting,
+    freshness,
+    queueStats,
+    workerStatus,
+    collectJobs,
+    loadFreshness,
+    loadQueueStats,
+    loadWorkerStatus,
     actionMessage,
     errorMessage,
     activeTabLabel,
     ...dashboard,
+    topSummary: storeToRefs(insightEventsStore).topSummary,
+    topSummaryLoading: storeToRefs(insightEventsStore).topSummaryLoading,
+    openActionCenterForEvent,
     categories: categoryMonitors,
     loadCategories: category.loadCategories,
     loadCategoryDetail: category.loadCategoryDetail,
     runCategoryCollection: category.runCategoryCollection,
+    createCategory: category.createCategory,
+    toggleCategory: category.toggleCategory,
     ...competitors,
     ...keywords,
     ...notifications,

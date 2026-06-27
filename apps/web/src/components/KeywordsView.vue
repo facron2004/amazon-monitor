@@ -18,6 +18,7 @@ interface Emits {
   (e: "run-collection", keywordId?: number): void;
   (e: "create-keyword"): void;
   (e: "toggle-keyword", keyword: KeywordMonitor): void;
+  (e: "delete-keyword", keywordId: number): void;
   (e: "chart-ready", element: HTMLDivElement | null): void;
 }
 
@@ -36,6 +37,7 @@ const emit = defineEmits<Emits>();
       @run-collection="emit('run-collection', $event)"
       @create-keyword="emit('create-keyword')"
       @toggle-keyword="emit('toggle-keyword', $event)"
+      @delete-keyword="(keywordId) => emit('delete-keyword', keywordId)"
     />
 
     <KeywordDetailPanel

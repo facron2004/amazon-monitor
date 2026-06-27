@@ -12,11 +12,17 @@ interface UseAppViewEffectsOptions {
   selectedCategoryId: Ref<number | null>;
   competitorSourceFilter: Ref<CompetitorSourceFilter>;
   competitorTierFilter: Ref<CompetitorTierFilter>;
+  /**
+   * Issue a fresh AbortSignal that gets aborted automatically when the next
+   * effect (tab switch, filter change, refresh, etc.) runs. The caller
+   * receives the signal so it can forward it to API calls.
+   */
+  acquireLoadSignal(): AbortSignal | undefined;
   loadCurrentView(): Promise<void>;
-  loadKeywordDetail(): Promise<void>;
-  loadCategoryDetail(): Promise<void>;
-  loadCompetitors(): Promise<void>;
-  loadCategories(): Promise<void>;
+  loadKeywordDetail(signal?: AbortSignal): Promise<void>;
+  loadCategoryDetail(signal?: AbortSignal): Promise<void>;
+  loadCompetitors(signal?: AbortSignal): Promise<void>;
+  loadCategories(signal?: AbortSignal): Promise<void>;
   resizeKeywordChart(): void;
   disposeKeywordChart(): void;
   handleUnauthorized(): void;
@@ -44,7 +50,7 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
       return;
     }
 
-    options.loadKeywordDetail().catch(setInlineError);
+    options.loadKeywordDetail(options.acquireLoadSignal()).catch(setInlineError);
   });
 
   watch(options.selectedCategoryId, () => {
@@ -52,7 +58,7 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
       return;
     }
 
-    options.loadCategoryDetail().catch(setInlineError);
+    options.loadCategoryDetail(options.acquireLoadSignal()).catch(setInlineError);
   });
 
   watchDebounced([options.competitorSourceFilter, options.competitorTierFilter], () => {
@@ -60,7 +66,7 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
       return;
     }
 
-    options.loadCompetitors().catch(setInlineError);
+    options.loadCompetitors(options.acquireLoadSignal()).catch(setInlineError);
   }, { debounce: 300 });
 
   watchDebounced(options.date, () => {
@@ -77,7 +83,7 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         return;
       }
-      options.loadCategories().catch(setInlineError);
+      options.loadCategories(options.acquireLoadSignal()).catch(setInlineError);
     }, 60_000);
   }
 

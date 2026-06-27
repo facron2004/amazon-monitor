@@ -11,6 +11,7 @@ const OverviewView = defineAsyncComponent(() => import("./components/OverviewVie
 const CategoriesView = defineAsyncComponent(() => import("./components/CategoriesView.vue"));
 const KeywordsView = defineAsyncComponent(() => import("./components/KeywordsView.vue"));
 const CompetitorsView = defineAsyncComponent(() => import("./components/CompetitorsView.vue"));
+const ActionCenterPanel = defineAsyncComponent(() => import("./components/ActionCenterPanel.vue"));
 const AlertsView = defineAsyncComponent(() => import("./components/AlertsView.vue"));
 const ReportsView = defineAsyncComponent(() => import("./components/ReportsView.vue"));
 const NotificationsView = defineAsyncComponent(() => import("./components/NotificationsView.vue"));
@@ -21,19 +22,29 @@ const {
   date,
   loading,
   collecting,
+  freshness,
+  queueStats,
+  workerStatus,
+  topSummary,
+  topSummaryLoading,
   actionMessage,
   errorMessage,
   activeTabLabel,
   alerts,
   changes,
   logs,
+  collectJobs,
   report,
   categoryReport,
+  periodInsightReport,
+  loadPeriodInsightReport,
   pendingAlerts,
   highAlerts,
   updateAlert,
   categories,
   runCategoryCollection,
+  createCategory,
+  toggleCategory,
   competitorFolders,
   competitors,
   competitorQuery,
@@ -43,6 +54,8 @@ const {
   productActivityCalendar,
   visibleCompetitors,
   selectedCompetitor,
+  competitorKpis,
+  competitorInsightSuggestion,
   toggleKeyCompetitor,
   selectCompetitorFolder,
   openCompetitorDrawer,
@@ -57,6 +70,7 @@ const {
   runCollection,
   createKeyword,
   toggleKeyword,
+  deleteKeyword,
   notificationSchedules,
   notificationLogs,
   notificationForm,
@@ -73,7 +87,8 @@ const {
   showAuthModal,
   passwordInput,
   authError,
-  handleAuthSubmit
+  handleAuthSubmit,
+  openActionCenterForEvent
 } = useAppController();
 </script>
 
@@ -103,6 +118,9 @@ const {
         :loading="loading"
         :active-tab-label="activeTabLabel"
         :selected-date="date"
+        :freshness="freshness"
+        :queue-stats="queueStats"
+        :worker-status="workerStatus"
         @toggle-sidebar="toggleSidebar"
       />
 
@@ -111,8 +129,11 @@ const {
         :keywords="keywords"
         :high-alerts="highAlerts"
         :pending-alerts-count="pendingAlerts.length"
+        :top-summary="topSummary"
+        :top-summary-loading="topSummaryLoading"
         @update-alert="updateAlert"
         @select-keyword="handleOverviewSelectKeyword"
+        @open-action-center="openActionCenterForEvent"
       />
 
       <CategoriesView
@@ -120,6 +141,8 @@ const {
         :date="date"
         :collecting="collecting"
         @run-category-collection="runCategoryCollection"
+        @toggle-category="toggleCategory"
+        @create-category="createCategory"
       />
 
       <KeywordsView
@@ -135,6 +158,7 @@ const {
         @run-collection="runCollection"
         @create-keyword="createKeyword"
         @toggle-keyword="toggleKeyword"
+        @delete-keyword="deleteKeyword"
       />
 
       <CompetitorsView
@@ -148,6 +172,8 @@ const {
         :selected-competitor-keyword-id="selectedCompetitorKeywordId"
         :selected-competitor="selectedCompetitor"
         :product-activity-calendar="productActivityCalendar"
+        :competitor-kpis="competitorKpis"
+        :competitor-insight-suggestion="competitorInsightSuggestion"
         @update:competitor-query="competitorQuery = $event"
         @update:competitor-source-filter="competitorSourceFilter = $event"
         @update:competitor-tier-filter="competitorTierFilter = $event"
@@ -159,9 +185,17 @@ const {
         @open-amazon="openAmazon"
       />
 
+      <ActionCenterPanel v-if="activeTab === 'action-center'" :date="date" />
+
       <AlertsView v-if="activeTab === 'alerts'" :alerts="alerts" @update-alert="updateAlert" />
 
-      <ReportsView v-if="activeTab === 'reports'" :report="report" :category-report="categoryReport" />
+      <ReportsView
+        v-if="activeTab === 'reports'"
+        :report="report"
+        :category-report="categoryReport"
+        :period-insight-report="periodInsightReport"
+        @request-ai-summary="loadPeriodInsightReport(true)"
+      />
 
       <NotificationsView
         v-if="activeTab === 'notifications'"
@@ -175,7 +209,7 @@ const {
         @send-notification-now="sendNotificationNow"
       />
 
-      <LogsView v-if="activeTab === 'logs'" :logs="logs" />
+      <LogsView v-if="activeTab === 'logs'" :logs="logs" :jobs="collectJobs" />
 
       <OverviewChangesStrip v-if="activeTab === 'overview'" :changes="changes" />
     </main>

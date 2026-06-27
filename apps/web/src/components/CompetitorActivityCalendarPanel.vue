@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ProductActivityCalendar } from "@amazon-monitor/shared";
-import { activityDayPromoText, bestDayPrice, categoryLabel, changeLabel, formatCount, formatMoney, formatSignedCount } from "../utils/formatters";
+import { bestDayPrice, categoryLabel, changeLabel, formatCount, formatMoney, formatSignedCount, validCouponText, validDealBadge } from "../utils/formatters";
 
 interface Props {
   productActivityCalendar: ProductActivityCalendar | null;
@@ -64,7 +64,15 @@ defineProps<Props>();
             </td>
             <td>{{ formatMoney(bestDayPrice(day)) }}</td>
             <td>{{ formatCount(day.priceHistory?.reviewCount ?? day.categoryRanks[0]?.reviewCount) }} <small>{{ formatSignedCount(day.priceHistory?.reviewCountChange) }}</small></td>
-            <td>{{ activityDayPromoText(day) }}</td>
+            <td>
+              <span v-if="validDealBadge(day.categoryRanks[0]?.dealBadge ?? day.keywordRanks[0]?.dealBadge ?? null)">
+                {{ validDealBadge(day.categoryRanks[0]?.dealBadge ?? day.keywordRanks[0]?.dealBadge ?? null) }}
+              </span>
+              <span v-else-if="validCouponText(day.categoryRanks[0]?.couponText ?? day.keywordRanks[0]?.couponText ?? null)">
+                {{ validCouponText(day.categoryRanks[0]?.couponText ?? day.keywordRanks[0]?.couponText ?? null) }}
+              </span>
+              <span v-else>-</span>
+            </td>
             <td class="target-cell">
               {{
                 [

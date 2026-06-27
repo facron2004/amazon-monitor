@@ -29,7 +29,12 @@ export function localizeDealLabel(text: string): string {
   const normalized = normalizeSpace(text);
   const rules: Array<[RegExp, string]> = [
     [/^limited\s+time\s+deal$/i, "Limited Time Deal"],
-    [/^prime\s+exclusive\s+deal$/i, "Prime Exclusive Deal"],
+    [/^prime[\s-]*day'?s?[\s-]*deals?$/i, "Prime Day Deal"],
+    [/^prime[\s-]*day'?s?[\s-]*(?:exclusive|savings|sale)$/i, "Prime Day Deal"],
+    [/^prime[\s-]*big[\s-]*deal[\s-]*days?$/i, "Prime Big Deal Days"],
+    [/^prime[\s-]*exclusive[\s-]*(?:deal|savings)$/i, "Prime Exclusive Deal"],
+    [/^prime[\s-]*early[\s-]*access[\s-]*deal$/i, "Prime Early Access Deal"],
+    [/^prime[\s-]*member[\s-]*exclusive[\s-]*deal$/i, "Prime Member Exclusive Deal"],
     [/^deal\s+of\s+the\s+day$/i, "Deal of the Day"],
     [/^lightning\s+deal$/i, "Lightning Deal"],
     [/^black\s+friday\s+deal$/i, "Black Friday Deal"],
@@ -55,7 +60,7 @@ export function validDealBadge(value: string | null | undefined): string | null 
   const text = value?.trim();
   return text &&
     text.length <= 90 &&
-    /\b(limited\s+time\s+deal|prime\s+exclusive\s+deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal)\b|^deal$/i.test(text)
+    /\b(limited\s+time\s+deal|prime[\s-]*exclusive\s+(?:deal|savings)|prime[\s-]*day'?s?[\s-]*(?:deals?|exclusive|savings|sale)|prime[\s-]*big[\s-]*deal[\s-]*days?|prime[\s-]*early[\s-]*access[\s-]*deal|prime[\s-]*member[\s-]*exclusive[\s-]*deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal)\b|^deal$/i.test(text)
     ? localizeDealLabel(text)
     : null;
 }

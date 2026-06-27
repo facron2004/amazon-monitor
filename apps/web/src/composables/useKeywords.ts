@@ -85,6 +85,13 @@ export function useKeywords(options: UseKeywordsOptions) {
     });
   }
 
+  async function deleteKeyword(keywordId: number) {
+    await runErrorHandledTask(options.setError, async () => {
+      await store.deleteKeyword(keywordId, options.date.value);
+      options.setAction("关键词已删除");
+    });
+  }
+
   return {
     keywords,
     selectedKeywordId,
@@ -97,6 +104,7 @@ export function useKeywords(options: UseKeywordsOptions) {
     renderCurrentKeywordChart,
     runCollection,
     createKeyword,
-    toggleKeyword
+    toggleKeyword,
+    deleteKeyword
   };
 }

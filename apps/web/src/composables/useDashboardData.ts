@@ -9,7 +9,7 @@ export function useDashboardData(date: Ref<string>) {
   const dashboardStore = useDashboardStore();
   const alertStore = useAlertStore();
 
-  const { summary, logs, report, categoryReport } = storeToRefs(dashboardStore);
+  const { summary, logs, report, categoryReport, periodInsightReport } = storeToRefs(dashboardStore);
   const { alerts, changes, pendingAlerts, highAlerts } = storeToRefs(alertStore);
 
   async function loadOverview(): Promise<KeywordMonitor[]> {
@@ -26,8 +26,12 @@ export function useDashboardData(date: Ref<string>) {
     return alertStore.loadAlerts(date.value);
   }
 
-  function loadReport() {
-    return dashboardStore.loadReport(date.value);
+  function loadReport(signal?: AbortSignal) {
+    return dashboardStore.loadReport(date.value, signal);
+  }
+
+  function loadPeriodInsightReport(includeAiSummary = false) {
+    return dashboardStore.loadPeriodInsightReport(date.value, includeAiSummary);
   }
 
   function loadLogs() {
@@ -45,11 +49,13 @@ export function useDashboardData(date: Ref<string>) {
     logs,
     report,
     categoryReport,
+    periodInsightReport,
     pendingAlerts,
     highAlerts,
     loadOverview,
     loadAlerts,
     loadReport,
+    loadPeriodInsightReport,
     loadLogs,
     updateAlert
   };

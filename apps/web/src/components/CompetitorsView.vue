@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import type { CompetitorFolder, CompetitorPoolItem, ProductActivityCalendar } from "@amazon-monitor/shared";
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "../constants/competitors";
+import type { CompetitorInsightSuggestion, CompetitorKpi } from "../utils/competitor-pool";
 import CompetitorActivityCalendarPanel from "./CompetitorActivityCalendarPanel.vue";
 import CompetitorDrawerPanel from "./CompetitorDrawerPanel.vue";
+import CompetitorPoolInsightPanel from "./CompetitorPoolInsightPanel.vue";
+import CompetitorPoolKpiCards from "./CompetitorPoolKpiCards.vue";
 import CompetitorPoolPanel from "./CompetitorPoolPanel.vue";
 
 interface Props {
@@ -15,6 +18,8 @@ interface Props {
   selectedCompetitorKeywordId: number | null;
   selectedCompetitor: CompetitorPoolItem | null;
   productActivityCalendar: ProductActivityCalendar | null;
+  competitorKpis: CompetitorKpi[];
+  competitorInsightSuggestion: CompetitorInsightSuggestion;
 }
 
 interface Emits {
@@ -34,25 +39,36 @@ const emit = defineEmits<Emits>();
 </script>
 
 <template>
-  <section class="view">
-    <CompetitorPoolPanel
-      :competitor-folders="competitorFolders"
-      :visible-competitors="visibleCompetitors"
-      :total-competitors="totalCompetitors"
-      :competitor-query="competitorQuery"
-      :competitor-source-filter="competitorSourceFilter"
-      :competitor-tier-filter="competitorTierFilter"
-      :selected-competitor-keyword-id="selectedCompetitorKeywordId"
-      :selected-competitor="selectedCompetitor"
-      @update:competitor-query="emit('update:competitor-query', $event)"
-      @update:competitor-source-filter="emit('update:competitor-source-filter', $event)"
-      @update:competitor-tier-filter="emit('update:competitor-tier-filter', $event)"
-      @select-competitor-folder="emit('select-competitor-folder', $event)"
-      @open-competitor-drawer="emit('open-competitor-drawer', $event)"
-      @toggle-key-competitor="emit('toggle-key-competitor', $event)"
-      @open-product-activity-calendar="emit('open-product-activity-calendar', $event)"
-      @open-amazon="emit('open-amazon', $event)"
-    />
+  <section class="view competitors-view">
+    <div class="competitors-view-kpis">
+      <CompetitorPoolKpiCards :kpis="competitorKpis" />
+    </div>
+
+    <div class="competitors-view-body">
+      <div class="competitors-view-main">
+        <CompetitorPoolPanel
+          :competitor-folders="competitorFolders"
+          :visible-competitors="visibleCompetitors"
+          :total-competitors="totalCompetitors"
+          :competitor-query="competitorQuery"
+          :competitor-source-filter="competitorSourceFilter"
+          :competitor-tier-filter="competitorTierFilter"
+          :selected-competitor-keyword-id="selectedCompetitorKeywordId"
+          :selected-competitor="selectedCompetitor"
+          @update:competitor-query="emit('update:competitor-query', $event)"
+          @update:competitor-source-filter="emit('update:competitor-source-filter', $event)"
+          @update:competitor-tier-filter="emit('update:competitor-tier-filter', $event)"
+          @select-competitor-folder="emit('select-competitor-folder', $event)"
+          @open-competitor-drawer="emit('open-competitor-drawer', $event)"
+          @toggle-key-competitor="emit('toggle-key-competitor', $event)"
+          @open-product-activity-calendar="emit('open-product-activity-calendar', $event)"
+          @open-amazon="emit('open-amazon', $event)"
+        />
+      </div>
+      <div class="competitors-view-side">
+        <CompetitorPoolInsightPanel />
+      </div>
+    </div>
 
     <CompetitorDrawerPanel
       :selected-competitor="selectedCompetitor"
@@ -65,3 +81,38 @@ const emit = defineEmits<Emits>();
     <CompetitorActivityCalendarPanel :product-activity-calendar="productActivityCalendar" />
   </section>
 </template>
+
+<style scoped>
+.competitors-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.competitors-view-body {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.competitors-view-main {
+  min-width: 0;
+}
+
+.competitors-view-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+}
+
+@media (max-width: 1080px) {
+  .competitors-view-body {
+    grid-template-columns: 1fr;
+  }
+  .competitors-view-side {
+    position: static;
+  }
+}
+</style>

@@ -61,6 +61,13 @@ export const useKeywordStore = defineStore("keyword", {
         status: keyword.status === "enabled" ? "disabled" : "enabled"
       });
       await this.loadKeywords(date);
+    },
+    async deleteKeyword(keywordId: number, date: string) {
+      await keywordApi.deleteKeyword(keywordId);
+      if (this.selectedKeywordId === keywordId) {
+        this.selectedKeywordId = null;
+      }
+      await this.loadKeywords(date);
     }
   }
 });

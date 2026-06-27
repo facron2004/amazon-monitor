@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CalendarDays, ExternalLink, Star, StarOff, X } from "@lucide/vue";
 import type { CompetitorPoolItem } from "@amazon-monitor/shared";
-import { competitorSourceLabel, competitorTierLabel, formatCount, formatMoney, iceTypeLabel, imgFallback, promoText } from "../utils/formatters";
+import { competitorSourceLabel, competitorTierLabel, formatCount, formatMoney, iceTypeLabel, imgFallback, validCouponText, validDealBadge } from "../utils/formatters";
 
 interface Props {
   selectedCompetitor: CompetitorPoolItem | null;
@@ -27,7 +27,8 @@ const emit = defineEmits<Emits>();
         <div>
           <strong>{{ selectedCompetitor.asin }}</strong>
           <span>{{ selectedCompetitor.title }}</span>
-          <small v-if="promoText(selectedCompetitor) !== '-'" class="promo-inline" :title="promoText(selectedCompetitor)"> 促销：{{ promoText(selectedCompetitor) }} </small>
+          <small v-if="validDealBadge(selectedCompetitor.dealBadge)" class="promo-inline" :title="validDealBadge(selectedCompetitor.dealBadge) ?? ''">促销：{{ validDealBadge(selectedCompetitor.dealBadge) }}</small>
+          <small v-else-if="validCouponText(selectedCompetitor.couponText)" class="promo-inline" :title="validCouponText(selectedCompetitor.couponText) ?? ''">促销：{{ validCouponText(selectedCompetitor.couponText) }}</small>
         </div>
       </div>
       <button class="icon-button drawer-close" title="关闭" type="button" @click="emit('close-competitor-drawer')">

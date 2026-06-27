@@ -13,3 +13,4 @@ export { validCouponText, validDealBadge, promoText, activityDayPromoText } from
 export { localizeGeneratedText } from "./formatters-localization";
 export { bestDayPrice, specificBestsellerRank } from "./formatters-product";
 export { imgFallback } from "./formatters-media";
+export { formatLocalDateTime } from "./formatters-time";

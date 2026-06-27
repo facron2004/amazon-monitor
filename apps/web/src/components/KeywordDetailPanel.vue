@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { KeywordMonitor, SerpSnapshot } from "@amazon-monitor/shared";
-import { formatMoney, imgFallback, promoText } from "../utils/formatters";
+import { formatMoney, imgFallback, validCouponText, validDealBadge } from "../utils/formatters";
 
 interface Props {
   selectedKeyword: KeywordMonitor | null;
@@ -50,7 +50,9 @@ onBeforeUnmount(() => {
         </div>
         <div class="price-box">
           <strong>{{ formatMoney(item.currentPrice) }}</strong>
-          <span>{{ promoText(item) === "-" ? "常规价" : promoText(item) }}</span>
+          <span v-if="validDealBadge(item.dealBadge)">{{ validDealBadge(item.dealBadge) }}</span>
+          <span v-else-if="validCouponText(item.couponText)">{{ validCouponText(item.couponText) }}</span>
+          <span v-else>常规价</span>
         </div>
       </article>
     </div>

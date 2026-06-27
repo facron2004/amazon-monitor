@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Play, RefreshCw, Search } from "@lucide/vue";
+import { computed, ref } from "vue";
+import { Play, RefreshCw, Search, Trash2, X } from "@lucide/vue";
 import type { KeywordMonitor } from "@amazon-monitor/shared";
 import type { KeywordMonitorForm } from "../types/keyword-monitor";
 import { statusText } from "../utils/formatters";
@@ -16,10 +17,29 @@ interface Emits {
   (e: "run-collection", keywordId?: number): void;
   (e: "create-keyword"): void;
   (e: "toggle-keyword", keyword: KeywordMonitor): void;
+  (e: "delete-keyword", keywordId: number): void;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+const pendingDeleteId = ref<number | null>(null);
+const pendingDeleteLabel = computed(() => props.keywords.find((keyword) => keyword.id === pendingDeleteId.value)?.keyword ?? "");
+
+function openDeleteConfirm(keyword: KeywordMonitor): void {
+  pendingDeleteId.value = keyword.id;
+}
+
+function closeDeleteConfirm(): void {
+  pendingDeleteId.value = null;
+}
+
+function confirmDelete(): void {
+  if (pendingDeleteId.value !== null) {
+    emit("delete-keyword", pendingDeleteId.value);
+  }
+  closeDeleteConfirm();
+}
 </script>
 
 <template>
@@ -63,14 +83,94 @@ const emit = defineEmits<Emits>();
             <td>{{ keyword.categoryTag || "未分组" }}</td>
             <td>{{ keyword.crawlPages }}</td>
             <td>{{ statusText(keyword.status) }}</td>
-            <td>
+            <td class="row-actions">
               <button class="icon-button" :title="keyword.status === 'enabled' ? '停用监控' : '启用监控'" type="button" @click="emit('toggle-keyword', keyword)">
                 <RefreshCw :size="16" />
+              </button>
+              <button
+                class="icon-button danger"
+                title="删除关键词"
+                type="button"
+                @click="openDeleteConfirm(keyword)"
+              >
+                <Trash2 :size="16" />
               </button>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <div v-if="pendingDeleteId !== null" class="confirm-backdrop" @click="closeDeleteConfirm">
+      <div class="confirm-dialog" @click.stop>
+        <h3>删除关键词</h3>
+        <p>确定要删除关键词「{{ pendingDeleteLabel }}」吗？此操作不可撤销。</p>
+        <div class="confirm-actions">
+          <button type="button" @click="closeDeleteConfirm">
+            <X :size="16" />
+            <span>取消</span>
+          </button>
+          <button class="danger-solid" type="button" @click="confirmDelete">
+            <Trash2 :size="16" />
+            <span>确认删除</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
+
+<style scoped>
+.row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.danger {
+  color: #dc2626;
+}
+
+.confirm-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.38);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 30;
+}
+
+.confirm-dialog {
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.24);
+  max-width: 360px;
+  padding: 18px;
+  width: calc(100vw - 32px);
+}
+
+.confirm-dialog h3 {
+  color: #0f172a;
+  font-size: 16px;
+  margin: 0;
+}
+
+.confirm-dialog p {
+  color: #475569;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.danger-solid {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+</style>

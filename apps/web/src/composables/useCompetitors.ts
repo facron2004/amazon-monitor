@@ -20,7 +20,9 @@ export function useCompetitors(options: UseCompetitorsOptions) {
     selectedCompetitorKeywordId,
     productActivityCalendar,
     visibleCompetitors,
-    selectedCompetitor
+    selectedCompetitor,
+    competitorKpis,
+    competitorInsightSuggestion
   } = storeToRefs(store);
 
   const loadCompetitors = () => store.loadCompetitors();
@@ -41,6 +43,8 @@ export function useCompetitors(options: UseCompetitorsOptions) {
     productActivityCalendar,
     visibleCompetitors,
     selectedCompetitor,
+    competitorKpis,
+    competitorInsightSuggestion,
     loadCompetitors,
     toggleKeyCompetitor,
     selectCompetitorFolder,

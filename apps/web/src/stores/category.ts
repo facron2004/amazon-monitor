@@ -17,12 +17,18 @@ import {
   getActivityEventOptions,
   getBadBsrQuality,
   getCategoryBrandOptions,
+  getCategoryIceTypeOptions,
   getFilteredActivityEvents,
+  getPagedCategorySnapshots,
   getReviewGrowthEvents,
-  getTopCategorySnapshots
+  getTopCategorySnapshots,
+  type DealCouponFilter
 } from "./category-selectors";
 
 export type CategoryRankWindow = "all" | "top20" | "top50" | "top100";
+export type DealCouponChoice = DealCouponFilter;
+
+export const DEFAULT_BSR_PAGE_SIZE = 20;
 
 export const useCategoryStore = defineStore("category", {
   state: () => ({
@@ -36,6 +42,10 @@ export const useCategoryStore = defineStore("category", {
     categoryProductQuery: "",
     categoryBrandFilter: "all",
     categoryRankWindow: "top100" as CategoryRankWindow,
+    iceTypeFilter: "all",
+    dealCouponFilter: "all" as DealCouponChoice,
+    bsrTablePage: 1,
+    bsrTablePageSize: DEFAULT_BSR_PAGE_SIZE,
     activityEventFilter: "all" as ActivityEventFilter,
     categoryDataDate: "",
     categoryDetail: null as CategoryDetail | null,
@@ -52,12 +62,26 @@ export const useCategoryStore = defineStore("category", {
   getters: {
     selectedCategory: (state) => state.categories.find((item) => item.id === state.selectedCategoryId) ?? null,
     categoryBrandOptions: (state) => getCategoryBrandOptions(state.categoryDetail),
+    categoryIceTypeOptions: (state) => getCategoryIceTypeOptions(state.categoryDetail),
     topCategorySnapshots: (state) =>
       getTopCategorySnapshots({
         categoryDetail: state.categoryDetail,
         categoryProductQuery: state.categoryProductQuery,
         categoryBrandFilter: state.categoryBrandFilter,
-        categoryRankWindow: state.categoryRankWindow
+        categoryRankWindow: state.categoryRankWindow,
+        iceTypeFilter: state.iceTypeFilter,
+        dealCouponFilter: state.dealCouponFilter
+      }),
+    pagedCategorySnapshots: (state) =>
+      getPagedCategorySnapshots({
+        categoryDetail: state.categoryDetail,
+        categoryProductQuery: state.categoryProductQuery,
+        categoryBrandFilter: state.categoryBrandFilter,
+        categoryRankWindow: state.categoryRankWindow,
+        iceTypeFilter: state.iceTypeFilter,
+        dealCouponFilter: state.dealCouponFilter,
+        page: state.bsrTablePage,
+        pageSize: state.bsrTablePageSize
       }),
     filteredActivityEvents: (state) => getFilteredActivityEvents(state.activityEvents, state.activityEventFilter),
     reviewGrowthEvents: (state) => getReviewGrowthEvents(state.activityEvents),
@@ -95,6 +119,13 @@ export const useCategoryStore = defineStore("category", {
       this.actionInsights = bundle.actionInsights;
       this.activityEvents = bundle.activityEvents;
       this.priceHistory = bundle.priceHistory;
+    },
+    setBsrTablePage(page: number) {
+      this.bsrTablePage = Math.max(1, Math.floor(page));
+    },
+    setBsrTablePageSize(pageSize: number) {
+      this.bsrTablePageSize = Math.max(1, Math.floor(pageSize));
+      this.bsrTablePage = 1;
     },
     async createCategory(date: string) {
       if (!this.categoryForm.name.trim() || !this.categoryForm.categoryUrl.trim()) {

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { CheckCircle2, RefreshCw, SlidersHorizontal } from "@lucide/vue";
+import { CheckCircle2, Clock3, Eye, ListTodo, RefreshCw, Send, SlidersHorizontal } from "@lucide/vue";
 import {
   insightEventLevels,
   insightEventStatuses,
+  insightEventStatusLabels,
   insightEventTypes,
   insightEventTypeLabels,
   type AsinWatchLevel,
@@ -13,31 +14,37 @@ import {
   type InsightReviewResult
 } from "@amazon-monitor/shared";
 import { useInsightEventsStore } from "../stores/insightEvents";
-import ActionCenterKpiCards from "./action-center/ActionCenterKpiCards.vue";
 import InsightEventDrawer from "./action-center/InsightEventDrawer.vue";
-import InsightEventList from "./action-center/InsightEventList.vue";
-import ReviewQueuePanel from "./action-center/ReviewQueuePanel.vue";
+import InsightScoreBadge from "./action-center/InsightScoreBadge.vue";
 
 const props = defineProps<{
   date: string;
 }>();
 
 const store = useInsightEventsStore();
-const { selectedEvent, reviewDueEvents, watchStates, loading, generating, reviewing, visibleEvents,
-  p0Count, p1Count, todoCount, reviewedConfirmedCount, coreRiskCount } = storeToRefs(store);
+const {
+  selectedEvent,
+  reviewDueEvents,
+  brandPlaybook,
+  selectedPriceHistory,
+  watchStates,
+  loading,
+  generating,
+  reviewing,
+  brandPlaybookLoading,
+  priceHistoryLoading,
+  visibleEvents
+} = storeToRefs(store);
 
-// 状态/类型 label 都从 shared 拿,组件里只覆盖"待处理"这类业务口语化翻译,
-// 避免和 packages/shared/insight-events.ts 的 insightEventTypeLabels 漂移
-const statusLabels: Record<InsightEventStatus, string> = {
-  TODO: "待处理",
-  WATCHING: "观察中",
-  FOLLOWED: "已跟进",
-  IGNORED: "已忽略",
-  REVIEW_PENDING: "待复盘",
-  REVIEWED: "已复盘"
-};
+type ActionColumnKey = "todo" | "mid" | "closed";
 
-const watchingCount = computed(() => watchStates.value.filter((state) => state.watchLevel !== "IGNORED").length);
+const activeColumn = ref<ActionColumnKey | null>(null);
+const drawerOpen = ref(false);
+
+const todoColumn = computed(() => visibleEvents.value.filter((event) => event.status === "TODO"));
+const midColumn = computed(() => visibleEvents.value.filter((event) => event.status === "WATCHING" || event.status === "REVIEW_PENDING"));
+const closedColumn = computed(() => visibleEvents.value.filter((event) => event.status === "FOLLOWED" || event.status === "REVIEWED" || event.status === "IGNORED"));
+const displayDate = computed(() => visibleEvents.value[0]?.eventDate?.slice(5) ?? props.date.slice(5) ?? "-");
 const selectedWatchState = computed(() => {
   const asin = selectedEvent.value?.asin;
   return asin ? watchStates.value.find((state) => state.asin === asin) ?? null : null;
@@ -45,7 +52,6 @@ const selectedWatchState = computed(() => {
 
 // 筛选草稿:和 store.filters 同步,但 refetch 走显式"筛选"按钮,避免每个 select 改一下
 // 就触发全量 API 请求。watch 在 onMounted 一次性把 store.filters 拷到 draft。
-import { ref, watch, onMounted } from "vue";
 const draftFilters = ref({ ...store.filters });
 onMounted(() => {
   draftFilters.value = { ...store.filters };
@@ -66,18 +72,65 @@ async function evaluateDueReviews(): Promise<void> {
   await store.evaluateReviewDueEvents(props.date);
 }
 
-async function selectEvent(event: InsightEvent): Promise<void> {
+async function selectColumnEvent(column: ActionColumnKey, event: InsightEvent): Promise<void> {
+  activeColumn.value = column;
+  drawerOpen.value = true;
   selectedEvent.value = event;
   await store.loadEventDetail(event.id);
 }
 
+function pickFirstInColumn(column: ActionColumnKey): void {
+  const events = getColumnEvents(column);
+  if (events.length === 0) return;
+  void selectColumnEvent(column, events[0]);
+}
+
+function getColumnEvents(column: ActionColumnKey): InsightEvent[] {
+  if (column === "todo") return todoColumn.value;
+  if (column === "mid") return midColumn.value;
+  return closedColumn.value;
+}
+
+function columnForStatus(status: InsightEventStatus): ActionColumnKey {
+  if (status === "TODO") return "todo";
+  if (status === "WATCHING" || status === "REVIEW_PENDING") return "mid";
+  return "closed";
+}
+
+function closeDrawer(): void {
+  activeColumn.value = null;
+  drawerOpen.value = false;
+  selectedEvent.value = null;
+}
+
+function rankDelta(event: InsightEvent): string {
+  const value = event.evidence.rankChange;
+  if (value === null || value === undefined) return "-";
+  if (value > 0) return `+${value}`;
+  if (value < 0) return `${value}`;
+  return "持平";
+}
+
+function eventMeta(event: InsightEvent): string {
+  const parts = [event.brand || "Unknown brand", insightEventStatusLabels[event.status]];
+  if (event.assignee) {
+    parts.push(`Owner: ${event.assignee}`);
+  }
+  return parts.join(" / ");
+}
+
 async function updateStatus(id: string, status: InsightEventStatus, reviewDueDate?: string | null): Promise<void> {
   await store.setStatus(id, status, reviewDueDate);
+  activeColumn.value = columnForStatus(status);
   await store.loadReviewDueEvents(props.date);
 }
 
 async function updateNote(id: string, note: string): Promise<void> {
   await store.setNote(id, note);
+}
+
+async function updateAssignee(id: string, assignee: string | null): Promise<void> {
+  await store.setAssignee(id, assignee);
 }
 
 async function watchEvent(id: string): Promise<void> {
@@ -90,6 +143,7 @@ async function updateWatchState(event: InsightEvent, level: AsinWatchLevel): Pro
 
 async function reviewEvent(id: string, result: InsightReviewResult, note?: string | null): Promise<void> {
   await store.reviewEvent(id, result, note);
+  activeColumn.value = "closed";
 }
 
 </script>
@@ -114,15 +168,33 @@ async function reviewEvent(id: string, result: InsightReviewResult, note?: strin
       </div>
     </div>
 
-    <ActionCenterKpiCards
-      :p0-count="p0Count"
-      :p1-count="p1Count"
-      :todo-count="todoCount"
-      :watching-count="watchingCount"
-      :review-due-count="reviewDueEvents.length"
-      :confirmed-count="reviewedConfirmedCount"
-      :core-risk-count="coreRiskCount"
-    />
+    <header class="action-status-kpis">
+      <button type="button" class="status-kpi" @click="pickFirstInColumn('todo')">
+        <ListTodo :size="15" />
+        <small>待处理</small>
+        <strong>{{ todoColumn.length }}</strong>
+      </button>
+      <button type="button" class="status-kpi" @click="pickFirstInColumn('mid')">
+        <Eye :size="15" />
+        <small>观察 / 待复盘</small>
+        <strong>{{ midColumn.length }}</strong>
+      </button>
+      <button type="button" class="status-kpi" @click="pickFirstInColumn('closed')">
+        <CheckCircle2 :size="15" />
+        <small>已跟进 / 已复盘</small>
+        <strong>{{ closedColumn.length }}</strong>
+      </button>
+      <span class="status-kpi status-kpi-static">
+        <Clock3 :size="15" />
+        <small>到期复盘</small>
+        <strong>{{ reviewDueEvents.length }}</strong>
+      </span>
+      <span class="status-kpi status-kpi-static">
+        <Send :size="15" />
+        <small>日期</small>
+        <strong>{{ displayDate }}</strong>
+      </span>
+    </header>
 
     <div class="action-filter-bar">
       <SlidersHorizontal :size="16" />
@@ -132,7 +204,7 @@ async function reviewEvent(id: string, result: InsightReviewResult, note?: strin
       </select>
       <select v-model="draftFilters.status">
         <option value="">全部状态</option>
-        <option v-for="status in insightEventStatuses" :key="status" :value="status">{{ statusLabels[status] }}</option>
+        <option v-for="status in insightEventStatuses" :key="status" :value="status">{{ insightEventStatusLabels[status] }}</option>
       </select>
       <select v-model="draftFilters.eventType">
         <option value="">全部类型</option>
@@ -153,17 +225,85 @@ async function reviewEvent(id: string, result: InsightReviewResult, note?: strin
       <button type="button" :disabled="loading" @click="applyFilters">筛选</button>
     </div>
 
-    <div class="action-layout">
-      <InsightEventList :events="visibleEvents" :loading="loading" @select="selectEvent" />
-      <ReviewQueuePanel :events="reviewDueEvents" @select="selectEvent" />
+    <div class="action-columns">
+      <section class="action-column">
+        <header><ListTodo :size="14" /><span>待处理 · {{ todoColumn.length }}</span></header>
+        <div v-if="todoColumn.length" class="action-column-rows">
+          <article
+            v-for="event in todoColumn"
+            :key="event.id"
+            class="action-row"
+            :title="eventMeta(event)"
+            :class="{ 'action-row-selected': activeColumn === 'todo' && selectedEvent?.id === event.id }"
+            @click="selectColumnEvent('todo', event)"
+          >
+            <InsightScoreBadge :score="event.scoreTotal" :level="event.scoreLevel" />
+            <div class="action-row-main">
+              <span>{{ event.eventTitle }}</span>
+              <small>{{ event.brand || "未知品牌" }} · {{ insightEventStatusLabels[event.status] }}</small>
+            </div>
+            <strong>{{ rankDelta(event) }}</strong>
+          </article>
+        </div>
+        <p v-else class="empty-copy">没有待处理事件</p>
+      </section>
+
+      <section class="action-column">
+        <header><Eye :size="14" /><span>观察 / 待复盘 · {{ midColumn.length }}</span></header>
+        <div v-if="midColumn.length" class="action-column-rows">
+          <article
+            v-for="event in midColumn"
+            :key="event.id"
+            class="action-row"
+            :title="eventMeta(event)"
+            :class="{ 'action-row-selected': activeColumn === 'mid' && selectedEvent?.id === event.id }"
+            @click="selectColumnEvent('mid', event)"
+          >
+            <InsightScoreBadge :score="event.scoreTotal" :level="event.scoreLevel" />
+            <div class="action-row-main">
+              <span>{{ event.eventTitle }}</span>
+              <small>{{ event.brand || "未知品牌" }} · {{ insightEventStatusLabels[event.status] }}</small>
+            </div>
+            <strong>{{ rankDelta(event) }}</strong>
+          </article>
+        </div>
+        <p v-else class="empty-copy">没有观察 / 待复盘事件</p>
+      </section>
+
+      <section class="action-column">
+        <header><CheckCircle2 :size="14" /><span>已跟进 / 已复盘 · {{ closedColumn.length }}</span></header>
+        <div v-if="closedColumn.length" class="action-column-rows">
+          <article
+            v-for="event in closedColumn"
+            :key="event.id"
+            class="action-row"
+            :title="eventMeta(event)"
+            :class="{ 'action-row-selected': activeColumn === 'closed' && selectedEvent?.id === event.id }"
+            @click="selectColumnEvent('closed', event)"
+          >
+            <InsightScoreBadge :score="event.scoreTotal" :level="event.scoreLevel" />
+            <div class="action-row-main">
+              <span>{{ event.eventTitle }}</span>
+              <small>{{ event.brand || "未知品牌" }} · {{ insightEventStatusLabels[event.status] }}</small>
+            </div>
+            <strong>{{ rankDelta(event) }}</strong>
+          </article>
+        </div>
+        <p v-else class="empty-copy">没有已结束事件</p>
+      </section>
     </div>
 
     <InsightEventDrawer
-      :event="selectedEvent"
+      :event="drawerOpen ? selectedEvent : null"
       :watch-state="selectedWatchState"
-      @close="selectedEvent = null"
+      :brand-playbook="brandPlaybook"
+      :brand-playbook-loading="brandPlaybookLoading"
+      :price-history="selectedPriceHistory"
+      :price-history-loading="priceHistoryLoading"
+      @close="closeDrawer"
       @status="updateStatus"
       @note="updateNote"
+      @assignee="updateAssignee"
       @watch="watchEvent"
       @watch-state="updateWatchState"
       @review="reviewEvent"
@@ -293,10 +433,158 @@ button:disabled {
   width: 16px;
 }
 
-.action-layout {
+.action-status-kpis {
+  align-items: stretch;
   display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.status-kpi {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 54px;
+  padding: 9px 12px;
+  text-align: left;
+}
+
+.status-kpi svg {
+  color: #64748b;
+}
+
+.status-kpi small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-kpi strong {
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1;
+  text-align: right;
+}
+
+.status-kpi-static {
+  cursor: default;
+}
+
+.action-columns {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: 0;
+}
+
+.action-column {
+  background: #ffffff;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px;
+}
+
+.action-column > header {
+  align-items: center;
+  color: #64748b;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  letter-spacing: 0.02em;
+  padding-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.action-column-rows {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.action-row {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #dbe3ed;
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 54px;
+  padding: 7px 8px;
+}
+
+.action-row:hover {
+  background: #f1f5f9;
+}
+
+.action-row-selected {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+}
+
+.action-row :deep(.insight-score-badge) {
+  border-radius: 7px;
+  min-width: 38px;
+  padding: 4px;
+}
+
+.action-row :deep(.insight-score-badge strong) {
+  font-size: 13px;
+}
+
+.action-row :deep(.insight-score-badge small) {
+  font-size: 9px;
+  margin-top: 1px;
+}
+
+.action-row-main {
+  display: grid;
+  min-width: 0;
+}
+
+.action-row-main span {
+  color: #0f172a;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-row-main small {
+  color: #64748b;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-row > strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.empty-copy {
+  color: #64748b;
+  font-size: 13px;
+  margin: 12px 0;
+  text-align: center;
 }
 
 @keyframes spin {
@@ -306,10 +594,23 @@ button:disabled {
 }
 
 @media (max-width: 1180px) {
-  .action-layout {
+  .action-status-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action-columns {
     grid-template-columns: 1fr;
   }
 
+  .action-column {
+    min-height: auto;
+  }
+
+  .action-column-rows {
+    flex: 0 1 auto;
+    max-height: 420px;
+    overflow-y: auto;
+  }
 }
 
 @media (max-width: 760px) {
@@ -320,6 +621,14 @@ button:disabled {
 
   .action-center-actions {
     justify-content: flex-start;
+  }
+
+  .action-status-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .action-column-rows {
+    max-height: 360px;
   }
 }
 </style>

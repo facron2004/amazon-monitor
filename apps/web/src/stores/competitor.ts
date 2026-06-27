@@ -2,7 +2,15 @@ import { defineStore } from "pinia";
 import type { CompetitorFolder, CompetitorPoolItem, ProductActivityCalendar } from "@amazon-monitor/shared";
 import { competitorApi } from "../api-competitors";
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "../constants/competitors";
-import { filterVisibleCompetitors, findSelectedCompetitor } from "../utils/competitor-pool";
+import {
+  buildCompetitorInsightSuggestion,
+  buildCompetitorKpis,
+  filterVisibleCompetitors,
+  findSelectedCompetitor,
+  type CompetitorInsightSuggestion,
+  type CompetitorKpi,
+  type KpiDelta
+} from "../utils/competitor-pool";
 import { toErrorMessage } from "../utils/error-message";
 
 export const useCompetitorStore = defineStore("competitor", {
@@ -14,7 +22,16 @@ export const useCompetitorStore = defineStore("competitor", {
     competitorTierFilter: "all" as CompetitorTierFilter,
     selectedCompetitorAsin: null as string | null,
     selectedCompetitorKeywordId: null as number | null,
-    productActivityCalendar: null as ProductActivityCalendar | null
+    productActivityCalendar: null as ProductActivityCalendar | null,
+    // "较昨日"差值:后端尚未提供 yesterdayComparison 端点,先用 null 占位。
+    // TODO(后端):在 /api/competitors 响应里追加 yesterdayKpiSnapshot,前端 store 做并发加载。
+    yesterdayKpiDelta: {
+      total: null,
+      core: null,
+      new: null,
+      priceActive: null,
+      key: null
+    } as KpiDelta
   }),
   getters: {
     visibleCompetitors: (state) =>
@@ -24,7 +41,11 @@ export const useCompetitorStore = defineStore("competitor", {
         competitorSourceFilter: state.competitorSourceFilter,
         competitorTierFilter: state.competitorTierFilter
       }),
-    selectedCompetitor: (state) => findSelectedCompetitor(state.competitors, state.selectedCompetitorAsin)
+    selectedCompetitor: (state) => findSelectedCompetitor(state.competitors, state.selectedCompetitorAsin),
+    competitorKpis: (state): CompetitorKpi[] =>
+      buildCompetitorKpis(state.competitors, state.yesterdayKpiDelta),
+    competitorInsightSuggestion: (state): CompetitorInsightSuggestion =>
+      buildCompetitorInsightSuggestion(state.competitors)
   },
   actions: {
     async loadCompetitors() {

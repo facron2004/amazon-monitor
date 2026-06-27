@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { Database, Play, RefreshCw, X } from "@lucide/vue";
 import type { TabKey } from "../constants/tabs";
 import { tabs } from "../constants/tabs";
+import { APP_VERSION, VERSION_RELEASE_DATE } from "../constants/version";
 
 const props = defineProps<{
   activeTab: TabKey;
@@ -24,7 +25,7 @@ const monitorTabs = computed(() =>
 );
 
 const followUpTabs = computed(() =>
-  tabs.filter((tab) => ["alerts", "notifications", "reports", "logs"].includes(tab.key))
+  tabs.filter((tab) => ["action-center", "alerts", "notifications", "reports", "logs"].includes(tab.key))
 );
 
 const sidebarState = computed(() => (props.loading ? "正在执行采集" : "看板已准备好复盘"));
@@ -99,5 +100,16 @@ const sidebarState = computed(() => (props.loading ? "正在执行采集" : "看
         <p>先切换日期回看历史，再在需要时发起新一轮采集，让类目和关键词判断始终落在最新证据上。</p>
       </div>
     </div>
+
+    <a
+      class="sidebar-version"
+      href="/CHANGELOG.md"
+      target="_blank"
+      rel="noopener noreferrer"
+      :title="`版本 v${APP_VERSION} · 发布于 ${VERSION_RELEASE_DATE}`"
+    >
+      <span class="sidebar-version-tag">v{{ APP_VERSION }}</span>
+      <span class="sidebar-version-date">发布于 {{ VERSION_RELEASE_DATE }}</span>
+    </a>
   </aside>
 </template>

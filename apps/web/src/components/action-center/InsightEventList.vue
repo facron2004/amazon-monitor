@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { insightEventTypeLabels, type InsightEvent, type InsightEventStatus } from "@amazon-monitor/shared";
+import { insightEventStatusLabels, insightEventTypeLabels, type InsightEvent } from "@amazon-monitor/shared";
 import AttributionTags from "./AttributionTags.vue";
 import InsightScoreBadge from "./InsightScoreBadge.vue";
 
@@ -11,16 +11,6 @@ defineProps<{
 const emit = defineEmits<{
   (event: "select", value: InsightEvent): void;
 }>();
-
-// statusLabel 留本地翻译(口语化);eventTypeLabel 直接用 shared 里单一源。
-const statusLabels: Record<InsightEventStatus, string> = {
-  TODO: "待处理",
-  WATCHING: "观察中",
-  FOLLOWED: "已跟进",
-  IGNORED: "已忽略",
-  REVIEW_PENDING: "待复盘",
-  REVIEWED: "已复盘"
-};
 
 function rankPath(event: InsightEvent): string {
   const previous = event.evidence.previousRank ? `#${event.evidence.previousRank}` : "-";
@@ -55,8 +45,8 @@ function rankDelta(event: InsightEvent): string {
         <div class="event-main">
           <div class="event-row-topline">
             <span>{{ event.eventLevel }}</span>
-            <b>{{ eventTypeLabels[event.eventType] }}</b>
-            <small>{{ statusLabels[event.status] }}</small>
+            <b>{{ insightEventTypeLabels[event.eventType] }}</b>
+            <small>{{ insightEventStatusLabels[event.status] }}</small>
           </div>
           <h4>{{ event.eventTitle }}</h4>
           <p>{{ event.brand || "未知品牌" }} · {{ event.asin || "品牌事件" }}</p>
