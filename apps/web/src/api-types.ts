@@ -8,8 +8,11 @@ import type {
   CategorySignalLog,
   NotificationSendLog,
   DailyChange,
+  InsightEvent,
+  InsightReviewResult,
   KeywordMonitor,
-  SerpSnapshot
+  SerpSnapshot,
+  StrategyTag
 } from "@amazon-monitor/shared";
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "./constants/competitors";
 
@@ -38,6 +41,53 @@ export interface CategoryReportResponse {
   date: string;
   categoryId: number | null;
   markdown: string;
+}
+
+export type InsightReportPeriod = "weekly" | "monthly";
+
+export interface PeriodInsightReportBrand {
+  brand: string;
+  eventCount: number;
+  topScore: number;
+  coreRiskCount: number;
+  strategyTags: StrategyTag[];
+  representativeEventTitle: string;
+  suggestedAction: string;
+}
+
+export interface PeriodInsightReportSummary {
+  totalEvents: number;
+  sLevelCount: number;
+  aLevelCount: number;
+  coreRiskCount: number;
+  newBreakoutCount: number;
+  reviewDueCount: number;
+  reviewedCount: number;
+  confirmedCount: number;
+  revertedCount: number;
+}
+
+export interface PeriodInsightAiSummary {
+  status: "disabled" | "generated" | "failed";
+  provider: "openai-responses";
+  model: string | null;
+  text: string | null;
+  error: string | null;
+  promptVersion: string;
+  generatedAt: string | null;
+}
+
+export interface PeriodInsightReportResponse {
+  period: InsightReportPeriod;
+  startDate: string;
+  endDate: string;
+  days: number;
+  summary: PeriodInsightReportSummary;
+  topEvents: InsightEvent[];
+  topBrands: PeriodInsightReportBrand[];
+  reviewOutcomes: Array<{ result: InsightReviewResult; count: number }>;
+  markdown: string;
+  aiSummary?: PeriodInsightAiSummary;
 }
 
 export interface DatePayload {

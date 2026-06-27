@@ -35,22 +35,21 @@ export function preserveKnownCommercialFields(
   const previousByAsin = new Map(previous.map((item) => [`${item.marketplace}:${item.asin}`, item]));
   return today.map((item) => {
     const previousItem = previousByAsin.get(`${item.marketplace}:${item.asin}`);
+    // price / rating / review 是采集容错:今天没抓到不要清空,优先用今天的值,缺失时回退到昨日。
     const currentPrice = item.currentPrice ?? previousItem?.currentPrice ?? null;
     const reviewCount = item.reviewCount ?? previousItem?.reviewCount ?? null;
     const rating = item.rating ?? previousItem?.rating ?? null;
-    const currentCouponText = validPromoText(item.couponText);
-    const previousCouponText = validPromoText(previousItem?.couponText);
-    const couponText = currentCouponText ?? previousCouponText;
-    const couponValue = currentCouponText ? item.couponValue : previousCouponText ? previousItem?.couponValue ?? null : item.couponValue;
-    const couponRate = currentCouponText ? item.couponRate : previousCouponText ? previousItem?.couponRate ?? null : item.couponRate;
-    const dealBadge = validPromoText(item.dealBadge) ?? validPromoText(previousItem?.dealBadge);
+    // coupon / deal 是商品真实状态:今天页面没显示就该是 null,绝不能用昨日值掩盖。
+    // 否则 buildCategoryActivityEvents 永远看不到 coupon_end / deal_end,产生脏数据残留。
+    const couponText = validPromoText(item.couponText);
+    const dealBadge = validPromoText(item.dealBadge);
     return {
       ...item,
       currentPrice,
       couponText,
-      couponValue,
-      couponRate,
-      finalEstimatedPrice: currentPrice === null ? null : estimateFinalPrice(currentPrice, couponValue, couponRate),
+      couponValue: couponText ? item.couponValue : null,
+      couponRate: couponText ? item.couponRate : null,
+      finalEstimatedPrice: currentPrice === null ? null : estimateFinalPrice(currentPrice, couponText ? item.couponValue : null, couponText ? item.couponRate : null),
       rating,
       reviewCount,
       dealBadge
@@ -120,7 +119,9 @@ export function normalizeBestSellerPageRanks(products: BestSellerProductInput[],
   });
 }
 
-function validPromoText(value: string | null | undefined): string | null {
+// 导出仅供单元测试使用(测试 validPromoText 各种 allowlist 文本)。
+// 业务调用应使用 preserveKnownCommercialFields。
+export function validPromoText(value: string | null | undefined): string | null {
   const text = value?.trim();
   if (!text || text.length > 90) {
     return null;
@@ -128,7 +129,11 @@ function validPromoText(value: string | null | undefined): string | null {
   if (/\b(coupon|save)\b/i.test(text)) {
     return text;
   }
-  if (/\b(limited\s+time\s+deal|prime\s+exclusive\s+deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal)\b/i.test(text)) {
+  if (
+    /\b(?:limited\s+time\s+deal|prime[\s-]*exclusive\s+(?:deal|savings)|prime[\s-]*day'?s?[\s-]*(?:deals?|exclusive|savings|sale)|prime[\s-]*big[\s-]*deal[\s-]*days?|prime[\s-]*early[\s-]*access[\s-]*deal|prime[\s-]*member[\s-]*exclusive[\s-]*deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal)\b/i.test(
+      text
+    )
+  ) {
     return text;
   }
   return text.toLowerCase() === "deal" ? text : null;

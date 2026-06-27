@@ -53,10 +53,12 @@ export type AsinWatchLevel = (typeof asinWatchLevels)[number];
 
 // 中文标签集中维护，避免前后端及不同组件之间出现多份平行副本
 // (之前的 eventTypeLabels / attributionLabel 在 4 个文件中重复)。前端消费方:
-//   apps/web/src/components/ActionCenterPanel.vue
-//   apps/web/src/components/action-center/InsightEventList.vue
-//   apps/web/src/components/action-center/AttributionTags.vue
-// 后端消费方: apps/api/src/insights/insight-event-builder.ts
+//   apps/web/src/components/ActionCenterPanel.vue            (statusLabels)
+//   apps/web/src/components/action-center/InsightEventList.vue (statusLabels)
+//   apps/web/src/components/action-center/WatchStateSelector.vue (watchLevelLabels)
+//   apps/web/src/components/action-center/AttributionTags.vue  (本地硬编码,后续再上提)
+// 后端消费方:
+//   apps/api/src/reports/insight-report.ts                    (statusLabels + reviewResultLabels)
 export const insightEventTypeLabels: Record<InsightEventType, string> = {
   NEW_TOP100_ENTRY: "新进 Top100",
   NEW_TOP50_ENTRY: "新进 Top50",
@@ -88,6 +90,30 @@ export const attributionTagLabels: Record<AttributionTag, string> = {
   PROMO_END_DROP: "活动结束回落",
   ORGANIC_STRENGTH: "疑似自然转化增强",
   NO_CLEAR_DRIVER: "暂无明显驱动"
+};
+
+export const insightEventStatusLabels: Record<InsightEventStatus, string> = {
+  TODO: "待处理",
+  WATCHING: "观察中",
+  FOLLOWED: "已跟进",
+  IGNORED: "已忽略",
+  REVIEW_PENDING: "待复盘",
+  REVIEWED: "已复盘"
+};
+
+export const insightReviewResultLabels: Record<InsightReviewResult, string> = {
+  CONFIRMED: "判断成立",
+  REVERTED: "短期冲榜后回落",
+  CONTINUING: "仍在持续",
+  FAILED: "机会消失",
+  UNCLEAR: "数据不足"
+};
+
+export const asinWatchLevelLabels: Record<AsinWatchLevel, string> = {
+  CORE: "核心竞品",
+  NORMAL: "普通竞品",
+  POTENTIAL: "潜在竞品",
+  IGNORED: "已忽略"
 };
 
 export interface InsightEvidence {
@@ -146,6 +172,7 @@ export interface InsightEvent {
   scoreBreakdown: InsightScoreBreakdown;
   suggestedAction: string;
   status: InsightEventStatus;
+  assignee: string | null;
   reviewDueDate: string | null;
   reviewResult: InsightReviewResult | null;
   userNote: string | null;
@@ -153,7 +180,8 @@ export interface InsightEvent {
   updatedAt: string;
 }
 
-export interface InsightEventInput extends Omit<InsightEvent, "createdAt" | "updatedAt"> {
+export interface InsightEventInput extends Omit<InsightEvent, "assignee" | "createdAt" | "updatedAt"> {
+  assignee?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

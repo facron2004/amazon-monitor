@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { decorateBestsellerSnapshots, type NotificationSchedule } from "@amazon-monitor/shared";
+import { decorateBestsellerSnapshots, type InsightEventInput, type NotificationSchedule } from "@amazon-monitor/shared";
 import { createApiApp } from "./server.js";
 import { createStore, initSchema } from "./store.js";
 import { buildReportExcelDownloadUrl, resolveSmtpConfig, sendDueNotificationSchedules, sendNotificationSchedule, type NotificationSender } from "./notifier.js";
@@ -104,6 +104,8 @@ describe("notification schedules", () => {
         ]
       })
     );
+    store.upsertInsightEvent(sampleNotificationInsight(category.id));
+    store.upsertInsightEvent(sampleReviewedNotificationInsight(category.id));
     const sender = new RecordingNotificationSender();
     const app = createApiApp(store, { notificationSender: sender });
 
@@ -130,8 +132,16 @@ describe("notification schedules", () => {
     expect(send.body.status).toBe("success");
     expect(sender.sent).toHaveLength(1);
     expect(sender.sent[0].content).toContain("BSR Coupon / Deal");
+    expect(sender.sent[0].content).toContain("今日必须看");
+    expect(sender.sent[0].content).toContain("昨日判断复盘结果");
+    expect(sender.sent[0].content).toContain("判断成立");
+    expect(sender.sent[0].content).toContain("B0IMGTEST1");
     expect(sender.sent[0].content).toContain("Save $5 with coupon / Limited Time Deal");
     expect(sender.sent[0].htmlContent).toContain("Excel");
+    expect(sender.sent[0].htmlContent).toContain("今日必须看");
+    expect(sender.sent[0].htmlContent).toContain("昨日判断复盘结果");
+    expect(sender.sent[0].htmlContent).toContain("判断成立");
+    expect(sender.sent[0].htmlContent).toContain("B0IMGTEST1");
     expect(sender.sent[0].htmlContent).toContain("BSR Coupon / Deal");
     expect(sender.sent[0].htmlContent).toContain("Save $5 with coupon / Limited Time Deal");
     const attachment = sender.sent[0].attachments?.[0];
@@ -150,6 +160,13 @@ describe("notification schedules", () => {
     expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet11.xml")).toContain("Unique Ranks");
     expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet13.xml")).toContain("Previous Date");
     expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet14.xml")).toContain("Current Top10 ASINs");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("Strategy Tags");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("Attribution Tags");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("Coupon 依赖型");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("B0IMGTEST1");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet17.xml")).toContain("Due Date");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet18.xml")).toContain("Representative Event");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet18.xml")).toContain("Coupon 依赖型");
 
     const schedules = await request(app).get("/api/notifications/schedules").expect(200);
     expect(schedules.body[0]).toMatchObject({ lastStatus: "success", lastSentDate: "2026-05-19" });
@@ -221,3 +238,66 @@ describe("notification schedules", () => {
     }
   });
 });
+
+function sampleNotificationInsight(categoryId: number): InsightEventInput {
+  return {
+    id: `2026-05-19|category:${categoryId}|asin:B0IMGTEST1|COUPON_ADDED`,
+    eventDate: "2026-05-19",
+    asin: "B0IMGTEST1",
+    brand: "Acme",
+    categoryId,
+    keywordId: null,
+    eventType: "COUPON_ADDED",
+    eventLevel: "P0",
+    eventTitle: "【新增 Coupon】Acme B0IMGTEST1",
+    eventSummary: "发生了什么：BSR #30 -> #12，新增 Coupon。\n可能原因：Coupon 驱动。\n影响判断：机会分 90。",
+    attributionTags: ["COUPON_DRIVEN"],
+    evidence: {
+      marketplace: "amazon.com",
+      categoryName: "Ice Makers",
+      productUrl: "https://www.amazon.com/dp/B0IMGTEST1",
+      imageUrl: "https://example.com/B0IMGTEST1.jpg",
+      title: "Acme Nugget Countertop Ice Maker",
+      currentRank: 12,
+      previousRank: 30,
+      rankChange: 18,
+      couponBefore: null,
+      couponAfter: "Save $5 with coupon",
+      evidenceItems: ["BSR #30 -> #12", "Coupon - -> Save $5 with coupon"]
+    },
+    scoreTotal: 90,
+    scoreLevel: "S",
+    scoreBreakdown: {
+      rankingScore: 28,
+      productScore: 10,
+      promoScore: 8,
+      brandScore: 10,
+      riskScore: 0,
+      reasons: ["排名分 28", "活动强度分 8"]
+    },
+    suggestedAction: "加入观察并复盘 3 天排名维持情况。",
+    status: "TODO",
+    reviewDueDate: "2026-05-22",
+    reviewResult: null,
+    userNote: null
+  };
+}
+function sampleReviewedNotificationInsight(categoryId: number): InsightEventInput {
+  return {
+    ...sampleNotificationInsight(categoryId),
+    id: `2026-05-16|category:${categoryId}|asin:B0IMGTEST1|PRICE_DROP`,
+    eventDate: "2026-05-16",
+    eventType: "PRICE_DROP",
+    eventLevel: "P1",
+    eventTitle: "【价格下降】Acme B0IMGTEST1",
+    attributionTags: ["PRICE_DRIVEN"],
+    scoreTotal: 72,
+    scoreLevel: "A",
+    status: "REVIEWED",
+    reviewDueDate: "2026-05-19",
+    reviewResult: "CONFIRMED",
+    userNote: "复盘后仍在 Top20",
+    createdAt: "2026-05-16T09:00:00.000Z",
+    updatedAt: "2026-05-19T09:00:00.000Z"
+  };
+}

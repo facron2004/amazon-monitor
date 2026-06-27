@@ -64,7 +64,42 @@
         }
       }
     },
-    "/keywords": {
+    "/brand-playbooks": {
+      "get": {
+        "summary": "Get evidence-backed brand playbook profile",
+        "parameters": [
+          {
+            "name": "categoryId",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "windowDays",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 180 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Brand playbook profile" },
+          "400": { "description": "Invalid query input" },
+          "404": { "description": "Category not found" }
+        }
+      }
+    },    "/keywords": {
       "get": {
         "summary": "List monitored keywords",
         "responses": {
@@ -296,14 +331,16 @@
       "get": {
         "summary": "List product price history",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string" } },
-          { "name": "categoryId", "in": "query", "schema": { "type": "integer" } },
-          { "name": "asin", "in": "query", "schema": { "type": "string" } },
-          { "name": "marketplace", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
+          { "name": "marketplace", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 100 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
         ],
         "responses": {
-          "200": { "description": "List of price history items" }
+          "200": { "description": "List of price history items" },
+          "400": { "description": "Invalid query input" }
         }
       }
     },
@@ -411,6 +448,21 @@
               }
             }
           }
+        }
+      }
+    },
+    "/reports/insights/period": {
+      "get": {
+        "summary": "Get weekly or monthly evidence-backed insight report",
+        "parameters": [
+          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "period", "in": "query", "schema": { "type": "string", "enum": ["weekly", "monthly"], "default": "weekly" } },
+          { "name": "includeAiSummary", "in": "query", "description": "Set to true to request an optional OpenAI-compatible Responses API summary. The evidence-backed report is still returned if the AI call is disabled or fails.", "schema": { "type": "string", "enum": ["true", "false"], "default": "false" } }
+        ],
+        "responses": {
+          "200": { "description": "Structured period insight report with markdown and optional aiSummary metadata" },
+          "400": { "description": "Invalid query input" }
         }
       }
     },

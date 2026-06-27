@@ -162,6 +162,50 @@ describe("detail collector brand enrichment", () => {
     });
   });
 
+  it("uses the retried detail page promo state when a coupon or deal disappears", async () => {
+    const page = createMockDetailPageSequence([
+      createDetailPayload({
+        title: "Silonn Nugget Ice Maker",
+        brand: "Silonn",
+        couponText: "Save $5.00 with coupon",
+        dealBadge: "Prime Day Deal",
+        rating: null,
+        reviewCount: null,
+        iceType: "nugget"
+      }),
+      createDetailPayload({
+        title: "Silonn Nugget Ice Maker",
+        brand: "Silonn",
+        couponText: null,
+        dealBadge: null,
+        rating: 4.3,
+        reviewCount: 10,
+        iceType: "nugget"
+      })
+    ]);
+    const context = createMockContext([page]);
+    const product = createBestSellerProduct({
+      asin: "B0PROMOEND",
+      title: "Silonn Nugget Ice Maker",
+      brand: "Silonn",
+      productUrl: "https://www.amazon.com/dp/B0PROMOEND",
+      couponText: "Save $5.00 with coupon",
+      dealBadge: "Prime Day Deal",
+      rating: null,
+      reviewCount: null
+    });
+
+    const result = await collectMissingBestSellerDetails(context, createCategoryMonitor(), [product], 2, "2026-06-25", new Map());
+
+    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    expect(result[0]).toMatchObject({
+      couponText: null,
+      dealBadge: null,
+      rating: 4.3,
+      reviewCount: 10
+    });
+  });
+
   it("reapplies the delivery zip and revisits the detail page when critical metrics are still missing", async () => {
     vi.mocked(setDeliveryZipCode).mockClear();
     const page = createMockDetailPageSequence([

@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 import type { AmazonSearchCollector } from "./amazon-collector.js";
 import type { AmazonBestSellerCollector } from "./category-pipeline.js";
 import type { NotificationSender } from "./notifier.js";
+import { registerBrandPlaybookRoutes } from "./routes/brand-playbooks.js";
 import { registerCompetitorRoutes } from "./routes/competitors.js";
 import { registerCategoryRoutes } from "./routes/categories.js";
 import { getDate } from "./routes/http-utils.js";
+import { registerInsightEventRoutes } from "./routes/insight-events.js";
 import { registerInsightRoutes } from "./routes/insights.js";
 import { registerKeywordRoutes } from "./routes/keywords.js";
 import { registerNotificationRoutes } from "./routes/notifications.js";
@@ -44,8 +46,16 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   }));
   app.use(express.json({ limit: "1mb" }));
 
-  // Rate limiting
-  const apiLimiter = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+  // Rate limiting — disabled in development (vite proxy logs 429 as "http proxy error",
+  // and dev polling exceeds 200 req/min almost immediately). Production keeps the
+  // 200/min cap to protect public endpoints.
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  const apiLimiter = rateLimit({
+    windowMs: 60_000,
+    max: isDevelopment ? 100_000 : 200,
+    standardHeaders: true,
+    legacyHeaders: false
+  });
   app.use("/api/", apiLimiter);
 
   // Collect submission limiter — 5/min for POST only, NOT applied to GET job polling
@@ -159,6 +169,8 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
 
   registerKeywordRoutes(app, store, { collector: options.collector, collectLimiter });
   registerCategoryRoutes(app, store, { categoryCollector: options.categoryCollector, collectLimiter });
+  registerInsightEventRoutes(app, store);
+  registerBrandPlaybookRoutes(app, store);
   registerInsightRoutes(app, store);
   registerCompetitorRoutes(app, store);
   registerReportRoutes(app, store);

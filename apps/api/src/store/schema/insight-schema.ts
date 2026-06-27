@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS insight_events (
   score_breakdown_json TEXT NOT NULL,
   suggested_action TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'TODO',
+  assignee TEXT,
   review_due_date TEXT,
   review_result TEXT,
   user_note TEXT,

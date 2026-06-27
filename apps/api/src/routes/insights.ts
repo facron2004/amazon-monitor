@@ -1,17 +1,31 @@
 import type { Express } from "express";
 import type { Store } from "../store.js";
 import { getDate, optionalBoolean, optionalNumber, optionalString } from "./http-utils.js";
+import { validateQuery } from "./validation.js";
+import { z } from "zod";
+
+const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const productPriceHistoryQuerySchema = z.object({
+  date: dateSchema.optional(),
+  categoryId: z.coerce.number().int().min(1).optional(),
+  asin: z.string().min(1).max(30).optional(),
+  marketplace: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  offset: z.coerce.number().int().min(0).optional()
+});
 
 export function registerInsightRoutes(app: Express, store: Store): void {
   app.get("/api/product-price-history", (request, response) => {
+    const query = validateQuery(productPriceHistoryQuerySchema, request.query);
     response.json(
       store.listProductPriceHistory({
-        date: optionalString(request.query.date),
-        categoryId: optionalNumber(request.query.categoryId),
-        asin: optionalString(request.query.asin),
-        marketplace: optionalString(request.query.marketplace),
-        limit: optionalNumber(request.query.limit),
-        offset: optionalNumber(request.query.offset)
+        date: query.date,
+        categoryId: query.categoryId,
+        asin: query.asin,
+        marketplace: query.marketplace,
+        limit: query.limit,
+        offset: query.offset
       })
     );
   });

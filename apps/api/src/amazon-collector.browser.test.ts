@@ -92,8 +92,10 @@ describe("amazon collector parsers", () => {
             <i class="a-icon-star-small"><span class="a-icon-alt">4.6 out of 5 stars</span></i>
             <a href="/product-reviews/B0BEST0001"><span class="a-size-small" aria-label="12,221 ratings">12,221</span></a>
             <span class="a-price"><span class="a-offscreen">$89.99</span></span>
-            <span class="s-coupon-unclipped">Save $20.02 with coupon</span>
-            <span class="a-badge-text">Limited time deal</span>
+            <span class="s-coupon-unclipped">Save $20.02</span>
+            <span class="s-coupon-unclipped">with coupon</span>
+            <span class="a-badge-text">Prime
+Big Deal Days</span>
           </div>
           <div id="gridItemRoot" data-asin="B0BEST0002">
             <div class="zg-bdg-text">#2</div>
@@ -113,7 +115,7 @@ describe("amazon collector parsers", () => {
       expect(bestSellerProducts.map((product) => product.reviewCount)).toEqual([12221, null]);
       expect(bestSellerProducts[0]).toMatchObject({
         couponText: "Save $20.02 with coupon",
-        dealBadge: "Limited time deal"
+        dealBadge: "Prime Big Deal Days"
       });
 
       await page.setContent(`
@@ -124,7 +126,7 @@ describe("amazon collector parsers", () => {
           <a href="/product-reviews/B0SEARCH001"><span aria-label="3,169 ratings">3,169</span></a>
           <span class="a-price"><span class="a-offscreen">$59.48</span></span>
           <span class="s-coupon-unclipped">Apply 10% coupon</span>
-          <span class="a-badge-text">Prime Exclusive Deal</span>
+          <span class="a-badge-text">PrimeDay Deal</span>
         </div>
         <div data-component-type="s-search-result" data-asin="B0SEARCH002">
           <h2><a href="/dp/B0SEARCH002"><span>Badge Number Trap Ice Maker</span></a></h2>
@@ -148,7 +150,7 @@ describe("amazon collector parsers", () => {
         reviewCount: 3169,
         rating: 4.4,
         couponText: "Apply 10% coupon",
-        dealBadge: "Prime Exclusive Deal"
+        dealBadge: "PrimeDay Deal"
       });
       expect(searchProducts[1]).toMatchObject({
         asin: "B0SEARCH002",
@@ -176,7 +178,7 @@ describe("amazon collector parsers", () => {
           <span id="acrCustomerReviewText">12,345 ratings</span>
         </div>
         <div id="couponFeatureDiv">Save $30 with coupon Details</div>
-        <div id="dealBadge_feature_div"><span class="a-badge-text">Lightning Deal</span></div>
+        <div id="dealBadge_feature_div"><span class="a-badge-text">Prime-Day Deal</span></div>
         <ul>
           <li id="SalesRank">Best Sellers Rank #1,234 in Appliances (See Top 100 in Appliances) #12 in Ice Makers</li>
         </ul>
@@ -187,7 +189,6 @@ describe("amazon collector parsers", () => {
         brand: "ORFLROA",
         storeUrl: "https://www.amazon.com/stores/ORFLROA/page/abc",
         couponText: "Save $30 with coupon",
-        dealBadge: "Lightning Deal",
         currentPrice: 259.98,
         originalPrice: 319.99,
         currency: "$",
@@ -195,7 +196,8 @@ describe("amazon collector parsers", () => {
         reviewCount: 12345,
         iceType: "nugget",
         bsrRank: 12,
-        bsrCategory: "Ice Makers"
+        bsrCategory: "Ice Makers",
+        dealBadge: "Prime-Day Deal"
       });
 
       await page.setContent(`

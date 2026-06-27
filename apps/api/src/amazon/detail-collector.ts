@@ -1,7 +1,7 @@
 import type { BrowserContext } from "playwright";
 import type { BestSellerProductInput, CategoryMonitor, KeywordMonitor, SerpProductInput } from "@amazon-monitor/shared";
 import { installResourceBlocker } from "./browser.js";
-import { detailConcurrency } from "./config.js";
+import { bestSellerDetailTopN, detailConcurrency, maxDetailProducts } from "./config.js";
 import { runLimitedConcurrency } from "./concurrency.js";
 import { assertCategoryNotBlocked, assertNotBlocked } from "./page-guards.js";
 import {
@@ -36,7 +36,14 @@ export async function collectMissingBestSellerDetails(
 ): Promise<BestSellerProductInput[]> {
   const cacheKeyFor = (product: BestSellerProductInput) => detailCacheKey(date, category.marketplace, product.asin);
   const withCachedDetails = products.map((product) => applyCachedBestSellerDetails(product, detailCache.get(cacheKeyFor(product))));
-  const missing = withCachedDetails.filter((product) => shouldCollectBestSellerDetails(product) && !detailCache.has(cacheKeyFor(product)));
+  // Cap how many detail pages we open per best-seller task. `crawlTopN=100`
+  // used to launch 100 detail pages serially through `detailConcurrency=3`,
+  // which dominated total runtime for large categories. We still visit the
+  // top N (env-tunable) — products past the cap keep whatever data the
+  // best-seller card already exposed (rank/title/price).
+  const detailCap = Math.max(1, Math.min(bestSellerDetailTopN(), maxDetailProducts()));
+  const candidates = withCachedDetails.filter((product) => shouldCollectBestSellerDetails(product) && !detailCache.has(cacheKeyFor(product)));
+  const missing = prioritizeDetailCollection(candidates).slice(0, detailCap);
   if (missing.length === 0) {
     return withCachedDetails;
   }

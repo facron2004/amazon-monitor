@@ -14,10 +14,12 @@ import type { Store } from "./types.js";
 type InsightEventStoreMethods = Pick<
   Store,
   | "listInsightEvents"
+  | "listTopInsights"
   | "getInsightEvent"
   | "upsertInsightEvent"
   | "updateInsightEventStatus"
   | "updateInsightEventNote"
+  | "updateInsightEventAssignee"
   | "listReviewDueEvents"
   | "claimReviewDueEvents"
   | "releaseReviewClaim"
@@ -44,6 +46,7 @@ interface InsightEventRow {
   score_breakdown_json: string;
   suggested_action: string;
   status: InsightEvent["status"];
+  assignee: string | null;
   review_due_date: string | null;
   review_result: InsightEvent["reviewResult"];
   user_note: string | null;
@@ -109,6 +112,76 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       return row ? mapInsightEvent(row) : null;
     },
 
+    /**
+     * Dashboard "今日必须关注 N 件事" feed: returns the highest-priority
+     * actionable events for a given date, deduping to one entry per ASIN
+     * (the highest-scoring event wins when one ASIN has multiple triggers).
+     *
+     * Sorting precedence:
+     *   1. event_level weight (P0 > P1 > P2)
+     *   2. isCoreCompetitor events get a +1 tier boost
+     *   3. absolute rankChange (large movers first)
+     *   4. eventType priority (COUPON_ADDED, PRICE_DROP, RANK_SURGE,
+     *      NEW_PRODUCT_BREAKOUT, LOW_REVIEW_HIGH_RANK, CORE_COMPETITOR_RISK)
+     *   5. score_total as final tiebreaker
+     */
+    listTopInsights(date, limit = 5) {
+      const cap = clampLimit(limit);
+      const rows = db
+        .prepare(
+          `SELECT * FROM insight_events
+           WHERE event_date = ?
+            AND status IN ('TODO','WATCHING','REVIEW_PENDING','REVIEWED')
+            AND asin IS NOT NULL
+           ORDER BY
+            CASE event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END DESC,
+            score_total DESC,
+            updated_at DESC,
+            id ASC
+           ${cap > 0 ? `LIMIT ${cap * 4}` : ""}`
+        )
+        .all(date) as unknown as InsightEventRow[];
+      const mapped = rows.map(mapInsightEvent);
+
+      const TYPE_PRIORITY: Partial<Record<InsightEvent["eventType"], number>> = {
+        CORE_COMPETITOR_RISK: 7,
+        LOW_REVIEW_HIGH_RANK: 6,
+        NEW_PRODUCT_BREAKOUT: 5,
+        COUPON_ADDED: 4,
+        PRICE_DROP: 4,
+        RANK_SURGE: 3
+      };
+      const LEVEL_WEIGHT: Record<InsightEvent["eventLevel"], number> = { P0: 3, P1: 2, P2: 1 };
+
+      type Scored = { event: InsightEvent; score: number };
+      const scored: Scored[] = mapped.map((event) => {
+        const rankBoost = Math.abs(event.evidence.rankChange ?? 0) / 50;
+        const typeBoost = TYPE_PRIORITY[event.eventType] ?? 0;
+        const coreBoost = event.evidence.isCoreCompetitor ? 1 : 0;
+        // Composite score: level weight (3) * 10 + type priority + rank boost + core flag.
+        // 30 / 30 / 10 / 1 are the maximum contributions.
+        const score = LEVEL_WEIGHT[event.eventLevel] * 10 + typeBoost + rankBoost + coreBoost;
+        return { event, score };
+      });
+      scored.sort((left, right) => {
+        const primary = right.score - left.score;
+        if (primary !== 0) return primary;
+        return right.event.scoreTotal - left.event.scoreTotal;
+      });
+
+      // Dedup by ASIN — keep the first (highest-scored) entry per ASIN.
+      const seen = new Set<string>();
+      const result: InsightEvent[] = [];
+      for (const entry of scored) {
+        const asin = entry.event.asin;
+        if (asin === null || seen.has(asin)) continue;
+        seen.add(asin);
+        result.push(entry.event);
+        if (result.length >= cap) break;
+      }
+      return result;
+    },
+
     upsertInsightEvent(event) {
       const now = nowIso();
       const createdAt = event.createdAt ?? now;
@@ -117,8 +190,8 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         `INSERT INTO insight_events
          (id, event_date, asin, brand, category_id, keyword_id, event_type, event_level, event_title,
           event_summary, attribution_tags_json, evidence_json, score_total, score_level, score_breakdown_json,
-          suggested_action, status, review_due_date, review_result, user_note, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          suggested_action, status, assignee, review_due_date, review_result, user_note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
           event_date = excluded.event_date,
           asin = excluded.asin,
@@ -135,6 +208,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
           score_level = excluded.score_level,
           score_breakdown_json = excluded.score_breakdown_json,
           suggested_action = excluded.suggested_action,
+          assignee = COALESCE(excluded.assignee, insight_events.assignee),
           review_due_date = COALESCE(insight_events.review_due_date, excluded.review_due_date),
           updated_at = excluded.updated_at`
       ).run(
@@ -155,6 +229,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         JSON.stringify(event.scoreBreakdown),
         event.suggestedAction,
         event.status,
+        normalizeAssignee(event.assignee ?? null),
         event.reviewDueDate,
         event.reviewResult,
         event.userNote,
@@ -173,7 +248,12 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       return this.getInsightEvent(id);
     },
 
-        updateInsightEventNote(id, note) {
+    updateInsightEventAssignee(id, assignee) {
+      db.prepare("UPDATE insight_events SET assignee = ?, updated_at = ? WHERE id = ?").run(normalizeAssignee(assignee), nowIso(), id);
+      return this.getInsightEvent(id);
+    },
+
+    updateInsightEventNote(id, note) {
       const now = nowIso();
       // 同样把空字符串 / 纯空白归一为 null。但 null 在这里是"未提供"语义,
       // 不应覆盖已有的 user_note——否则前端清空输入框会把历史备注一并刷掉。
@@ -368,12 +448,18 @@ function mapInsightEvent(row: InsightEventRow): InsightEvent {
     scoreBreakdown: parseJsonObject<InsightScoreBreakdown>(row.score_breakdown_json, emptyBreakdown),
     suggestedAction: row.suggested_action,
     status: row.status,
+    assignee: row.assignee,
     reviewDueDate: row.review_due_date,
     reviewResult: row.review_result,
     userNote: row.user_note,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function normalizeAssignee(assignee: string | null): string | null {
+  const trimmed = assignee?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function mapAsinWatchState(row: AsinWatchStateRow): AsinWatchState {

@@ -124,3 +124,68 @@ export interface CollectJob {
   errorMessage: string | null;
   retryCount: number;
 }
+
+/**
+ * Aggregated last-known state of the collection queue for a single task type.
+ * Powers the dashboard "data freshness" badge.
+ */
+export interface CollectionFreshness {
+  taskType: "keyword" | "category";
+  lastCompletedAt: string | null;
+  lastStartedAt: string | null;
+  lastStatus: "completed" | "failed" | "pending" | "processing" | null;
+  totalJobs: number;
+  failedJobs: number;
+}
+
+/**
+ * Snapshot of the collection queue's health — pending/processing counts and
+ * how long the oldest pending job has been waiting. Powers the topbar
+ * "待处理 / 处理中 / 最老等待" indicator.
+ */
+export interface QueueStats {
+  pendingCount: number;
+  processingCount: number;
+  completedRecentCount: number;
+  failedRecentCount: number;
+  /** Milliseconds since the oldest pending job was queued. 0 when none pending. */
+  oldestPendingAgeMs: number;
+}
+
+/**
+ * Live health snapshot of the background collection Worker process.
+ *
+ * The Worker writes a heartbeat row every poll iteration; the API reads the
+ * most recent row and reports the gap. Powers the topbar "online / stale /
+ * offline" indicator so a dead Worker can be spotted at a glance instead of
+ * only via the queue stalling.
+ *
+ * `alive` is computed server-side from `ageMs` against a freshness window —
+ * callers should treat it as authoritative and not recompute it.
+ */
+export interface WorkerStatus {
+  /** True when a Worker heart-beated within `liveThresholdMs` (default 15s). */
+  alive: boolean;
+  /** True when a heart-beat exists but it is older than `liveThresholdMs` but newer than `staleThresholdMs`. */
+  stale: boolean;
+  /** True when the most recent heart-beat is older than `staleThresholdMs` (default 60s) or no row exists. */
+  offline: boolean;
+  /** Milliseconds since the last heart-beat. `null` when no Worker has ever reported. */
+  ageMs: number | null;
+  /** Stable identifier of the Worker instance (changes on each restart). */
+  workerId: string | null;
+  /** Process ID reported by the Worker. */
+  pid: number | null;
+  /** Hostname reported by the Worker. */
+  host: string | null;
+  /** ISO timestamp of the current Worker process start. */
+  startedAt: string | null;
+  /** ISO timestamp of the last heart-beat. */
+  lastBeatAt: string | null;
+  /** Application version the Worker is running. */
+  version: string | null;
+  /** Most recent job ID touched by this Worker (informational). */
+  lastJobId: number | null;
+  /** Status of `lastJobId` — useful for surfacing "the last job failed". */
+  lastStatus: "pending" | "processing" | "completed" | "failed" | null;
+}

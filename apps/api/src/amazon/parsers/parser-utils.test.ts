@@ -5,7 +5,10 @@ import {
   parseInteger,
   parseRating,
   absolutize,
-  extractAsin
+  extractAsin,
+  dealPatterns,
+  couponPatterns,
+  promoMatch
 } from "./parser-utils.js";
 
 // ── parsePrice ────────────────────────────────────────────────────────────
@@ -306,5 +309,137 @@ describe("extractAsin", () => {
 
   it("returns empty string for a URL without a recognisable ASIN", () => {
     expect(extractAsin("https://www.amazon.com/gp/browse.html")).toBe("");
+  });
+});
+
+// ── dealPatterns ──────────────────────────────────────────────────────────
+//
+// 回归覆盖:Amazon Prime Big Deal Days / Early Access 等促销活动标签。
+// 这类文本历史上漏抓,导致 Prime Day 期间 snapshot.dealBadge 为 null,
+// 进而 buildCategoryActivityEvents 看不到 deal_start / deal_end。
+
+describe("dealPatterns", () => {
+  // 用 promoMatch 同样的清洗规则直接命中 candidates。
+  function firstHit(text: string): string | null {
+    const patterns = dealPatterns();
+    const normalized = text.replace(/\s+/g, " ").trim();
+    for (const pattern of patterns) {
+      const match = normalized.match(pattern);
+      if (match) {
+        return match[0];
+      }
+    }
+    return null;
+  }
+
+  it("matches 'Limited Time Deal'", () => {
+    expect(firstHit("Limited Time Deal")).toBe("Limited Time Deal");
+  });
+
+  it("matches 'Lightning Deal'", () => {
+    expect(firstHit("Lightning Deal")).toBe("Lightning Deal");
+  });
+
+  it("matches 'Prime Day Deal' (legacy)", () => {
+    expect(firstHit("Prime Day Deal")).toBe("Prime Day Deal");
+  });
+
+  it("matches compact and hyphenated Prime Day deal variants", () => {
+    expect(firstHit("PrimeDay Deal")).toBe("PrimeDay Deal");
+    expect(firstHit("Prime-Day Deal")).toBe("Prime-Day Deal");
+    expect(firstHit("Prime Day Deals")).toBe("Prime Day Deals");
+  });
+
+  it("matches 'Prime Big Deal Days' (multi-day event)", () => {
+    expect(firstHit("Prime Big Deal Days")).toBe("Prime Big Deal Days");
+  });
+
+  it("matches 'Prime Big Deal Day' (singular, common in headlines)", () => {
+    expect(firstHit("Prime Big Deal Day")).toBe("Prime Big Deal Day");
+  });
+
+  it("matches 'Prime Early Access Deal'", () => {
+    expect(firstHit("Prime Early Access Deal")).toBe("Prime Early Access Deal");
+  });
+
+  it("matches 'Prime Member Exclusive Deal'", () => {
+    expect(firstHit("Prime Member Exclusive Deal")).toBe("Prime Member Exclusive Deal");
+  });
+
+  it("matches split Prime event badge text", () => {
+    expect(promoMatch("Prime\nBig Deal Days", dealPatterns())).toBe("Prime Big Deal Days");
+  });
+
+  it("matches 'Black Friday Deal'", () => {
+    expect(firstHit("Black Friday Deal")).toBe("Black Friday Deal");
+  });
+
+  it("matches 'Cyber Monday Deal'", () => {
+    expect(firstHit("Cyber Monday Deal")).toBe("Cyber Monday Deal");
+  });
+
+  it("matches 'Deal of the Day'", () => {
+    expect(firstHit("Deal of the Day")).toBe("Deal of the Day");
+  });
+
+  it("matches a bare 'Deal' badge", () => {
+    expect(firstHit("Deal")).toBe("Deal");
+  });
+
+  it("returns null for plain product text without deal markers", () => {
+    expect(firstHit("This is a great ice maker, 4.6 stars")).toBeNull();
+  });
+});
+
+// ── couponPatterns ────────────────────────────────────────────────────────
+// 回归覆盖:Parser 必须能从详情页/列表页文本里识别 coupon 字符串,否则
+// 商品活动跟踪会漏 coupon_start,导致 priceDropTopItems 计数失真。
+
+describe("couponPatterns", () => {
+  function firstHit(text: string): string | null {
+    const patterns = couponPatterns();
+    const normalized = text.replace(/\s+/g, " ").trim();
+    for (const pattern of patterns) {
+      const match = normalized.match(pattern);
+      if (match) {
+        return match[0];
+      }
+    }
+    return null;
+  }
+
+  it("matches 'Save $5.00 with coupon'", () => {
+    expect(firstHit("Save $5.00 with coupon")).toBe("Save $5.00 with coupon");
+  });
+
+  it("matches 'Save 10% with coupon'", () => {
+    expect(firstHit("Save 10% with coupon")).toBe("Save 10% with coupon");
+  });
+
+  it("matches 'Apply 5% coupon'", () => {
+    expect(firstHit("Apply 5% coupon")).toBe("Apply 5% coupon");
+  });
+
+  it("matches 'Clip coupon'", () => {
+    expect(firstHit("Clip coupon")).toBe("Clip coupon");
+  });
+
+  it("matches split coupon text", () => {
+    expect(promoMatch("Save $5.00\nwith coupon", couponPatterns())).toBe("Save $5.00 with coupon");
+  });
+
+  it("matches redeem and with-coupon text", () => {
+    expect(firstHit("Redeem 5% coupon")).toBe("Redeem 5% coupon");
+    expect(firstHit("with coupon")).toBe("with coupon");
+  });
+
+  it("does not treat Prime Day deal text as coupon", () => {
+    expect(firstHit("Prime Day Deal")).toBeNull();
+    expect(firstHit("Prime Big Deal Days")).toBeNull();
+    expect(firstHit("Prime Exclusive Deal")).toBeNull();
+  });
+
+  it("returns null for plain product description", () => {
+    expect(firstHit("Stainless steel ice maker, 4.5 stars")).toBeNull();
   });
 });

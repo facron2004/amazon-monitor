@@ -156,3 +156,86 @@ export interface CategoryReportInput {
   signals: CategorySignalLog[];
   activityEvents?: CompetitorActivityEvent[];
 }
+export interface BrandPlaybookPriceBand {
+  sampleSize: number;
+  minPrice: NullableNumber;
+  maxPrice: NullableNumber;
+  averagePrice: NullableNumber;
+  medianPrice: NullableNumber;
+}
+
+export interface BrandPlaybookCouponIntensity {
+  sampleSize: number;
+  activeAsinDays: number;
+  activeRate: NullableNumber;
+  couponEventCount: number;
+  averageDiscountValue: NullableNumber;
+  averageDiscountRate: NullableNumber;
+}
+
+export interface BrandPlaybookActivityFrequency {
+  totalEvents: number;
+  dailyAverage: number;
+  rankSurgeCount: number;
+  priceDropCount: number;
+  couponEventCount: number;
+  dealEventCount: number;
+  reviewGrowthCount: number;
+  brandMatrixPushCount: number;
+  brandMatrixDropCount: number;
+}
+
+export interface BrandPlaybookAsinCountChanges {
+  firstSnapshotDate: string | null;
+  latestSnapshotDate: string | null;
+  firstTop100Count: NullableNumber;
+  latestTop100Count: NullableNumber;
+  top100Change: NullableNumber;
+  latestTop50Count: NullableNumber;
+  latestTop20Count: NullableNumber;
+}
+
+export interface BrandPlaybookNewProductFrequency {
+  newEntryCount: number;
+  newEntryDays: number;
+  dailyAverage: number;
+}
+
+export interface BrandPlaybookSurgeCycle {
+  surgeDays: number;
+  dropDays: number;
+  lastSurgeDate: string | null;
+  lastDropDate: string | null;
+}
+
+export interface BrandPlaybookStrongAsin {
+  asin: string;
+  title: string;
+  productUrl: string | null;
+  imageUrl: string | null;
+  bestRank: NullableNumber;
+  latestRank: NullableNumber;
+  daysInTop20: number;
+  daysInTop50: number;
+  latestPrice: NullableNumber;
+  latestReviewCount: NullableNumber;
+}
+
+export interface BrandPlaybookProfile {
+  categoryId: number;
+  categoryName: string;
+  marketplace: string;
+  brand: string;
+  endDate: string;
+  windowDays: number;
+  observedDays: number;
+  latestEvidenceDate: string | null;
+  commonPriceBand: BrandPlaybookPriceBand;
+  couponIntensity: BrandPlaybookCouponIntensity;
+  activityFrequency: BrandPlaybookActivityFrequency;
+  asinCountChanges: BrandPlaybookAsinCountChanges;
+  newProductLaunchFrequency: BrandPlaybookNewProductFrequency;
+  surgeCycle: BrandPlaybookSurgeCycle;
+  historicalStrongAsins: BrandPlaybookStrongAsin[];
+  evidenceItems: string[];
+}

@@ -137,7 +137,7 @@ export function rememberDetailRanks(cache: Map<string, DetailRankCacheValue>, ke
 }
 
 export function detailCacheKey(date: string, marketplace: string, asin: string): string {
-  // Version 4: 2026-06-11 - weak-brand store-page verification
-  const parserVersion = "v4";
+  // Version 5: promo fields are latest-page state, including null when ended.
+  const parserVersion = "v5";
   return `${parserVersion}|${date}|${normalizeMarketplaceHost(marketplace)}|${asin}`;
 }

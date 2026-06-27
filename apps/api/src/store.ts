@@ -7,11 +7,13 @@ import { createCategoryPriceStore } from "./store/category-price-store.js";
 import { createCategorySnapshotStore } from "./store/category-snapshot-store.js";
 import { createDashboardStore } from "./store/dashboard-store.js";
 import { createKeywordSnapshotStore } from "./store/keyword-snapshot-store.js";
+import { createInsightEventStore } from "./store/insight-event-store.js";
 import { createMonitorStore } from "./store/monitor-store.js";
 import { createNotificationStore } from "./store/notification-store.js";
 import { createOperationalStore } from "./store/operational-store.js";
 import { createProductActivityStore } from "./store/product-activity-store.js";
 import { createQueueStore } from "./store/queue-store.js";
+import { createWorkerStore } from "./store/worker-store.js";
 import { nowIso, withTransaction } from "./store/sql-utils.js";
 import type { KeywordInput, Store } from "./store/types.js";
 
@@ -33,6 +35,7 @@ export function createStore(db: DatabaseSync): Store {
     ...createNotificationStore(db),
     ...createOperationalStore(db),
     ...createBsrStore(db),
+    ...createInsightEventStore(db),
     ...createKeywordSnapshotStore(db),
     ...createDashboardStore(db),
     ...categorySnapshotStore,
@@ -40,11 +43,16 @@ export function createStore(db: DatabaseSync): Store {
     ...createCategoryInsightStore(db),
     ...createProductActivityStore(db),
     ...createQueueStore(db),
+    ...createWorkerStore(db),
 
     reset() {
       withTransaction(db, () => {
         db.exec(`
+          DELETE FROM amazon_worker_heartbeat;
           DELETE FROM amazon_collect_job_queue;
+          DELETE FROM asin_watch_states;
+          DELETE FROM insight_event_notes;
+          DELETE FROM insight_events;
           DELETE FROM amazon_category_daily_report;
           DELETE FROM amazon_daily_report;
           DELETE FROM amazon_notification_send_log;

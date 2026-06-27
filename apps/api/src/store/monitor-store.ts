@@ -87,7 +87,30 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
     },
 
     deleteKeyword(id) {
-      db.prepare("DELETE FROM amazon_keyword_monitor WHERE id = ?").run(id);
+      const keyword = getKeyword(db, id);
+      if (!keyword) {
+        throw new Error(`Keyword ${id} not found`);
+      }
+
+      db.exec("BEGIN");
+      try {
+        db.prepare("DELETE FROM amazon_keyword_serp_snapshot WHERE keyword_id = ?").run(id);
+        db.prepare(
+          `DELETE FROM amazon_competitor_pool
+           WHERE first_seen_keyword = ?
+              OR EXISTS (
+                SELECT 1 FROM amazon_keyword_serp_snapshot s
+                WHERE s.asin = amazon_competitor_pool.asin
+                  AND s.marketplace = amazon_competitor_pool.marketplace
+                  AND s.keyword_id = ?
+              )`
+        ).run(keyword.keyword, id);
+        db.prepare("DELETE FROM amazon_keyword_monitor WHERE id = ?").run(id);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     },
 
     getKeyword(id) {

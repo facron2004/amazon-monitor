@@ -80,6 +80,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_competitor_activity_event", "review_count_change", "INTEGER");
   ensureColumn(db, "amazon_competitor_action_insight", "previous_date", "TEXT");
   ensureColumn(db, "amazon_bsr_snapshot_quality", "unique_rank_count", "INTEGER DEFAULT 0");
+  ensureColumn(db, "insight_events", "assignee", "TEXT");
 
   // 数据清理和索引
   dedupeActionInsightTargets(db);

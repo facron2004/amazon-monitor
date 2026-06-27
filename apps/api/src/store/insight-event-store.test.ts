@@ -16,6 +16,10 @@ describe("insight event store", () => {
     expect(store.updateInsightEventStatus(event.id, "WATCHING")).toMatchObject({ status: "WATCHING" });
     store.upsertInsightEvent({ ...event, scoreTotal: 91, scoreLevel: "S" });
     expect(store.getInsightEvent(event.id)).toMatchObject({ status: "WATCHING", scoreTotal: 91 });
+    expect(store.updateInsightEventAssignee(event.id, "  Alice  ")).toMatchObject({ assignee: "Alice" });
+    store.upsertInsightEvent({ ...event, scoreTotal: 92, scoreLevel: "S" });
+    expect(store.getInsightEvent(event.id)).toMatchObject({ assignee: "Alice", scoreTotal: 92 });
+    expect(store.updateInsightEventAssignee(event.id, " ")).toMatchObject({ assignee: null });
 
     expect(store.updateInsightEventNote(event.id, "跟进竞品价格")).toMatchObject({ userNote: "跟进竞品价格" });
 
@@ -113,6 +117,103 @@ describe("insight event store", () => {
     db.prepare("UPDATE insight_review_claims SET claimed_at = ?").run(twoHoursAgo);
     const claimedD = store.claimReviewDueEvents("2026-06-22", "claim-D");
     expect(claimedD.map((event) => event.asin).sort()).toEqual(["A", "B"]);
+  });
+
+  describe("listTopInsights", () => {
+    it("returns top actionable events for the date, deduped by ASIN", () => {
+      const db = new DatabaseSync(":memory:");
+      initSchema(db);
+      const store = createStore(db);
+
+      // Two events for the same ASIN — only the higher-scoring one should surface
+      store.upsertInsightEvent({
+        ...sampleInsightEvent(),
+        asin: "B0DUPE",
+        eventTitle: "low",
+        eventLevel: "P2",
+        scoreTotal: 40
+      });
+      store.upsertInsightEvent({
+        ...sampleInsightEvent(),
+        id: "2026-06-19|cat1|asin:B0DUPE|COUPON",
+        asin: "B0DUPE",
+        eventTitle: "high",
+        eventType: "COUPON_ADDED",
+        eventLevel: "P0",
+        scoreTotal: 90
+      });
+
+      // Core competitor rank surge should rank above a passive P2 entry
+      store.upsertInsightEvent({
+        ...sampleInsightEvent(),
+        id: "2026-06-19|cat1|asin:B0CORE|RANK",
+        asin: "B0CORE",
+        eventTitle: "core surge",
+        eventType: "RANK_SURGE",
+        eventLevel: "P1",
+        evidence: { marketplace: "amazon.com", rankChange: 60, evidenceItems: [] }
+      });
+
+      // A brand-level event without ASIN should be excluded from the feed
+      store.upsertInsightEvent({
+        ...sampleInsightEvent(),
+        id: "2026-06-19|cat1|BRAND",
+        asin: null,
+        eventTitle: "brand event",
+        eventType: "BRAND_MATRIX_SURGE",
+        eventLevel: "P0",
+        scoreTotal: 99
+      });
+
+      const top = store.listTopInsights("2026-06-19", 3);
+      const asins = top.map((event) => event.asin);
+      // B0DUPE should appear exactly once (the high-scoring variant), B0CORE next, brand excluded
+      expect(asins).toContain("B0DUPE");
+      expect(asins.filter((asin) => asin === "B0DUPE")).toHaveLength(1);
+      expect(asins).not.toContain(null);
+      expect(top[0].asin).toBe("B0DUPE");
+    });
+
+    it("excludes events that are not actionable", () => {
+      const db = new DatabaseSync(":memory:");
+      initSchema(db);
+      const store = createStore(db);
+
+      store.upsertInsightEvent({
+        ...sampleInsightEvent(),
+        asin: "B0ACTIVE",
+        eventTitle: "todo"
+      });
+      store.upsertInsightEvent({
+        ...sampleInsightEvent(),
+        id: "2026-06-19|cat1|asin:B0IGNORED|IGN",
+        asin: "B0IGNORED",
+        eventTitle: "ignored",
+        status: "IGNORED"
+      });
+
+      const top = store.listTopInsights("2026-06-19", 5);
+      expect(top.map((event) => event.asin)).toEqual(["B0ACTIVE"]);
+    });
+
+    it("honors the limit parameter", () => {
+      const db = new DatabaseSync(":memory:");
+      initSchema(db);
+      const store = createStore(db);
+
+      for (let i = 0; i < 8; i += 1) {
+        store.upsertInsightEvent({
+          ...sampleInsightEvent(),
+          id: `2026-06-19|cat1|asin:B0${i}|RANK`,
+          asin: `B0${i}`,
+          eventTitle: `event ${i}`,
+          scoreTotal: 80 - i,
+          eventLevel: "P1"
+        });
+      }
+      const top = store.listTopInsights("2026-06-19", 3);
+      expect(top).toHaveLength(3);
+    });
   });
 });
 

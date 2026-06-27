@@ -67,7 +67,11 @@ export function extractSearchCards(): SerpProductInput[] {
         '[title*="coupon" i]',
         ".s-coupon-unclipped",
         ".s-coupon-clipped",
+        ".s-coupon-highlight-color",
+        ".couponBadge",
         '[data-a-badge-type="coupon"]',
+        '[data-testid*="coupon" i]',
+        '[data-cy*="coupon" i]',
         ".a-color-price",
         ".savingsPercentage"
       ]);
@@ -79,8 +83,13 @@ export function extractSearchCards(): SerpProductInput[] {
         '[aria-label*="deal" i]',
         '[title*="deal" i]',
         ".a-badge-text",
+        ".a-badge-label",
+        ".a-badge-label-inner",
         ".s-label-popover-default",
+        ".puis-label-popover-default",
         '[data-a-badge-type="deal"]',
+        '[data-testid*="deal" i]',
+        '[data-cy*="deal" i]',
         ".dealBadge"
       ]);
     },
@@ -94,19 +103,35 @@ export function extractSearchCards(): SerpProductInput[] {
           element.textContent ?? ""
         );
       }
-      for (const candidate of candidates) {
+      const compactCandidates = candidates.map((candidate) => candidate.trim()).filter(Boolean);
+      const promoCandidates = compactCandidates.flatMap((candidate, index) =>
+        compactCandidates[index + 1] ? [candidate, `${candidate}\n${compactCandidates[index + 1]}`] : [candidate]
+      );
+      for (const candidate of promoCandidates) {
         const value = h.promoMatch(candidate, patterns);
         if (value) return value;
       }
       return null;
     },
     promoMatch(value: string, patterns: RegExp[]): string | null {
-      const text = value.replace(/\s+/g, " ").trim();
-      if (!text || text.length > 180) return null;
-      for (const pattern of patterns) {
-        const match = text.match(pattern);
-        const candidate = h.cleanPromoText(match?.[0] ?? (pattern.test(text) ? text : ""));
-        if (candidate) return candidate;
+      const raw = value.trim();
+      if (!raw) return null;
+      const compact = raw.replace(/\s+/g, " ").trim();
+      const lines = raw.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+      const candidates = compact.length <= 180 ? [compact] : [];
+      for (let index = 0; index < lines.length; index += 1) {
+        candidates.push(lines[index]);
+        if (lines[index + 1]) {
+          candidates.push(`${lines[index]} ${lines[index + 1]}`);
+        }
+      }
+      for (const text of Array.from(new Set(candidates))) {
+        if (!text || text.length > 180) continue;
+        for (const pattern of patterns) {
+          const match = text.match(pattern);
+          const candidate = h.cleanPromoText(match?.[0] ?? (pattern.test(text) ? text : ""));
+          if (candidate) return candidate;
+        }
       }
       return null;
     },
@@ -114,7 +139,7 @@ export function extractSearchCards(): SerpProductInput[] {
       return [
         // Standard coupon patterns
         /\bSave\s+(?:an?\s+)?(?:[$€£¥]\s*[\d,.]+|HKD\s*[\d,.]+|CAD\s*[\d,.]+|AUD\s*[\d,.]+|[\d.]+%)\s+with\s+coupon\b/i,
-        /\b(?:Apply|Clip)\s+(?:an?\s+)?(?:[$€£¥]\s*[\d,.]+|HKD\s*[\d,.]+|CAD\s*[\d,.]+|AUD\s*[\d,.]+|[\d.]+%)?\s*coupon\b/i,
+        /\b(?:Apply|Clip|Redeem|Use)\s+(?:an?\s+)?(?:[$€£¥]\s*[\d,.]+|HKD\s*[\d,.]+|CAD\s*[\d,.]+|AUD\s*[\d,.]+|[\d.]+%)?\s*coupon\b/i,
         /\b(?:[$€£¥]\s*[\d,.]+|HKD\s*[\d,.]+|CAD\s*[\d,.]+|AUD\s*[\d,.]+|[\d.]+%)\s+(?:off\s+)?(?:with\s+)?coupon\b/i,
         // Extra coupon savings
         /\bExtra\s+(?:[$€£¥]\s*[\d,.]+|[\d.]+%)\s+off\s+(?:with\s+)?coupon\b/i,
@@ -122,13 +147,14 @@ export function extractSearchCards(): SerpProductInput[] {
         /\bclip\s+coupon\b/i,
         // Coupon applied automatically
         /\bcoupon\s+applied\s+(?:automatically\s+)?at\s+checkout\b/i,
-        /\b(?:[$€£¥]\s*[\d,.]+|[\d.]+%)\s+coupon\s+applied\b/i
+        /\b(?:[$€£¥]\s*[\d,.]+|[\d.]+%)\s+coupon\s+applied\b/i,
+        /\b(?:with|use|redeem)\s+(?:this\s+)?coupon\b/i
       ];
     },
     dealPatterns(): RegExp[] {
       return [
-        // Specific deal types
-        /\b(?:limited\s+time\s+deal|prime\s+exclusive\s+deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal|prime\s+day\s+deal)\b/i,
+        // Specific deal types (含 Prime Day / Big Deal Days 等亚马逊活动变体)
+        /\b(?:limited\s+time\s+deal|prime[\s-]*exclusive\s+(?:deal|savings)|prime[\s-]*day'?s?[\s-]*(?:deals?|exclusive|savings|sale)|prime[\s-]*big[\s-]*deal[\s-]*days?|prime[\s-]*early[\s-]*access[\s-]*deal|prime[\s-]*member[\s-]*exclusive[\s-]*deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal)\b/i,
         // Today's deals
         /\btoday'?s\s+deals?\b/i,
         // Deal badges

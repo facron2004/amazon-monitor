@@ -15,7 +15,10 @@ export const DAILY_REPORT_SHEET_NAMES = [
   "BSR Changes",
   "Action Insights",
   "Brand Top10 Changes",
-  "Alert Log"
+  "Alert Log",
+  "Insight Events",
+  "Review Queue",
+  "Brand Strategy Tags"
 ];
 
 export function getWorkbookSheetNames(buffer: Buffer): string[] {

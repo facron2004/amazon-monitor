@@ -1,6 +1,7 @@
 import { buildBrandTop10ChangeRows } from "./brand-top10-change-rows.js";
 import { buildSnapshotLookup } from "./category-snapshot-lookup.js";
 import type { Store } from "../store.js";
+import { collectDailyInsightReportData } from "./insight-report.js";
 
 export function collectDailyReportData(store: Store, date: string) {
   const summary = store.getDashboardSummary(date);
@@ -15,6 +16,7 @@ export function collectDailyReportData(store: Store, date: string) {
   const bsrQuality = store.listBsrSnapshotQuality({ date, limit: 5000 });
   const bsrChanges = store.listBsrRankChanges({ date, includeUnchanged: false, limit: 5000 });
   const actionInsights = store.listCompetitorActionInsights({ date, limit: 5000 });
+  const { insightEvents, reviewDueEvents, reviewedEvents } = collectDailyInsightReportData(store, date);
   const priceHistory = store.listProductPriceHistory({ date, limit: 5000 });
   const activityEvents = store.listCategoryActivityEvents({ date, limit: 3000 });
   const activitySignals = categorySignals.filter((signal) => ["price_drop", "new_coupon", "new_deal"].includes(signal.signalType));
@@ -34,6 +36,9 @@ export function collectDailyReportData(store: Store, date: string) {
     bsrQuality,
     bsrChanges,
     actionInsights,
+    insightEvents,
+    reviewDueEvents,
+    reviewedEvents,
     priceHistory,
     activityEvents,
     activitySignals,

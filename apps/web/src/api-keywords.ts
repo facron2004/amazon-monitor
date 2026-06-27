@@ -14,6 +14,10 @@ export const keywordApi = {
       method: "PATCH",
       body: JSON.stringify(payload)
     }),
+  deleteKeyword: (id: number) =>
+    request<void>(`/keywords/${id}`, {
+      method: "DELETE"
+    }),
   keywordDetail: (id: number, date: DatePayload["date"]) => request<KeywordDetail>(`/keywords/${id}/detail?date=${date}`),
   collect: (payload: KeywordCollectPayload) =>
     request<CollectJob | CollectJob[]>("/collect/run", {

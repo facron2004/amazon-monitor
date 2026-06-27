@@ -55,3 +55,24 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
     clearTimeout(timeoutId);
   }
 }
+
+/**
+ * Returns true when the given error is a request-cancellation error raised by
+ * an AbortController. Use this in catch blocks to decide whether to swallow the
+ * error silently (because a newer request superseded this one) vs surface it.
+ */
+export function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
+  return false;
+}
+
+/**
+ * Helper to skip `null`/`undefined` signals and `undefined` option objects when
+ * passing them through call sites. Avoids the boilerplate of:
+ *   api.fetchX(args, signal ? { signal } : undefined)
+ * in every callsite.
+ */
+export function withSignal(signal: AbortSignal | undefined): { signal: AbortSignal } | undefined {
+  return signal ? { signal } : undefined;
+}

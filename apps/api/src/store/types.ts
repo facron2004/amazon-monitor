@@ -13,6 +13,7 @@ import type {
   CategorySignalLog,
   CollectJob,
   CollectTaskLog,
+  WorkerStatus,
   CompetitorActionInsight,
   CompetitorActivityEvent,
   CompetitorFolder,
@@ -100,10 +101,12 @@ export interface BsrStore {
 
 export interface InsightEventStore {
   listInsightEvents(params?: InsightEventListParams): InsightEvent[];
+  listTopInsights(date: string, limit?: number): InsightEvent[];
   getInsightEvent(id: string): InsightEvent | null;
   upsertInsightEvent(event: InsightEventInput): InsightEvent;
   updateInsightEventStatus(id: string, status: InsightEvent["status"], reviewDueDate?: string | null): InsightEvent | null;
   updateInsightEventNote(id: string, note: string): InsightEvent | null;
+  updateInsightEventAssignee(id: string, assignee: string | null): InsightEvent | null;
   listReviewDueEvents(date: string): InsightEvent[];
   claimReviewDueEvents(date: string, claimId: string, options?: { categoryId?: number; limit?: number }): InsightEvent[];
   releaseReviewClaim(claimId: string): void;
@@ -168,7 +171,48 @@ export interface QueueStore {
   failJob(id: number, errorMessage: string, maxRetries: number): void;
   listJobs(limit?: number, offset?: number): CollectJob[];
   getJobStatus(id: number): CollectJob | null;
+  getCollectionFreshness(): CollectionFreshness[];
+  getQueueStats(): QueueStats;
+  recoverStuckJobs(reason: string): number[];
   resetQueue(): void;
+}
+
+/**
+ * Input for `recordWorkerHeartbeat`. `workerId` is a stable per-process
+ * identifier (random UUID at startup) — used as the primary key so the table
+ * always reflects the currently-running Worker even after restarts.
+ */
+export interface WorkerHeartbeatInput {
+  workerId: string;
+  pid: number;
+  host: string;
+  startedAt: string;
+  version: string;
+  lastJobId?: number | null;
+  lastStatus?: "pending" | "processing" | "completed" | "failed" | null;
+}
+
+export interface WorkerStore {
+  recordWorkerHeartbeat(input: WorkerHeartbeatInput): void;
+  getWorkerStatus(): WorkerStatus;
+}
+
+export interface CollectionFreshness {
+  taskType: "keyword" | "category";
+  lastCompletedAt: string | null;
+  lastStartedAt: string | null;
+  lastStatus: "completed" | "failed" | "pending" | "processing" | null;
+  totalJobs: number;
+  failedJobs: number;
+}
+
+export interface QueueStats {
+  pendingCount: number;
+  processingCount: number;
+  completedRecentCount: number;
+  failedRecentCount: number;
+  /** Milliseconds since the oldest pending job was queued. 0 when none pending. */
+  oldestPendingAgeMs: number;
 }
 
 export interface ProductActivityStore {
@@ -187,6 +231,7 @@ export interface Store extends
   OperationalStore,
   DashboardStore,
   QueueStore,
+  WorkerStore,
   ProductActivityStore {
   reset(): void;
   runInTransaction(work: () => void): void;

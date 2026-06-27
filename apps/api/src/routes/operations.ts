@@ -54,4 +54,20 @@ export function registerOperationRoutes(app: Express, store: Store): void {
     }
     response.json(job);
   });
+
+  // Per-taskType freshness snapshot for the dashboard freshness badge.
+  app.get("/api/collect/freshness", (_request, response) => {
+    response.json(store.getCollectionFreshness());
+  });
+
+  // Aggregate queue health for the topbar "pending/processing" indicator.
+  app.get("/api/collect/queue-stats", (_request, response) => {
+    response.json(store.getQueueStats());
+  });
+
+  // Live health of the background collection Worker — last heart-beat,
+  // uptime, and whether it has gone stale. Powers the topbar online dot.
+  app.get("/api/collect/worker-status", (_request, response) => {
+    response.json(store.getWorkerStatus());
+  });
 }

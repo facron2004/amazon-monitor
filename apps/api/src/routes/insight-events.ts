@@ -41,6 +41,10 @@ const notePatchSchema = z.object({
   note: z.string().max(5000)
 });
 
+const assigneePatchSchema = z.object({
+  assignee: z.string().max(120).nullable()
+});
+
 const reviewSchema = z.object({
   result: z.enum(insightReviewResults),
   note: z.string().max(5000).nullable().optional()
@@ -60,10 +64,23 @@ const watchStatePatchSchema = z.object({
   lastEventDate: dateSchema.nullable().optional()
 });
 
+const topSummaryQuerySchema = z.object({
+  date: dateSchema,
+  limit: z.coerce.number().int().min(1).max(20).optional()
+});
+
 export function registerInsightEventRoutes(app: Express, store: Store): void {
   app.get("/api/insight-events", (request, response) => {
     const query = validateQuery(insightEventListQuerySchema, request.query);
     response.json(store.listInsightEvents(query));
+  });
+
+  // Dashboard "今日必须关注 N 件事" feed.
+  // Returns up to N actionable ASIN-level events ranked by composite score.
+  // Registered before /:id so the literal segment wins over the param route.
+  app.get("/api/insight-events/top-summary", (request, response) => {
+    const query = validateQuery(topSummaryQuerySchema, request.query);
+    response.json(store.listTopInsights(query.date, query.limit ?? 5));
   });
 
   app.get("/api/insight-events/review-due", (request, response) => {
@@ -108,6 +125,17 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
     const id = validateEventId(request.params.id);
     const body = validateBody(notePatchSchema, request.body);
     const event = store.updateInsightEventNote(id, body.note);
+    if (!event) {
+      response.status(404).json({ message: "insight event not found" });
+      return;
+    }
+    response.json(event);
+  });
+
+  app.patch("/api/insight-events/:id/assignee", (request, response) => {
+    const id = validateEventId(request.params.id);
+    const body = validateBody(assigneePatchSchema, request.body);
+    const event = store.updateInsightEventAssignee(id, body.assignee);
     if (!event) {
       response.status(404).json({ message: "insight event not found" });
       return;

@@ -1,5 +1,6 @@
 import type { BestsellerRankSnapshot, DashboardSummary } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
+import { buildInsightHtmlSections, buildInsightTextSections, collectDailyInsightReportData } from "../reports/insight-report.js";
 import { cleanEnvValue } from "./env.js";
 import { escapeHtml } from "./text-utils.js";
 
@@ -7,8 +8,9 @@ export function buildNotificationContent(store: Store, date: string, summary?: D
   const report = store.getDailyReport(date);
   const categoryReport = store.getCategoryReport(date);
   const combinedReport = [categoryReport, report].filter((item) => item.trim()).join("\n\n---\n\n");
+  const insightData = collectDailyInsightReportData(store, date);
   if (combinedReport.trim()) {
-    return appendBsrPromoTextSummary(combinedReport, store, date);
+    return appendBsrPromoTextSummary(appendInsightTextSummary(combinedReport, insightData), store, date);
   }
 
   const dashSummary = summary ?? store.getDashboardSummary(date);
@@ -36,6 +38,8 @@ export function buildNotificationContent(store: Store, date: string, summary?: D
     ...(categorySignals.length
       ? categorySignals.map((signal) => `- [${signal.alertLevel}] ${signal.categoryName} ${signal.asin ?? ""}: ${signal.content}`)
       : ["- No category signals"]),
+    "",
+    ...buildInsightTextSections(insightData),
     "",
     "## BSR Coupon / Deal",
     ...(bsrPromoLines.length ? bsrPromoLines : ["- No BSR coupon/deal items"])
@@ -68,6 +72,7 @@ export function buildNotificationSummaryHtmlContent(store: Store, date: string, 
   const alerts = store.listAlerts({ date, limit: 5 });
   const categorySignals = store.listCategorySignals({ date, limit: 5 });
   const bsrPromos = bsrPromoItems(store, date, 8);
+  const insightData = collectDailyInsightReportData(store, date);
   const rows = [
     ["启用关键词", dashSummary.activeKeywordCount],
     ["启用类目", dashSummary.activeCategoryCount],
@@ -126,6 +131,7 @@ export function buildNotificationSummaryHtmlContent(store: Store, date: string, 
               : "<li>暂无类目信号</li>"
           }
         </ul>
+        ${buildInsightHtmlSections(insightData)}
         <h2 style="margin:18px 0 8px;font-size:15px;">BSR Coupon / Deal</h2>
         <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:0;">
           <thead>
@@ -164,6 +170,13 @@ function appendBsrPromoTextSummary(content: string, store: Store, date: string):
   return [content, "", "## BSR Coupon / Deal", ...lines].join("\n");
 }
 
+function appendInsightTextSummary(content: string, insightData: ReturnType<typeof collectDailyInsightReportData>): string {
+  if (!insightData.insightEvents.length && !insightData.reviewDueEvents.length && !insightData.reviewedEvents.length) {
+    return content;
+  }
+  return [content, "", ...buildInsightTextSections(insightData)].join("\n");
+}
+
 function bsrPromoItems(store: Store, date: string, limit: number): BestsellerRankSnapshot[] {
   return store
     .listCategorySnapshots({ date, limit: 2000 })
@@ -179,7 +192,11 @@ function validCouponText(value: string | null | undefined): string | null {
 
 function validDealBadge(value: string | null | undefined): string | null {
   const text = value?.trim();
-  return text && text.length <= 90 && /\b(limited\s+time\s+deal|prime\s+exclusive\s+deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal)\b|^deal$/i.test(text) ? text : null;
+  return text &&
+    text.length <= 90 &&
+    /\b(limited\s+time\s+deal|prime[\s-]*exclusive\s+(?:deal|savings)|prime[\s-]*day'?s?[\s-]*(?:deals?|exclusive|savings|sale)|prime[\s-]*big[\s-]*deal[\s-]*days?|prime[\s-]*early[\s-]*access[\s-]*deal|prime[\s-]*member[\s-]*exclusive[\s-]*deal|deal\s+of\s+the\s+day|lightning\s+deal|black\s+friday\s+deal|cyber\s+monday\s+deal)\b|^deal$/i.test(text)
+    ? text
+    : null;
 }
 
 function promoText(item: { couponText?: string | null; dealBadge?: string | null } | null | undefined): string | null {

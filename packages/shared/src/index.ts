@@ -14,3 +14,5 @@ export {
 } from "./product.js";
 export { decorateBestsellerSnapshots, decorateSnapshotRanks, summarizePriceBand } from "./ranking.js";
 export { analyzeDailyChanges, buildCategoryReportMarkdown, buildDailyReportMarkdown } from "./reports.js";
+export * from "./insight-events.js";
+export * from "./strategy-tags.js";
