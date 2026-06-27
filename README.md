@@ -1,6 +1,6 @@
 # Amazon 关键词竞品价格与排名监控系统
 
-基于 PRD 落地的可运行 MVP：关键词配置、Amazon 搜索页真实采集、每日快照、竞品池、昨日对比、告警、日报、采集日志和后台页面已经串成闭环。
+基于 PRD 落地的可运行系统：关键词配置、Amazon 搜索页真实采集、Category Best Sellers 采集、类目每日竞争情报首页、每日快照、竞品池、昨日对比、告警、日报、采集日志和后台页面已经串成闭环。
 
 ## 环境要求
 
@@ -192,6 +192,17 @@ $env:AMAZON_BESTSELLER_STABLE_PASSES="4"
 - `AMAZON_COLLECT_CATEGORY_BLOCK_IMAGES`：阻止产品图片加载，开启后提速显著（图片 URL 仍从搜索结果页获取）
 - `AMAZON_COLLECT_CATEGORY_CONCURRENCY`：多个类目并行采集数（默认 2）
 
+## 类目每日竞争情报首页
+
+类目页会把最新 BSR 数据优先整理成每日战报，完整榜单仍保留在页面下方，适合先看异常和机会，再进入明细排查。
+
+- **战况总览**：展示 Top100/Top50 新进、跌出 Top100、最大上升、最大下滑、新增 Coupon、价格新低和品牌集中度等 KPI。
+- **AI 今日总结**：基于当前采集到的快照、排名、价格、Deal/Coupon、Review 和品牌数据生成确定性摘要，不调用外部 LLM，不编造未采集字段。
+- **重点异动信息流**：按重要性展示 ASIN 卡片，包含商品图、标题、品牌、ASIN、BSR 路径、价格活动、Review 增量和建议动作。
+- **品牌矩阵**：聚合品牌在 Top10/Top50/Top100 的占位、平均排名、上升/下滑数量和主要价格带，点击品牌可打开右侧详情抽屉。
+- **新品黑马与价格活动雷达**：突出新进榜、快速上升、低评论高排名、价格新低、Coupon 和 Deal 信号，帮助定位需要跟进的商品。
+- **完整 BSR 榜单**：保留品牌、排名区间、关键词筛选和商品明细，商品信息列会限制文本宽度，避免覆盖品牌列。
+
 ## 项目结构
 
 ```
@@ -257,6 +268,14 @@ amazon-monitor/
 │           │   ├── useCategoryIntelligence.ts
 │           │   └── ...
 │           ├── components/       # Vue 组件
+│           │   ├── CategoriesView.vue         # 类目情报页（header + KPI + 三栏 + 洞察 + 榜单）
+│           │   ├── categories/                # 类目情报页的子组件
+│           │   │   ├── CategoryHeader.vue     # 类目下拉 + 日期 + 采集 + 管理模态
+│           │   │   ├── CategoryKpiCards.vue   # 4 个 KPI（异动/活动/风险/Review 增长）
+│           │   │   ├── CategoryLanePanel.vue  # Movers/Promotions/Fading 三栏
+│           │   │   └── CategoryInsightStrip.vue # 其他信号洞察行
+│           │   ├── CategoryBoardPanel.vue     # 完整 BSR 榜单（含 ICE TYPE/Deal-Coupon 筛选与分页）
+│           │   └── ...
 │           ├── utils/            # 工具函数
 │           └── api-*.ts          # API 客户端（按领域拆分）
 ├── data/                         # 数据目录
@@ -264,9 +283,10 @@ amazon-monitor/
 ├── package.json                  # Monorepo 配置
 ├── CLAUDE.md                     # AI 助手项目上下文
 ├── AGENTS.md                     # AI Agent 工作手册
-├── AUDIT_REPORT.md               # 46 项审计报告
+├── docs/                         # 项目文档
+│   ├── adr/                      # 架构决策记录
+│   └── archive/                  # 历史归档（审计报告 / 重构进展 / 优化总结等）
 ├── README.md                     # 本文档
-├── RUN_CHECKLIST.md              # 运行检查清单
 └── .env.example                  # 环境变量模板
 ```
 
@@ -288,6 +308,9 @@ amazon-monitor/
 - **视图缓存**：30 秒 TTL 缓存避免重复 API 请求
 - **Watch 防抖**：`@vueuse/core` 的 `watchDebounced` 防止快速切换触发请求风暴
 - **组件按需加载**：View 级组件使用 `defineAsyncComponent`，ECharts 按需引入
+- **类目情报首页**：`CategoriesView` 复用 Pinia 类目数据 + `useCategoryDailyBriefing` 派生 KPI、三栏（事件分桶 Movers/Promotions/Fading）、其他信号洞察、BSR 榜单筛选与分页，不新增后端接口
+- **右侧详情抽屉**：`CategoryDailyBriefingDrawer` 支持 event/brand/opportunity 三种模式，ASIN 与品牌卡片在当前页展开详情
+- **BSR 表格筛选**：客户端筛选（品牌 / ICE TYPE / Deal-Coupon / 排名窗口）+ 文本搜索；筛选变更时自动 reset `bsrTablePage = 1`
 
 ### 测试覆盖
 
@@ -332,8 +355,7 @@ amazon-monitor/
 
 - [CLAUDE.md](CLAUDE.md) - AI 编码助手项目上下文
 - [AGENTS.md](AGENTS.md) - AI Agent 工作手册和编码约定
-- [审计报告](AUDIT_REPORT.md) - 46 项代码审计（P0-P3 全部已修复）
-- [运行检查清单](RUN_CHECKLIST.md) - 运行前的逐步检查
-- [开发指南](DEVELOPMENT.md) - 开发者文档和架构说明
-- [项目说明](项目说明.md) - 详细的功能说明和使用指南
+- [更新日志](CHANGELOG.md) - 版本变更记录（Keep a Changelog 格式）
+- [架构决策](docs/adr/) - 关键设计选择的 ADR 记录
 - [环境变量配置](.env.example) - 完整的配置选项说明
+- [历史归档](docs/archive/) - 审计报告、重构进展、优化总结等历史快照

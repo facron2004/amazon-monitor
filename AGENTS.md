@@ -122,4 +122,4 @@ npx vitest run --silent                   # 全量测试
 
 ## 审计报告
 
-`AUDIT_REPORT.md` 记录 46 项审计发现，按 P0-P3 分级，全部已修复。
+`docs/archive/process-docs/AUDIT_REPORT.md` 记录 46 项审计发现，按 P0-P3 分级，全部已修复。

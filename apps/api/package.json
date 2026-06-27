@@ -1,6 +1,6 @@
 {
   "name": "@amazon-monitor/api",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -14,7 +14,7 @@
     "worker": "cross-env NODE_OPTIONS=--no-warnings tsx src/worker.ts"
   },
   "dependencies": {
-    "@amazon-monitor/shared": "0.1.0",
+    "@amazon-monitor/shared": "0.3.0",
     "cors": "^2.8.5",
     "express": "~4.22.0",
     "express-rate-limit": "^8.5.2",

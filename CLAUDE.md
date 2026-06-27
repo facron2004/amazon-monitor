@@ -86,4 +86,4 @@ npx vitest run --silent                           # 静默模式
 | `apps/web/src/composables/useAppController.ts` | 前端主控制器 |
 | `apps/web/src/composables/app-view-loader.ts` | 视图加载 + TTL 缓存 |
 | `apps/web/src/stores/category.ts` | 类目 Pinia store |
-| `AUDIT_REPORT.md` | 46 项审计报告（全部已修复） |
+| `AUDIT_REPORT.md` | 46 项审计报告（全部已修复，已归档到 `docs/archive/process-docs/`） |

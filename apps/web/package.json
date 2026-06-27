@@ -1,6 +1,6 @@
 {
   "name": "@amazon-monitor/web",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
-    "@amazon-monitor/shared": "0.1.0",
+    "@amazon-monitor/shared": "0.3.0",
     "@lucide/vue": "^1.16.0",
     "@vueuse/core": "^14.3.0",
     "echarts": "^6.0.0",
