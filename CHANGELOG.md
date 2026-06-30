@@ -6,10 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > 版本号维护规则（monorepo,统一递增）：
-> - 4 处 `package.json`（根 / `apps/web` / `apps/api` / `packages/shared`）同步 bump
+> - 全部 `package.json`（根 / `apps/web` / `apps/api` / `packages/shared`）同步 bump
 > - 内部依赖版本（`apps/web`、`apps/api` 里 `@amazon-monitor/shared` 的版本字符串）同步更新
+> - `apps/web/src/constants/version.ts` 更新 `VERSION_RELEASE_DATE`
 > - 顶部追加新版本小节 + 本次改动条目
 > - 类型:`feat:` / `fix:` / `refactor:` / `chore:` / `docs:` / `perf:`
+
+---
+
+## [0.4.0] - 2026-06-30
+
+### Added
+
+- **Amazon 域名白名单校验**：`packages/shared/src/amazon-url.ts` 新增 `isAllowedAmazonHost` / `assertAmazonUrl`，SSRF 防护（P0）
+- **类目采集数据质量分级**：`category-pipeline.ts` TopN 检查改为 ≥95%=ok / ≥80%=partial / <80%=fail，避免 99/100 也整批丢弃（P1）
+
+### Changed
+
+- **Worker 超时可取消**：`AbortController` 替代 `Promise.race`，超时时真正终止采集，写入操作不残留（P0）
+- **类目采集写库事务化**：全部写入操作包裹在 `store.runInTransaction()` 中，与关键词采集对齐，防止半截数据（P0）
+- **默认 Tab 改为 Overview**：`useAppController.ts` → `activeTab` 默认值从 `"categories"` 改为 `"overview"`，新用户首次打开不再空白（P1）
+- **Amazon URL 校验统一**：`competitors.ts` 的 redirect 校验改用 shared `isAllowedAmazonHost`，移除硬编码 `/\.amazon\.\w{2,}$/i` 正则（支持 `.co.uk` / `.co.jp` / `.de`）（P1）
+
+### Fixed
+
+- **categoryUrl SSRF 风险**：`validation.ts` 使用 `amazonUrlSchema` 限制仅允许已知 Amazon 域名（P0）
+- **Sidebar 版本号日期更新**：`version.ts` 发布日更新至 2026-06-30
+
+### Removed
+
+- `apps/web/src/components/action-center/prototype/` 整目录（prototype 代码，已物理删除）
+
+### Tests
+
+- 单元测试总数：**80 测试文件 / 715 用例全绿**
+- 适配数据质量分级：`category-intelligence.test.ts` 中 duplicate ranks 用例从 "rejects" 改为 "accepts at partial quality"
 
 ---
 

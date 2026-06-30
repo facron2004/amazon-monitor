@@ -29,13 +29,21 @@ npm run worker           # 启动 worker 处理队列任务
 
 ### 后端（apps/api）
 
-- **Store 模块化**：`store/types.ts` 定义 10 个子接口（MonitorStore、CategorySnapshotStore、BsrStore 等），Store 通过继承组合
-- **Store 实现按领域拆分**：`store/` 目录下每个文件负责一个领域（`bsr-store.ts`、`category-snapshot-store.ts`、`operational-store.ts` 等）
+- **Store 模块化**：`store/types.ts` 定义 10 个子接口（MonitorStore、CategorySnapshotStore、BsrStore、WorkerStore 等），Store 通过继承组合
+- **Store 实现按领域拆分**：`store/` 目录下每个文件负责一个领域（`bsr-store.ts`、`category-snapshot-store.ts`、`operational-store.ts`、`worker-store.ts` 等）
 - **SQL 工具**：`store/sql-utils.ts` 提供 `buildWhere`、`whereEq`、`whereLte`、`whereGte`、`clampLimit`、`clampOffset`、`withTransaction`
 - **分页**：所有 list API 支持 `limit`（上界 1000）和 `offset` 参数
 - **Schema 版本追踪**：`SCHEMA_VERSION` 常量 + `getSchemaVersion`/`setSchemaVersion`，迁移通过 `runStoreMigrationOnce` 按 key 追踪
 - **采集流程**：`pipeline.ts`（关键词）和 `category-pipeline.ts`（类目），写入操作包裹在 `store.runInTransaction()` 中
-- **Worker 队列**：`queue-store.ts` 实现 claim/retry/fail 状态机
+- **Worker 队列**：`queue-store.ts` 实现 claim/retry/fail 状态机；支持 `AbortController` 超时取消
+- **类目数据质量**：TopN 采集 ≥95%=ok / ≥80%=partial / <80%=fail，partial 数据仍保存并记录 `BsrSnapshotQuality`
+- **Amazon URL 安全**：`packages/shared/src/amazon-url.ts` 提供统一域名白名单校验（`isAllowedAmazonHost` / `assertAmazonUrl`），防止 SSRF
+
+### 前端（apps/web）
+
+- **Pinia Stores**：`stores/` 下有 category、keyword、competitor、alert、dashboard、insightEvents 等 store，组件通过 `storeToRefs` 直接消费
+- **Composables**：`composables/` 下组织业务逻辑（`useAppController`、`useKeywords`、`useCategoryIntelligence`、`useCategoryDailyBriefing` 等）
+- **Loading 状态拆分**：8 个 per-tab loading ref + 1 个 `collecting` ref + 计算属性 `loading` 聚合
 
 ### 前端（apps/web）
 
@@ -51,6 +59,7 @@ npm run worker           # 启动 worker 处理队列任务
 
 - 依赖方向严格单向：shared ← api/web，不反向
 - 18+ 测试文件覆盖从单元到集成
+- `amazon-url.ts`：Amazon 域名白名单校验（`isAllowedAmazonHost` / `assertAmazonUrl`），供前后端统一使用
 
 ## 测试
 
@@ -60,7 +69,7 @@ npx vitest run apps/api/src/amazon/retry.test.ts  # 单文件
 npx vitest run --silent                           # 静默模式
 ```
 
-当前：35 个测试文件，333 个测试用例。
+当前：80 个测试文件，715 个测试用例。
 
 ## 编码约定
 
@@ -74,16 +83,20 @@ npx vitest run --silent                           # 静默模式
 
 | 文件 | 用途 |
 |------|------|
-| `apps/api/src/store/types.ts` | Store 接口定义（10 个子接口） |
+| `apps/api/src/store/types.ts` | Store 接口定义（10+ 子接口） |
 | `apps/api/src/store/sql-utils.ts` | SQL 工具函数 |
 | `apps/api/src/store/db.ts` | 数据库初始化 + Schema 迁移 |
 | `apps/api/src/store/migration-utils.ts` | 迁移工具 + 版本追踪 |
 | `apps/api/src/pipeline.ts` | 关键词采集流程 |
-| `apps/api/src/category-pipeline.ts` | 类目采集流程 |
+| `apps/api/src/category-pipeline.ts` | 类目采集流程（含数据质量分级） |
 | `apps/api/src/amazon/page-guards.ts` | CAPTCHA/封锁检测 |
 | `apps/api/src/amazon/retry.ts` | 重试策略判断 |
 | `apps/api/src/amazon/parsers/parser-utils.ts` | 价格/货币/评分解析（多市场） |
+| `apps/api/src/worker.ts` | Worker 队列处理（含 AbortController 超时取消） |
+| `apps/api/src/routes/validation.ts` | Zod 校验 + Amazon URL 安全校验 |
+| `packages/shared/src/amazon-url.ts` | Amazon 域名白名单 / SSRF 防护 |
 | `apps/web/src/composables/useAppController.ts` | 前端主控制器 |
 | `apps/web/src/composables/app-view-loader.ts` | 视图加载 + TTL 缓存 |
 | `apps/web/src/stores/category.ts` | 类目 Pinia store |
+| `apps/web/src/constants/version.ts` | 版本号单一来源 |
 | `AUDIT_REPORT.md` | 46 项审计报告（全部已修复，已归档到 `docs/archive/process-docs/`） |

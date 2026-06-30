@@ -46,13 +46,11 @@ Action Center 之前用单列表 + 行内展开详情（pre-0.3.0）。当事件
 
 ## 收尾
 
-- ✅ 测试 684 全过（71 文件，19s）
+- ✅ 测试 715 全过（80 文件）
 - ✅ `npm run build` 通过（ActionCenterPanel 25.5 kB gzip 8.7 kB）
 - ✅ `App.vue` 移除 prototype 分支
 - ✅ production `ActionCenterPanel.vue` 重写完成
-- ⚠️ 删 `action-center/prototype/` 目录 — 已从 git 索引移除（`git rm --cached`），物理快照归档到 `docs/archive/prototype-snapshot/`（含 10 个原始文件 + NOTES + 3 variants）。Windows sandbox (Codex) 下 Remove-Item / mavis-trash / send2trash 全部 EPERM/无 Recycle Bin 访问，需用户跳出 sandbox 后手动 `Remove-Item -Recurse -Force` 清掉 `apps/web/src/components/action-center/prototype/`，文件已在归档里完整保留。
-- ⏳ CHANGELOG v0.3.0 追加
-- ⏳ commit
+- ✅ `action-center/prototype/` 已永久物理删除（v0.4.0）
 
 ## 参考
 
