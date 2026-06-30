@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { inferIceType } from "@amazon-monitor/shared";
-import type { SerpSnapshot } from "@amazon-monitor/shared";
+import type { ProductLink, SerpSnapshot } from "@amazon-monitor/shared";
 import {
   mapCompetitor,
   mapCompetitorFolder,
@@ -26,9 +26,17 @@ type KeywordSnapshotStoreMethods = Pick<
 >;
 
 export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotStoreMethods {
+  // Bounded FIFO cache for getProductLink — product URLs change rarely and the
+  // route is hit per-competitor-view. Cleared on snapshot insert/delete.
+  const productLinkCache = new Map<string, ProductLink | null>();
+  const PRODUCT_LINK_CACHE_MAX = 1000;
+
   return {
     deleteSnapshotsForKeywordDate(keywordId, date) {
-      db.prepare("DELETE FROM amazon_keyword_serp_snapshot WHERE keyword_id = ? AND snapshot_date = ?").run(keywordId, date);
+      withTransaction(db, () => {
+        db.prepare("DELETE FROM amazon_keyword_serp_snapshot WHERE keyword_id = ? AND snapshot_date = ?").run(keywordId, date);
+      });
+      productLinkCache.clear();
     },
 
     insertSnapshots(items) {
@@ -79,6 +87,7 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
           );
         }
       });
+      productLinkCache.clear();
     },
 
     listSnapshots(filter = {}) {
@@ -123,6 +132,10 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
       for (const item of items) {
         unique.set(`${item.marketplace}:${item.asin}`, item);
       }
+      // Pre-aggregate keyword counts in one SQL — avoids the per-row
+      // COUNT(DISTINCT keyword) subquery that previously ran inside the
+      // ON CONFLICT DO UPDATE clause for every upserted competitor.
+      const keywordCounts = serpKeywordCountsByAsinMarket(db, Array.from(unique.values()));
       const stmt = db.prepare(
         `INSERT INTO amazon_competitor_pool
          (asin, marketplace, title, brand, image_url, first_seen_keyword, first_seen_date, last_seen_date,
@@ -131,16 +144,13 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
            latest_bsr_rank, latest_bsr_category, latest_bsr_text, latest_bestseller_ranks_json,
            source_type, first_seen_source, latest_category_name, latest_category_rank, ice_type, competitor_tier, competitor_reasons_json,
            is_key_competitor, status, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'keyword', ?, NULL, NULL, ?, ?, ?, 0, 1, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'keyword', ?, NULL, NULL, ?, ?, ?, 0, 1, ?)
          ON CONFLICT(asin, marketplace) DO UPDATE SET
            title = excluded.title,
            brand = COALESCE(excluded.brand, amazon_competitor_pool.brand),
            image_url = excluded.image_url,
            last_seen_date = excluded.last_seen_date,
-          appear_keyword_count = (
-            SELECT COUNT(DISTINCT keyword) FROM amazon_keyword_serp_snapshot
-            WHERE asin = excluded.asin AND marketplace = excluded.marketplace
-          ),
+          appear_keyword_count = excluded.appear_keyword_count,
           best_rank = MIN(amazon_competitor_pool.best_rank, excluded.best_rank),
           latest_rank = excluded.latest_rank,
           lowest_price = CASE
@@ -182,6 +192,7 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
             item.keyword,
             item.snapshotDate,
             item.snapshotDate,
+            keywordCounts.get(`${item.marketplace}:${item.asin}`) ?? 0,
             item.absoluteRank,
             item.absoluteRank,
             item.currentPrice,
@@ -205,14 +216,22 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
     },
 
     listCompetitors(filter = {}) {
+      // Use INNER JOIN against a distinct (asin, marketplace) subquery
+      // instead of per-row EXISTS — one pass over the keyword index
+      // replaces N EXISTS probes when the competitor pool is large.
+      const joins: string[] = [];
       const clauses = ["cp.status = 1"];
       const params: SQLInputValue[] = [];
       if (filter.keywordId) {
-        clauses.push("EXISTS (SELECT 1 FROM amazon_keyword_serp_snapshot s WHERE s.asin = cp.asin AND s.marketplace = cp.marketplace AND s.keyword_id = ?)");
+        joins.push(`INNER JOIN (
+          SELECT DISTINCT asin, marketplace FROM amazon_keyword_serp_snapshot WHERE keyword_id = ?
+        ) k1 ON k1.asin = cp.asin AND k1.marketplace = cp.marketplace`);
         params.push(filter.keywordId);
       }
       if (filter.keyword) {
-        clauses.push("EXISTS (SELECT 1 FROM amazon_keyword_serp_snapshot s WHERE s.asin = cp.asin AND s.marketplace = cp.marketplace AND s.keyword = ?)");
+        joins.push(`INNER JOIN (
+          SELECT DISTINCT asin, marketplace FROM amazon_keyword_serp_snapshot WHERE keyword = ?
+        ) k2 ON k2.asin = cp.asin AND k2.marketplace = cp.marketplace`);
         params.push(filter.keyword);
       }
       if (filter.sourceType) {
@@ -227,6 +246,7 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
         db
           .prepare(
             `SELECT cp.* FROM amazon_competitor_pool cp
+             ${joins.join(" ")}
              WHERE ${clauses.join(" AND ")}
              ORDER BY cp.is_key_competitor DESC,
               CASE cp.competitor_tier
@@ -262,6 +282,11 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
     },
 
     getProductLink(asin, keywordId) {
+      const cacheKey = `${asin}|${keywordId ?? ""}`;
+      if (productLinkCache.has(cacheKey)) {
+        return productLinkCache.get(cacheKey) ?? null;
+      }
+
       const params: SQLInputValue[] = [asin];
       const keywordClause = keywordId ? "AND keyword_id = ?" : "";
       if (keywordId) {
@@ -275,16 +300,26 @@ export function createKeywordSnapshotStore(db: DatabaseSync): KeywordSnapshotSto
            LIMIT 1`
         )
         .get(...params) as { asin: string; marketplace: string; product_url: string | null } | undefined;
+      let result: ProductLink | null = null;
       if (snapshot?.product_url) {
-        return { asin: snapshot.asin, marketplace: snapshot.marketplace, url: snapshot.product_url };
+        result = { asin: snapshot.asin, marketplace: snapshot.marketplace, url: snapshot.product_url };
+      } else {
+        const competitor = db.prepare("SELECT asin, marketplace, latest_product_url FROM amazon_competitor_pool WHERE asin = ? LIMIT 1").get(asin) as
+          | { asin: string; marketplace: string; latest_product_url: string | null }
+          | undefined;
+        if (competitor?.latest_product_url) {
+          result = { asin: competitor.asin, marketplace: competitor.marketplace, url: competitor.latest_product_url };
+        }
       }
 
-      const competitor = db.prepare("SELECT asin, marketplace, latest_product_url FROM amazon_competitor_pool WHERE asin = ? LIMIT 1").get(asin) as
-        | { asin: string; marketplace: string; latest_product_url: string | null }
-        | undefined;
-      return competitor?.latest_product_url
-        ? { asin: competitor.asin, marketplace: competitor.marketplace, url: competitor.latest_product_url }
-        : null;
+      if (productLinkCache.size >= PRODUCT_LINK_CACHE_MAX) {
+        const oldestKey = productLinkCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          productLinkCache.delete(oldestKey);
+        }
+      }
+      productLinkCache.set(cacheKey, result);
+      return result;
     }
   };
 }
@@ -308,4 +343,44 @@ function listSnapshots(
       )
       .all(...params) as unknown as SnapshotRow[]
   ).map(mapSnapshot);
+}
+
+/**
+ * Batch-compute the distinct keyword count per (asin, marketplace) from the
+ * SERP snapshot table. Returns a Map keyed by `${marketplace}:${asin}`.
+ *
+ * Used by both keyword and category competitor upserts to avoid a per-row
+ * `COUNT(DISTINCT keyword)` subquery inside ON CONFLICT DO UPDATE.
+ */
+export function serpKeywordCountsByAsinMarket(
+  db: DatabaseSync,
+  items: Array<{ asin: string; marketplace: string }>
+): Map<string, number> {
+  if (!items.length) return new Map();
+
+  // Dedup by (asin, marketplace) to avoid binding duplicate pairs.
+  const seen = new Set<string>();
+  const uniquePairs: Array<{ asin: string; marketplace: string }> = [];
+  for (const item of items) {
+    const key = `${item.marketplace}\0${item.asin}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniquePairs.push(item);
+    }
+  }
+  if (!uniquePairs.length) return new Map();
+
+  const valuesSql = uniquePairs.map(() => "(?, ?)").join(", ");
+  const params = uniquePairs.flatMap((item) => [item.asin, item.marketplace]);
+  const rows = db
+    .prepare(
+      `WITH target(asin, marketplace) AS (VALUES ${valuesSql})
+       SELECT target.asin, target.marketplace, COUNT(DISTINCT s.keyword) AS keyword_count
+       FROM target
+       LEFT JOIN amazon_keyword_serp_snapshot s
+        ON s.asin = target.asin AND s.marketplace = target.marketplace
+       GROUP BY target.asin, target.marketplace`
+    )
+    .all(...params) as Array<{ asin: string; marketplace: string; keyword_count: number }>;
+  return new Map(rows.map((row) => [`${row.marketplace}:${row.asin}`, Number(row.keyword_count)]));
 }

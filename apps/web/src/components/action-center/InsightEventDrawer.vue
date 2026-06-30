@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import { ExternalLink, X } from "@lucide/vue";
 import type {
   AsinWatchLevel,
@@ -13,10 +13,10 @@ import type {
 import { inferInsightEventStrategyTags } from "@amazon-monitor/shared";
 import AttributionTags from "./AttributionTags.vue";
 import BrandPlaybookCard from "./BrandPlaybookCard.vue";
+import InsightEventActionPanel from "./InsightEventActionPanel.vue";
 import InsightScoreBadge from "./InsightScoreBadge.vue";
 import PriceTimelineCard from "./PriceTimelineCard.vue";
 import StrategyTags from "./StrategyTags.vue";
-import WatchStateSelector from "./WatchStateSelector.vue";
 
 const props = withDefaults(defineProps<{
   event: InsightEvent | null;
@@ -42,22 +42,6 @@ const emit = defineEmits<{
   (event: "review", id: string, result: InsightReviewResult, note?: string | null): void;
 }>();
 
-const noteDraft = ref("");
-const assigneeDraft = ref("");
-const reviewResult = ref<InsightReviewResult>("CONFIRMED");
-const reviewDateDraft = ref("");
-
-watch(
-  () => props.event?.id,
-  () => {
-    noteDraft.value = props.event?.userNote ?? "";
-    assigneeDraft.value = props.event?.assignee ?? "";
-    reviewResult.value = props.event?.reviewResult ?? "CONFIRMED";
-    reviewDateDraft.value = props.event?.reviewDueDate ?? "";
-  },
-  { immediate: true }
-);
-
 const strategyTags = computed(() => props.event ? inferInsightEventStrategyTags(props.event) : []);
 
 const scoreRows = computed(() => {
@@ -74,23 +58,28 @@ const scoreRows = computed(() => {
   ];
 });
 
-function saveNote(): void {
-  if (props.event) {
-    emit("note", props.event.id, noteDraft.value);
-  }
+function emitStatus(id: string, status: InsightEventStatus, reviewDueDate?: string | null): void {
+  emit("status", id, status, reviewDueDate);
 }
 
-function saveAssignee(): void {
-  if (props.event) {
-    const assignee = assigneeDraft.value.trim();
-    emit("assignee", props.event.id, assignee || null);
-  }
+function emitNote(id: string, note: string): void {
+  emit("note", id, note);
 }
 
-function scheduleReview(): void {
-  if (props.event && reviewDateDraft.value) {
-    emit("status", props.event.id, "REVIEW_PENDING", reviewDateDraft.value);
-  }
+function emitAssignee(id: string, assignee: string | null): void {
+  emit("assignee", id, assignee);
+}
+
+function emitWatch(id: string): void {
+  emit("watch", id);
+}
+
+function emitWatchState(insight: InsightEvent, level: AsinWatchLevel): void {
+  emit("watch-state", insight, level);
+}
+
+function emitReview(id: string, result: InsightReviewResult, note?: string | null): void {
+  emit("review", id, result, note);
 }
 
 function openProduct(): void {
@@ -111,9 +100,9 @@ function openProduct(): void {
     <div class="drawer-title">
       <InsightScoreBadge :score="event.scoreTotal" :level="event.scoreLevel" />
       <div>
-        <span>{{ event.eventLevel }} · {{ event.eventType }}</span>
+        <span>{{ event.eventLevel }} / {{ event.eventType }}</span>
         <h2>{{ event.eventTitle }}</h2>
-        <p>{{ event.brand || "未知品牌" }} · {{ event.asin || "品牌事件" }}</p>
+        <p>{{ event.brand || "未知品牌" }} / {{ event.asin || "品牌事件" }}</p>
       </div>
     </div>
 
@@ -156,6 +145,7 @@ function openProduct(): void {
       :profile="brandPlaybook"
       :loading="brandPlaybookLoading"
     />
+
     <section class="drawer-section">
       <h3>评分拆解</h3>
       <div class="score-breakdown">
@@ -164,49 +154,19 @@ function openProduct(): void {
           <strong>{{ value }}</strong>
         </span>
       </div>
-      <p>{{ event.scoreBreakdown.reasons.join("；") || "暂无评分原因" }}</p>
+      <p>{{ event.scoreBreakdown.reasons.join("，") || "暂无评分原因" }}</p>
     </section>
 
-    <section class="drawer-section">
-      <h3>状态</h3>
-      <label class="assignee-row">
-        <span>Assignee</span>
-        <div>
-          <input v-model="assigneeDraft" type="text" maxlength="120" placeholder="Owner name" @keydown.enter="saveAssignee" />
-          <button type="button" @click="saveAssignee">Save</button>
-        </div>
-      </label>
-      <div class="drawer-actions">
-        <button type="button" @click="emit('status', event.id, 'FOLLOWED')">已跟进</button>
-        <button type="button" @click="emit('watch', event.id)">观察</button>
-        <button type="button" @click="emit('status', event.id, 'IGNORED')">忽略</button>
-      </div>
-      <WatchStateSelector
-        v-if="event.asin"
-        :state="watchState"
-        @change="emit('watch-state', event, $event)"
-      />
-      <div class="review-date-row">
-        <input v-model="reviewDateDraft" type="date" aria-label="复盘日期" />
-        <button type="button" :disabled="!reviewDateDraft" @click="scheduleReview">设置复盘</button>
-      </div>
-      <textarea v-model="noteDraft" rows="4" placeholder="备注"></textarea>
-      <button class="primary" type="button" @click="saveNote">保存备注</button>
-    </section>
-
-    <section class="drawer-section">
-      <h3>复盘结论</h3>
-      <div class="review-row">
-        <select v-model="reviewResult">
-          <option value="CONFIRMED">判断成立</option>
-          <option value="REVERTED">短期回落</option>
-          <option value="CONTINUING">仍在持续</option>
-          <option value="FAILED">机会消失</option>
-          <option value="UNCLEAR">数据不足</option>
-        </select>
-        <button type="button" @click="emit('review', event.id, reviewResult, noteDraft)">标记复盘</button>
-      </div>
-    </section>
+    <InsightEventActionPanel
+      :event="event"
+      :watch-state="watchState"
+      @status="emitStatus"
+      @note="emitNote"
+      @assignee="emitAssignee"
+      @watch="emitWatch"
+      @watch-state="emitWatchState"
+      @review="emitReview"
+    />
 
     <button v-if="event.evidence.productUrl" class="drawer-link" type="button" @click="openProduct">
       <ExternalLink :size="16" />
@@ -336,82 +296,13 @@ ul {
   padding-left: 18px;
 }
 
-.drawer-actions,
-.review-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.drawer-section :deep(.watch-state-selector),
-.review-date-row {
-  margin-top: 10px;
-}
-
-.assignee-row {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.assignee-row span {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.assignee-row div {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.assignee-row input {
-  min-width: 0;
-  padding: 9px 10px;
-}
-
-.review-date-row {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.review-date-row input {
-  min-width: 0;
-  padding: 9px 10px;
-}
-
-button,
-select,
-textarea,
-input {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font: inherit;
-}
-
 button {
   background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   cursor: pointer;
+  font: inherit;
   padding: 8px 10px;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.primary {
-  background: #0f172a;
-  color: #ffffff;
-  margin-top: 8px;
-}
-
-textarea,
-select {
-  margin-top: 10px;
-  padding: 9px 10px;
-  width: 100%;
 }
 
 .drawer-link {

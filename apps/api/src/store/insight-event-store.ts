@@ -85,7 +85,9 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         whereEq("category_id", params.categoryId),
         whereEq("keyword_id", params.keywordId),
         whereEq("brand", params.brand),
-        whereEq("asin", params.asin)
+        whereEq("asin", params.asin),
+        whereEq("assignee", params.assignee),
+        params.unassignedOnly ? { clause: "assignee IS NULL" } : null
       );
       const limit = clampLimit(params.limit ?? 50);
       const offset = clampOffset(params.offset);
@@ -275,25 +277,41 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       return this.getInsightEvent(id);
     },
 
-    listReviewDueEvents(date) {
+    listReviewDueEvents(date, params = {}) {
       // 状态白名单:只把系统仍然"需要自动复盘"的事件拉出来。
       // 之前 `status != 'REVIEWED'` 把 WATCHING / FOLLOWED / IGNORED 一并捞回,
       // 然后 markInsightEventReviewed 会把用户手动设的状态强制刷成 REVIEW_PENDING/REVIEWED,
       // 用户的"已忽略"决定被悄悄覆盖。
-      const { sql: where, params } = buildWhere(
+      const { sql: where, params: queryParams } = buildWhere(
         whereLte("review_due_date", date),
         { clause: "review_due_date IS NOT NULL" },
-        { clause: "status IN ('TODO','REVIEW_PENDING')" }
+        { clause: "status IN ('TODO','REVIEW_PENDING')" },
+        whereEq("status", params.status),
+        whereEq("event_level", params.level),
+        whereEq("event_type", params.eventType),
+        whereEq("category_id", params.categoryId),
+        whereEq("keyword_id", params.keywordId),
+        whereEq("brand", params.brand),
+        whereEq("asin", params.asin),
+        whereEq("assignee", params.assignee),
+        params.unassignedOnly ? { clause: "assignee IS NULL" } : null
       );
+      const limit = clampLimit(params.limit);
+      const offset = clampOffset(params.offset);
+      const pagination = limit > 0
+        ? (offset > 0 ? `LIMIT ${limit} OFFSET ${offset}` : `LIMIT ${limit}`)
+        : (offset > 0 ? `LIMIT -1 OFFSET ${offset}` : "");
       return (
         db
           .prepare(
             `SELECT * FROM insight_events ${where}
              ORDER BY review_due_date ASC,
               CASE event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END DESC,
-              score_total DESC`
+              score_total DESC,
+              id ASC
+             ${pagination}`
           )
-          .all(...params) as unknown as InsightEventRow[]
+          .all(...queryParams) as unknown as InsightEventRow[]
       ).map(mapInsightEvent);
     },
 
@@ -321,7 +339,12 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         // SQLite INSERT ... SELECT ... ON CONFLICT IGNORE — atomic per-row claim
         db.prepare(
           `INSERT OR IGNORE INTO insight_review_claims (event_id, claimed_at, claim_id)
-           SELECT id, ?, ? FROM insight_events ${where} ${limit > 0 ? `LIMIT ${limit}` : ""}`
+           SELECT id, ?, ? FROM insight_events ${where}
+           ORDER BY review_due_date ASC,
+            CASE event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END DESC,
+            score_total DESC,
+            id ASC
+           ${limit > 0 ? `LIMIT ${limit}` : ""}`
         ).run(nowIso(), claimId, ...whereParams);
         const rows = db
           .prepare(
@@ -330,7 +353,8 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
              WHERE c.claim_id = ?
              ORDER BY ie.review_due_date ASC,
               CASE ie.event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END DESC,
-              ie.score_total DESC`
+              ie.score_total DESC,
+              ie.id ASC`
           )
           .all(claimId) as unknown as InsightEventRow[];
         for (const row of rows) {

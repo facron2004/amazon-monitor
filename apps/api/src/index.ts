@@ -38,7 +38,7 @@ function startCron() {
     "0 9 * * *",
     createExclusiveCronRunner("daily-collection", async () => {
       const date = isoDate();
-      const keywords = store.listKeywords().filter((k) => k.status === "enabled");
+      const keywords = store.listKeywords({ status: "enabled" });
       for (const k of keywords) {
         store.pushJob("keyword", k.id, date);
       }

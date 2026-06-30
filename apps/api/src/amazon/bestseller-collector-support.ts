@@ -74,7 +74,8 @@ export async function createBestSellerContext(browser: Browser, marketplace: str
 export async function recoverMissingCriticalMetricsInFreshContext(
   category: CategoryMonitor,
   pages: Array<Pick<CollectedBestSellerPage, "pageNo" | "products">>,
-  date: string
+  date: string,
+  sharedBrowser?: Browser
 ): Promise<void> {
   const pending = pages.flatMap((page) =>
     page.products
@@ -85,7 +86,11 @@ export async function recoverMissingCriticalMetricsInFreshContext(
     return;
   }
 
-  const browser = await launchAmazonBrowser();
+  // Reuse the caller's browser when available — a fresh *context* on the same
+  // browser still rotates cookies/fingerprint (the actual anti-detection win),
+  // while avoiding the cost of a second browser launch.
+  const browser = sharedBrowser ?? (await launchAmazonBrowser());
+  const ownsBrowser = sharedBrowser === undefined;
   try {
     const context = await createBestSellerContext(browser, category.marketplace);
     const recoveredResults = await runLimitedConcurrency(pending, detailConcurrency(), async (entry) => {
@@ -102,7 +107,9 @@ export async function recoverMissingCriticalMetricsInFreshContext(
       page.products = page.products.map((product) => recoveredByAsin.get(product.asin) ?? product);
     }
   } finally {
-    await closeBrowser(browser);
+    if (ownsBrowser) {
+      await closeBrowser(browser);
+    }
   }
 }
 

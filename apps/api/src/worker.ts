@@ -115,25 +115,29 @@ export async function startWorker(storeInstance?: any) {
       }
 
       if (running) {
-        // Always refresh the API-visible heart-beat on every iteration so the
-        // topbar can detect a dead Worker promptly (default poll = 2s).
-        try {
-          store.recordWorkerHeartbeat({
-            workerId,
-            pid: process.pid,
-            host: hostname(),
-            startedAt: workerStartedAt,
-            version: appVersion,
-            lastJobId: lastJob?.id ?? null,
-            lastStatus: lastJob?.status ?? null
-          });
-        } catch (err) {
-          console.error(`[${ts()}] [Worker:${laneId}] recordWorkerHeartbeat failed:`, err);
+        // Gate the DB heartbeat write by heartbeatIntervalMs (default 5s)
+        // instead of writing on every poll (default 2s). The previous code
+        // wrote to amazon_worker_heartbeat on every iteration, causing
+        // unnecessary SQLite writer-lock contention when the queue is idle
+        // and the poll interval is short.
+        const heartbeatNow = Date.now();
+        if (heartbeatNow - lastHeartbeatAt >= heartbeatIntervalMs) {
+          lastHeartbeatAt = heartbeatNow;
+          try {
+            store.recordWorkerHeartbeat({
+              workerId,
+              pid: process.pid,
+              host: hostname(),
+              startedAt: workerStartedAt,
+              version: appVersion,
+              lastJobId: lastJob?.id ?? null,
+              lastStatus: lastJob?.status ?? null
+            });
+          } catch (err) {
+            console.error(`[${ts()}] [Worker:${laneId}] recordWorkerHeartbeat failed:`, err);
+          }
+          logHeartbeatIfVerbose(activeJobs);
         }
-
-        await maybeHeartbeat(activeJobs, heartbeatIntervalMs, lastHeartbeatAt, (stamp) => {
-          lastHeartbeatAt = stamp;
-        });
         await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       }
     }
@@ -145,57 +149,48 @@ export async function startWorker(storeInstance?: any) {
 
 /**
  * Run a single collect job with a wall-clock deadline. When the deadline is
- * reached we reject with a timeout error so the caller's catch block can
- * route the job through `failJob` like any other failure — Playwright's
- * in-flight `page.goto / waitForLoadState` is left to its own internal
- * timeouts (we don't try to abort the browser here; closing the browser
- * without coordination can corrupt in-memory caches).
+ * reached we abort via AbortController so the pipeline can check
+ * signal.aborted and shut down cleanly — preventing zombie writes after
+ * the job has been marked failed.
  */
 async function runJobWithTimeout(store: any, job: { taskType: "keyword" | "category"; targetId: number; date: string }, timeoutMs: number): Promise<CollectTaskLog> {
   if (timeoutMs <= 0) {
     return runCollectJob(store, job);
   }
 
-  let timeoutHandle: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => {
-      reject(new Error(`Collect job exceeded timeout of ${formatDuration(timeoutMs)}`));
-    }, timeoutMs);
-  });
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
 
   try {
-    return await Promise.race([runCollectJob(store, job), timeoutPromise]);
+    return await runCollectJob(store, job, { signal: controller.signal });
   } finally {
-    if (timeoutHandle) clearTimeout(timeoutHandle);
+    clearTimeout(timeoutHandle);
   }
 }
 
-async function runCollectJob(store: any, job: { taskType: "keyword" | "category"; targetId: number; date: string }): Promise<CollectTaskLog> {
+async function runCollectJob(store: any, job: { taskType: "keyword" | "category"; targetId: number; date: string }, options?: { signal?: AbortSignal }): Promise<CollectTaskLog> {
+  if (options?.signal?.aborted) {
+    throw new Error(`Collect job aborted before start (timeout of ${formatDuration(jobTimeoutMs)})`);
+  }
+
   if (job.taskType === "keyword") {
-    return runCollectionForKeyword(store, job.targetId, job.date);
+    return runCollectionForKeyword(store, job.targetId, job.date, { signal: options?.signal });
   }
   if (job.taskType === "category") {
-    return runCategoryCollectionForMonitor(store, job.targetId, job.date);
+    return runCategoryCollectionForMonitor(store, job.targetId, job.date, { signal: options?.signal });
   }
   throw new Error(`Unknown task type: ${job.taskType}`);
 }
 
-async function maybeHeartbeat(
-  activeJobs: Map<number, { taskType: string; targetId: number; startedAt: number }>,
-  intervalMs: number,
-  lastHeartbeatAt: number,
-  setLast: (stamp: number) => void
-): Promise<void> {
+function logHeartbeatIfVerbose(activeJobs: Map<number, { taskType: string; targetId: number; startedAt: number }>): void {
   if (!verboseLog) return;
   const now = Date.now();
-  if (now - lastHeartbeatAt < intervalMs) return;
-  setLast(now);
-
   if (activeJobs.size === 0) {
     console.log(`[${ts()}] [Worker:heartbeat] all lanes idle`);
     return;
   }
-
   const lanes = Array.from(activeJobs.entries())
     .sort(([a], [b]) => a - b)
     .map(([laneId, info]) => `lane${laneId}=${info.taskType}#${info.targetId}@${formatDuration(now - info.startedAt)}`)

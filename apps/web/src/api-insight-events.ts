@@ -19,6 +19,8 @@ export interface InsightEventQuery {
   categoryId?: number | null;
   brand?: string;
   asin?: string;
+  assignee?: string;
+  unassignedOnly?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -102,8 +104,8 @@ export const insightEventApi = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  fetchReviewDueEvents: (date: string, options: { signal?: AbortSignal } = {}) =>
-    request<InsightEvent[]>(`/insight-events/review-due?date=${encodeURIComponent(date)}`, withSignal(options.signal)),
+  fetchReviewDueEvents: (date: string, params: Omit<InsightEventQuery, "date"> = {}, options: { signal?: AbortSignal } = {}) =>
+    request<InsightEvent[]>(`/insight-events/review-due?${buildInsightEventQuery({ ...params, date }).toString()}`, withSignal(options.signal)),
   evaluateReviewDueEvents: (date: string) =>
     request<InsightEvent[]>(`/insight-events/review-due/evaluate?date=${encodeURIComponent(date)}`, {
       method: "POST",
@@ -161,6 +163,8 @@ function buildInsightEventQuery(params: InsightEventQuery): URLSearchParams {
   setOptional(query, "categoryId", params.categoryId);
   setOptional(query, "brand", params.brand?.trim());
   setOptional(query, "asin", params.asin?.trim());
+  setOptional(query, "assignee", params.assignee?.trim());
+  setOptional(query, "unassignedOnly", params.unassignedOnly ? "true" : undefined);
   setOptional(query, "limit", params.limit);
   setOptional(query, "offset", params.offset);
   return query;

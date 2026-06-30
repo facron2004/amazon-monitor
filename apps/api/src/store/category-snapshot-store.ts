@@ -2,8 +2,9 @@ import type { DatabaseSync } from "node:sqlite";
 import { inferIceType } from "@amazon-monitor/shared";
 import type { BestsellerRankSnapshot, CompetitorActivityEvent } from "@amazon-monitor/shared";
 import { categoryCompetitorReasons, categoryCompetitorTier } from "./competitor-domain.js";
+import { serpKeywordCountsByAsinMarket } from "./keyword-snapshot-store.js";
 import { mapBestsellerSnapshot, type BestsellerSnapshotRow } from "./snapshot-mappers.js";
-import { sanitizeBestsellerSnapshotRow } from "./review-guards.js";
+import { sanitizeBestsellerSnapshotRows } from "./review-guards.js";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, withTransaction } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
@@ -92,11 +93,10 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
       const pagination = clamped > 0
         ? (offset > 0 ? `LIMIT ${clamped} OFFSET ${offset}` : `LIMIT ${clamped}`)
         : (offset > 0 ? `LIMIT -1 OFFSET ${offset}` : "");
-      return (
-        db.prepare(`SELECT * FROM amazon_bestseller_rank_snapshot ${where} ORDER BY snapshot_date DESC, category_id, rank_no ${pagination}`).all(
-          ...params
-        ) as unknown as BestsellerSnapshotRow[]
-      ).map((row) => mapBestsellerSnapshot(sanitizeBestsellerSnapshotRow(db, row)));
+      const rows = db.prepare(`SELECT * FROM amazon_bestseller_rank_snapshot ${where} ORDER BY snapshot_date DESC, category_id, rank_no ${pagination}`).all(
+        ...params
+      ) as unknown as BestsellerSnapshotRow[];
+      return sanitizeBestsellerSnapshotRows(db, rows).map((row) => mapBestsellerSnapshot(row));
     },
 
     getPreviousCategorySnapshots(categoryId, beforeDate) {
@@ -176,7 +176,7 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
           eventsByAsin.set(key, [event]);
         }
       }
-      const keywordCounts = keywordCountsByAsinMarketplace(db, unique.values());
+      const keywordCounts = serpKeywordCountsByAsinMarket(db, Array.from(unique.values()));
       const stmt = db.prepare(
         `INSERT INTO amazon_competitor_pool
          (asin, marketplace, title, brand, image_url, first_seen_keyword, first_seen_date, last_seen_date,
@@ -270,28 +270,5 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
     },
 
   };
-}
-
-function keywordCountsByAsinMarketplace(db: DatabaseSync, items: Iterable<{ asin: string; marketplace: string }>): Map<string, number> {
-  const keys = Array.from(new Set(Array.from(items, (item) => `${item.marketplace}:${item.asin}`)));
-  if (!keys.length) {
-    return new Map();
-  }
-  const valuesSql = keys.map(() => "(?, ?)").join(", ");
-  const params = keys.flatMap((key) => {
-    const separator = key.indexOf(":");
-    return [key.slice(separator + 1), key.slice(0, separator)];
-  });
-  const rows = db
-    .prepare(
-      `WITH target(asin, marketplace) AS (VALUES ${valuesSql})
-       SELECT target.asin, target.marketplace, COUNT(DISTINCT s.keyword) AS keyword_count
-       FROM target
-       LEFT JOIN amazon_keyword_serp_snapshot s
-        ON s.asin = target.asin AND s.marketplace = target.marketplace
-       GROUP BY target.asin, target.marketplace`
-    )
-    .all(...params) as Array<{ asin: string; marketplace: string; keyword_count: number }>;
-  return new Map(rows.map((row) => [`${row.marketplace}:${row.asin}`, Number(row.keyword_count)]));
 }
 

@@ -16,3 +16,4 @@ export { decorateBestsellerSnapshots, decorateSnapshotRanks, summarizePriceBand 
 export { analyzeDailyChanges, buildCategoryReportMarkdown, buildDailyReportMarkdown } from "./reports.js";
 export * from "./insight-events.js";
 export * from "./strategy-tags.js";
+export { isAllowedAmazonHost, assertAmazonUrl } from "./amazon-url.js";

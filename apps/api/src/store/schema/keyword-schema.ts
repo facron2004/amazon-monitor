@@ -43,6 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_keyword_competitor_lookup ON amazon_keyword_serp_
 CREATE INDEX IF NOT EXISTS idx_keyword_rank ON amazon_keyword_serp_snapshot(keyword_id, absolute_rank);
 CREATE INDEX IF NOT EXISTS idx_keyword_promo_lookup ON amazon_keyword_serp_snapshot(asin, marketplace, snapshot_date, absolute_rank);
 CREATE INDEX IF NOT EXISTS idx_keyword_link_lookup ON amazon_keyword_serp_snapshot(asin, keyword_id, snapshot_date DESC, absolute_rank);
+CREATE INDEX IF NOT EXISTS idx_keyword_serp_date ON amazon_keyword_serp_snapshot(snapshot_date);
 
 CREATE TABLE IF NOT EXISTS amazon_competitor_pool (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

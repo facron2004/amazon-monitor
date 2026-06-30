@@ -1,4 +1,8 @@
 import { defineStore } from "pinia";
+import {
+  inferInsightEventStrategyTags,
+  type StrategyTag
+} from "@amazon-monitor/shared";
 import type {
   AsinWatchLevel,
   AsinWatchState,
@@ -9,8 +13,7 @@ import type {
   InsightEventStatus,
   InsightEventType,
   InsightReviewResult,
-  ProductPriceHistory,
-  StrategyTag
+  ProductPriceHistory
 } from "@amazon-monitor/shared";
 import { insightEventApi, type InsightEventQuery } from "../api-insight-events";
 
@@ -23,6 +26,9 @@ export interface InsightEventFilters {
   eventType: InsightEventType | "";
   brand: string;
   asin: string;
+  assignee: string;
+  strategyTag: StrategyTag | "";
+  unassignedOnly: boolean;
   sortBy: InsightEventSort;
   coreOnly: boolean;
   newBreakoutOnly: boolean;
@@ -52,6 +58,9 @@ export const useInsightEventsStore = defineStore("insightEvents", {
       eventType: "",
       brand: "",
       asin: "",
+      assignee: "",
+      strategyTag: "",
+      unassignedOnly: false,
       sortBy: "score",
       coreOnly: false,
       newBreakoutOnly: false,
@@ -80,7 +89,9 @@ export const useInsightEventsStore = defineStore("insightEvents", {
         this.filters.date = date;
       }
       await this.withLoading(async () => {
-        const events = await insightEventApi.fetchInsightEvents(buildQuery(this.filters), { signal });
+        const events = this.filters.reviewDueOnly
+          ? await insightEventApi.fetchReviewDueEvents(this.filters.date, buildReviewDueQuery(this.filters), { signal })
+          : await insightEventApi.fetchInsightEvents(buildQuery(this.filters), { signal });
         if (signal?.aborted) return;
         this.events = events;
         if (this.selectedEvent) {
@@ -167,7 +178,7 @@ export const useInsightEventsStore = defineStore("insightEvents", {
         this.reviewDueEvents = [];
         return;
       }
-      const result = await insightEventApi.fetchReviewDueEvents(targetDate, { signal });
+      const result = await insightEventApi.fetchReviewDueEvents(targetDate, {}, { signal });
       if (signal?.aborted) return;
       this.reviewDueEvents = result;
     },
@@ -287,9 +298,20 @@ export const useInsightEventsStore = defineStore("insightEvents", {
   }
 });
 
-function filterAndSortEvents(events: InsightEvent[], watchStates: AsinWatchState[], filters: InsightEventFilters): InsightEvent[] {
+export function filterAndSortEvents(events: InsightEvent[], watchStates: AsinWatchState[], filters: InsightEventFilters): InsightEvent[] {
   const coreAsins = new Set(watchStates.filter((state) => state.watchLevel === "CORE").map((state) => state.asin));
+  const assignee = filters.unassignedOnly ? "" : filters.assignee.trim();
+  const brand = filters.brand.trim();
+  const asin = filters.asin.trim();
   return events
+    .filter((event) => !filters.status || event.status === filters.status)
+    .filter((event) => !filters.level || event.eventLevel === filters.level)
+    .filter((event) => !filters.eventType || event.eventType === filters.eventType)
+    .filter((event) => !brand || event.brand === brand)
+    .filter((event) => !asin || event.asin === asin)
+    .filter((event) => !filters.unassignedOnly || event.assignee === null)
+    .filter((event) => !assignee || event.assignee === assignee)
+    .filter((event) => !filters.strategyTag || inferInsightEventStrategyTags(event).includes(filters.strategyTag))
     .filter((event) => !filters.coreOnly || event.evidence.isCoreCompetitor === true || (event.asin !== null && coreAsins.has(event.asin)))
     .filter((event) => !filters.newBreakoutOnly || event.eventType === "NEW_PRODUCT_BREAKOUT")
     .filter((event) => !filters.reviewDueOnly || isReviewDue(event, filters.date))
@@ -396,6 +418,21 @@ function buildQuery(filters: InsightEventFilters): InsightEventQuery {
     eventType: filters.eventType,
     brand: filters.brand,
     asin: filters.asin,
+    assignee: filters.unassignedOnly ? "" : filters.assignee,
+    unassignedOnly: filters.unassignedOnly ? true : undefined,
+    limit: 100
+  };
+}
+
+function buildReviewDueQuery(filters: InsightEventFilters): Omit<InsightEventQuery, "date"> {
+  return {
+    status: filters.status,
+    level: filters.level,
+    eventType: filters.eventType,
+    brand: filters.brand,
+    asin: filters.asin,
+    assignee: filters.unassignedOnly ? "" : filters.assignee,
+    unassignedOnly: filters.unassignedOnly ? true : undefined,
     limit: 100
   };
 }

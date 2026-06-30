@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertAmazonUrl } from "@amazon-monitor/shared";
 
 export const keywordInputSchema = z.object({
   keyword: z.string().min(1).max(200),
@@ -20,13 +21,18 @@ export const keywordPatchSchema = z.object({
   status: z.enum(["enabled", "disabled"]).optional()
 });
 
-const urlStringSchema = z.string().min(1).max(2000);
+const amazonUrlSchema = z.string().min(1).max(2000).refine(
+  (val) => {
+    try { assertAmazonUrl(val); return true; } catch { return false; }
+  },
+  { message: "categoryUrl must be a valid Amazon URL (e.g. https://www.amazon.com/...)" }
+);
 const statusEnumSchema = z.enum(["enabled", "disabled"]);
 
 export const categoryInputSchema = z.object({
   name: z.string().min(1).max(200),
   marketplace: z.string().min(1).max(100),
-  categoryUrl: urlStringSchema,
+  categoryUrl: amazonUrlSchema,
   categoryPath: z.string().max(500).nullable().optional(),
   crawlTopN: z.number().int().min(1).max(1000).optional(),
   status: statusEnumSchema.optional()
@@ -35,7 +41,7 @@ export const categoryInputSchema = z.object({
 export const categoryPatchSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   marketplace: z.string().min(1).max(100).optional(),
-  categoryUrl: urlStringSchema.optional(),
+  categoryUrl: amazonUrlSchema.optional(),
   categoryPath: z.string().max(500).nullable().optional(),
   crawlTopN: z.number().int().min(1).max(1000).optional(),
   status: statusEnumSchema.optional()

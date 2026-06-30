@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AsinWatchState, InsightEvent } from "@amazon-monitor/shared";
-import { groupEventsByAsin } from "../stores/insightEvents";
+import { filterAndSortEvents, groupEventsByAsin, type InsightEventFilters } from "../stores/insightEvents";
 
 function buildEvent(overrides: Partial<InsightEvent> = {}): InsightEvent {
   return {
@@ -53,6 +53,25 @@ function buildEvent(overrides: Partial<InsightEvent> = {}): InsightEvent {
     updatedAt: "2026-06-24T00:00:00Z",
     ...overrides
   } as InsightEvent;
+}
+
+function defaultFilters(overrides: Partial<InsightEventFilters> = {}): InsightEventFilters {
+  return {
+    date: "2026-06-24",
+    status: "",
+    level: "",
+    eventType: "",
+    brand: "",
+    asin: "",
+    assignee: "",
+    strategyTag: "",
+    unassignedOnly: false,
+    sortBy: "score",
+    coreOnly: false,
+    newBreakoutOnly: false,
+    reviewDueOnly: false,
+    ...overrides
+  };
 }
 
 describe("groupEventsByAsin", () => {
@@ -123,5 +142,33 @@ describe("groupEventsByAsin", () => {
     ];
     const result = groupEventsByAsin(events, []);
     expect(result.map((group) => group.asin)).toEqual(["B002", "B003", "B001"]);
+  });
+});
+
+describe("filterAndSortEvents", () => {
+  it("filters by inferred and stored strategy tags", () => {
+    const events = [
+      buildEvent({
+        id: "stored-tag",
+        scoreTotal: 70,
+        evidence: { ...buildEvent().evidence, strategyTags: ["HIGH_THREAT_CORE"], isCoreCompetitor: true, currentRank: 8 }
+      }),
+      buildEvent({
+        id: "inferred-coupon",
+        eventType: "COUPON_ADDED",
+        attributionTags: ["COUPON_DRIVEN"],
+        scoreTotal: 90,
+        evidence: { ...buildEvent().evidence, strategyTags: [], currentRank: 42 }
+      }),
+      buildEvent({
+        id: "other",
+        attributionTags: ["DEAL_DRIVEN"],
+        scoreTotal: 80,
+        evidence: { ...buildEvent().evidence, strategyTags: [], currentRank: 60 }
+      })
+    ];
+
+    expect(filterAndSortEvents(events, [], defaultFilters({ strategyTag: "HIGH_THREAT_CORE" })).map((event) => event.id)).toEqual(["stored-tag"]);
+    expect(filterAndSortEvents(events, [], defaultFilters({ strategyTag: "COUPON_DEPENDENT" })).map((event) => event.id)).toEqual(["inferred-coupon"]);
   });
 });

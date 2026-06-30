@@ -1,6 +1,5 @@
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { trustedPreviousReviewCount } from "@amazon-monitor/shared";
-import type { BestsellerRankSnapshot } from "@amazon-monitor/shared";
 import { mapProductPriceHistory, type ProductPriceHistoryRow } from "./snapshot-mappers.js";
 import { sanitizeProductPriceHistory } from "./review-guards.js";
 import { isoDateOffset } from "./date-utils.js";
@@ -8,6 +7,15 @@ import { buildWhere, clampLimit, clampOffset, whereEq, withTransaction } from ".
 import type { Store } from "./types.js";
 
 type CategoryPriceStoreMethods = Pick<Store, "replaceProductPriceHistoryForDate" | "listProductPriceHistory">;
+
+type PriceLowRow = {
+  asin: string;
+  marketplace: string;
+  t30_low: number | null;
+  t60_low: number | null;
+  t90_low: number | null;
+  monitoring_low: number | null;
+};
 
 export function createCategoryPriceStore(
   db: DatabaseSync,
@@ -44,10 +52,36 @@ export function createCategoryPriceStore(
         db.prepare("DELETE FROM amazon_product_price_history WHERE category_id = ? AND snapshot_date = ?").run(categoryId, date);
         const previousSnapshots = snapshots.getPreviousCategorySnapshots(categoryId, date);
         const previousByAsin = new Map(previousSnapshots.map((item) => [item.asin, item]));
+
+        // Batch-compute the four price-low aggregates for every (asin, marketplace)
+        // in this category with a single GROUP BY query. Replaces the previous
+        // 4 SQL × N items = 4N round-trips with one query.
+        // `MIN(CASE WHEN ... THEN price END)` returns NULL when no row matches
+        // the date predicate, which is exactly the "no prior data" signal.
+        const t30Start = isoDateOffset(date, -29);
+        const t60Start = isoDateOffset(date, -59);
+        const t90Start = isoDateOffset(date, -89);
+        const priceLowRows = db.prepare(`
+          SELECT s.asin, s.marketplace,
+            MIN(CASE WHEN s.snapshot_date >= ? THEN s.current_price END) AS t30_low,
+            MIN(CASE WHEN s.snapshot_date >= ? THEN s.current_price END) AS t60_low,
+            MIN(CASE WHEN s.snapshot_date >= ? THEN s.current_price END) AS t90_low,
+            MIN(s.current_price) AS monitoring_low
+          FROM amazon_bestseller_rank_snapshot s
+          WHERE s.category_id = ?
+            AND s.snapshot_date <= ?
+            AND s.current_price IS NOT NULL
+          GROUP BY s.asin, s.marketplace
+        `).all(t30Start, t60Start, t90Start, categoryId, date) as PriceLowRow[];
+        const priceLowByKey = new Map(
+          priceLowRows.map((row) => [`${row.asin}|${row.marketplace}`, row] as const)
+        );
+
         for (const item of items) {
           const previous = previousByAsin.get(item.asin) ?? null;
           const previousReviewCount = trustedPreviousReviewCount(item.reviewCount, previous?.reviewCount ?? null);
           const reviewCountChange = previousReviewCount !== null && item.reviewCount !== null ? item.reviewCount - previousReviewCount : null;
+          const lows = priceLowByKey.get(`${item.asin}|${item.marketplace}`);
           stmt.run(
             item.snapshotDate,
             item.categoryId,
@@ -66,10 +100,10 @@ export function createCategoryPriceStore(
             item.couponRate,
             item.dealBadge,
             item.finalEstimatedPrice,
-            categoryPriceLow(db, item, 30),
-            categoryPriceLow(db, item, 60),
-            categoryPriceLow(db, item, 90),
-            categoryPriceLow(db, item, null)
+            lows?.t30_low ?? null,
+            lows?.t60_low ?? null,
+            lows?.t90_low ?? null,
+            lows?.monitoring_low ?? null
           );
         }
       });
@@ -82,11 +116,12 @@ export function createCategoryPriceStore(
         whereEq("p.asin", filter.asin),
         whereEq("p.marketplace", filter.marketplace)
       );
-      const clamped = clampLimit(filter.limit);
+      // Default to 500 when no limit is requested — the three-way JOIN plus
+      // computed-column ORDER BY is expensive, and unbounded returns on this
+      // large table cause dashboard slowdowns.
+      const clamped = clampLimit(filter.limit) || 500;
       const offset = clampOffset(filter.offset);
-      const pagination = clamped > 0
-        ? (offset > 0 ? `LIMIT ${clamped} OFFSET ${offset}` : `LIMIT ${clamped}`)
-        : (offset > 0 ? `LIMIT -1 OFFSET ${offset}` : "");
+      const pagination = offset > 0 ? `LIMIT ${clamped} OFFSET ${offset}` : `LIMIT ${clamped}`;
       return (
         db
           .prepare(
@@ -110,18 +145,5 @@ export function createCategoryPriceStore(
     },
 
   };
-}
-
-function categoryPriceLow(db: DatabaseSync, item: BestsellerRankSnapshot, days: number | null): number | null {
-  const clauses = ["category_id = ?", "marketplace = ?", "asin = ?", "snapshot_date <= ?", "current_price IS NOT NULL"];
-  const params: SQLInputValue[] = [item.categoryId, item.marketplace, item.asin, item.snapshotDate];
-  if (days !== null) {
-    clauses.push("snapshot_date >= ?");
-    params.push(isoDateOffset(item.snapshotDate, -(days - 1)));
-  }
-  const row = db
-    .prepare(`SELECT MIN(current_price) AS low_price FROM amazon_bestseller_rank_snapshot WHERE ${clauses.join(" AND ")}`)
-    .get(...params) as { low_price: number | null } | undefined;
-  return row?.low_price ?? null;
 }
 

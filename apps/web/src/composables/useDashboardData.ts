@@ -4,8 +4,9 @@ import type { AlertLog, KeywordMonitor } from "@amazon-monitor/shared";
 import { keywordApi } from "../api-keywords";
 import { useDashboardStore } from "../stores/dashboard";
 import { useAlertStore } from "../stores/alert";
+import type { InsightReportPeriod } from "../api-types";
 
-export function useDashboardData(date: Ref<string>) {
+export function useDashboardData(date: Ref<string>, period: Ref<InsightReportPeriod>) {
   const dashboardStore = useDashboardStore();
   const alertStore = useAlertStore();
 
@@ -27,11 +28,11 @@ export function useDashboardData(date: Ref<string>) {
   }
 
   function loadReport(signal?: AbortSignal) {
-    return dashboardStore.loadReport(date.value, signal);
+    return dashboardStore.loadReport(date.value, period.value, signal);
   }
 
   function loadPeriodInsightReport(includeAiSummary = false) {
-    return dashboardStore.loadPeriodInsightReport(date.value, includeAiSummary);
+    return dashboardStore.loadPeriodInsightReport(date.value, period.value, includeAiSummary);
   }
 
   function loadLogs() {

@@ -195,6 +195,8 @@ export interface InsightEventListParams {
   keywordId?: number;
   brand?: string;
   asin?: string;
+  assignee?: string;
+  unassignedOnly?: boolean;
   limit?: number;
   offset?: number;
 }

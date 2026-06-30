@@ -9,6 +9,13 @@ import { validateBody, validateQuery } from "./validation.js";
 import { z } from "zod";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const booleanQuerySchema = z.union([
+  z.boolean(),
+  z.literal("true").transform(() => true),
+  z.literal("1").transform(() => true),
+  z.literal("false").transform(() => false),
+  z.literal("0").transform(() => false)
+]);
 
 const insightEventListQuerySchema = z.object({
   date: dateSchema.optional(),
@@ -19,6 +26,8 @@ const insightEventListQuerySchema = z.object({
   keywordId: z.coerce.number().int().min(1).optional(),
   brand: z.string().min(1).max(200).optional(),
   asin: z.string().min(1).max(30).optional(),
+  assignee: z.string().trim().min(1).max(120).optional(),
+  unassignedOnly: booleanQuerySchema.optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   offset: z.coerce.number().int().min(0).optional()
 });
@@ -84,7 +93,9 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
   });
 
   app.get("/api/insight-events/review-due", (request, response) => {
-    response.json(store.listReviewDueEvents(getDate(request)));
+    const query = validateQuery(insightEventListQuerySchema, request.query);
+    const { date, ...params } = query;
+    response.json(store.listReviewDueEvents(date ?? getDate(request), params));
   });
 
   app.post("/api/insight-events/review-due/evaluate", (request, response) => {

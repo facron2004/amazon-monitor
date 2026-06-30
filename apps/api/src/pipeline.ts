@@ -17,6 +17,7 @@ import type { Store } from "./store.js";
 
 export interface CollectionOptions {
   collector?: AmazonSearchCollector;
+  signal?: AbortSignal;
 }
 
 const defaultCollector = new PlaywrightAmazonSearchCollector();
@@ -27,7 +28,7 @@ export async function runCollectionForAll(
   options: CollectionOptions = {}
 ): Promise<CollectTaskLog[]> {
   const logs: CollectTaskLog[] = [];
-  const keywords = store.listKeywords().filter((keyword) => keyword.status === "enabled");
+  const keywords = store.listKeywords({ status: "enabled" });
 
   logs.push(...(await runLimitedConcurrency(keywords, keywordCollectionConcurrency(), (keyword) => runCollectionForKeyword(store, keyword.id, date, options))));
 
@@ -50,6 +51,7 @@ export async function runCollectionForKeyword(
   const collector = options.collector ?? defaultCollector;
 
   try {
+    if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     console.log(`[${ts()}] [Pipeline] Collecting keyword="${keyword.keyword}" marketplace=${keyword.marketplace} pages=${keyword.crawlPages}...`);
     const pages = await collector.collect(keyword, date);
     const t1 = Date.now();
@@ -140,6 +142,10 @@ export async function runCollectionForKeyword(
     markKeywordCollected(store, keyword, "success");
     return log;
   } catch (error) {
+    // Don't log aborted jobs as failures — the worker handles that
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
     const totalMs = Date.now() - t0;
     console.error(`[${ts()}] [Pipeline] ✗ Keyword "${keyword.keyword}" FAILED after ${formatDuration(totalMs)}: ${error instanceof Error ? error.message : String(error)}`);
     const log = store.insertTaskLog({

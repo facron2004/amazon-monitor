@@ -128,6 +128,7 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
       const allPreviousRows = batchListUsableBsrRankHistoryByDates(db, uniquePreviousDates);
       const previousRowsByScope = groupBsrHistoryByScope(allPreviousRows);
 
+      const includeUnchanged = filter.includeUnchanged !== false;
       const changes = Array.from(todayGroups.values()).flatMap((currentScopeItems) => {
         const scope = currentScopeItems[0];
         const scopeKey = [scope.sourceType, scope.sourceId ?? "", scope.category].join("|");
@@ -142,12 +143,11 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
           ? (previousRowsByScope.get(scopeKey) ?? []).filter((row) => row.snapshotDate === previousDate)
           : [];
 
-        return buildBsrRankChanges(filter.date, previousDate, currentScopeItems, previousScopeRows);
+        return buildBsrRankChanges(filter.date, previousDate, currentScopeItems, previousScopeRows, includeUnchanged);
       });
       changes.sort(compareBsrRankChanges);
-      const visibleChanges = filter.includeUnchanged === false ? changes.filter((item) => item.changeType !== "unchanged") : changes;
       const offset = clampOffset(filter.offset);
-      return filter.limit ? visibleChanges.slice(offset, offset + clampLimit(filter.limit)) : visibleChanges;
+      return filter.limit ? changes.slice(offset, offset + clampLimit(filter.limit)) : changes;
     },
 
     listBsrSnapshotQuality(filter = {}) {

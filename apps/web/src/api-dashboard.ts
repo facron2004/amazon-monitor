@@ -27,7 +27,7 @@ export const dashboardApi = {
   taskLogs: () => request<CollectTaskLog[]>("/task-logs?limit=30")
 };
 
-function buildPeriodInsightReportQuery(query: PeriodInsightReportQuery): URLSearchParams {
+export function buildPeriodInsightReportQuery(query: PeriodInsightReportQuery): URLSearchParams {
   const params = new URLSearchParams({
     endDate: query.date,
     period: query.period ?? "weekly"

@@ -19,6 +19,25 @@ describe("insight event store", () => {
     expect(store.updateInsightEventAssignee(event.id, "  Alice  ")).toMatchObject({ assignee: "Alice" });
     store.upsertInsightEvent({ ...event, scoreTotal: 92, scoreLevel: "S" });
     expect(store.getInsightEvent(event.id)).toMatchObject({ assignee: "Alice", scoreTotal: 92 });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0TEST0002|NEW_TOP50_ENTRY",
+      asin: "B0TEST0002",
+      eventTitle: "Bob owner event",
+      status: "FOLLOWED",
+      reviewDueDate: null,
+      assignee: "Bob"
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0TEST0003|NEW_TOP50_ENTRY",
+      asin: "B0TEST0003",
+      eventTitle: "Unassigned owner event",
+      status: "FOLLOWED",
+      reviewDueDate: null
+    });
+    expect(store.listInsightEvents({ date: "2026-06-19", assignee: "Alice" }).map((item) => item.id)).toEqual([event.id]);
+    expect(store.listInsightEvents({ date: "2026-06-19", unassignedOnly: true }).map((item) => item.asin)).toEqual(["B0TEST0003"]);
     expect(store.updateInsightEventAssignee(event.id, " ")).toMatchObject({ assignee: null });
 
     expect(store.updateInsightEventNote(event.id, "跟进竞品价格")).toMatchObject({ userNote: "跟进竞品价格" });
@@ -91,6 +110,63 @@ describe("insight event store", () => {
     expect(notes).toHaveLength(1);
   });
 
+  it("filters and paginates due review events as a first-class queue", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const base = sampleInsightEvent();
+
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0DUEA|NEW_TOP50_ENTRY",
+      asin: "B0DUEA",
+      brand: "Acme",
+      eventTitle: "Acme due event",
+      assignee: "Alice",
+      reviewDueDate: "2026-06-22",
+      scoreTotal: 80
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-18|cat1|asin:B0DUEB|RANK_SURGE",
+      eventDate: "2026-06-18",
+      asin: "B0DUEB",
+      brand: "Beta",
+      eventType: "RANK_SURGE",
+      eventLevel: "P1",
+      eventTitle: "Beta due event",
+      status: "REVIEW_PENDING",
+      reviewDueDate: "2026-06-20",
+      scoreTotal: 70
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0DONE|NEW_TOP50_ENTRY",
+      asin: "B0DONE",
+      brand: "Acme",
+      eventTitle: "Followed event",
+      status: "FOLLOWED",
+      reviewDueDate: "2026-06-20"
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0FUTURE|NEW_TOP50_ENTRY",
+      asin: "B0FUTURE",
+      brand: "Acme",
+      eventTitle: "Future due event",
+      reviewDueDate: "2026-06-23"
+    });
+
+    expect(store.listReviewDueEvents("2026-06-22").map((event) => event.asin)).toEqual(["B0DUEB", "B0DUEA"]);
+    expect(store.listReviewDueEvents("2026-06-22", { brand: "Acme" }).map((event) => event.asin)).toEqual(["B0DUEA"]);
+    expect(store.listReviewDueEvents("2026-06-22", { asin: "B0DUEB" }).map((event) => event.asin)).toEqual(["B0DUEB"]);
+    expect(store.listReviewDueEvents("2026-06-22", { status: "REVIEW_PENDING" }).map((event) => event.asin)).toEqual(["B0DUEB"]);
+    expect(store.listReviewDueEvents("2026-06-22", { level: "P1", eventType: "RANK_SURGE" }).map((event) => event.asin)).toEqual(["B0DUEB"]);
+    expect(store.listReviewDueEvents("2026-06-22", { assignee: "Alice" }).map((event) => event.asin)).toEqual(["B0DUEA"]);
+    expect(store.listReviewDueEvents("2026-06-22", { unassignedOnly: true }).map((event) => event.asin)).toEqual(["B0DUEB"]);
+    expect(store.listReviewDueEvents("2026-06-22", { limit: 1, offset: 1 }).map((event) => event.asin)).toEqual(["B0DUEA"]);
+  });
+
   it("claimReviewDueEvents atomically claims each due event to a single claim id, releases on demand, and reclaims after stale expiry", () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
@@ -117,6 +193,61 @@ describe("insight event store", () => {
     db.prepare("UPDATE insight_review_claims SET claimed_at = ?").run(twoHoursAgo);
     const claimedD = store.claimReviewDueEvents("2026-06-22", "claim-D");
     expect(claimedD.map((event) => event.asin).sort()).toEqual(["A", "B"]);
+  });
+
+  it("claims due review events in queue priority order when a batch limit applies", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const base = sampleInsightEvent();
+
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-18|cat1|asin:OLDEST|NEW_TOP50_ENTRY",
+      asin: "OLDEST",
+      eventTitle: "oldest due",
+      eventLevel: "P2",
+      reviewDueDate: "2026-06-18",
+      scoreTotal: 40
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-20|cat1|asin:EARLYP2|NEW_TOP50_ENTRY",
+      asin: "EARLYP2",
+      eventTitle: "same date lower level",
+      eventLevel: "P2",
+      reviewDueDate: "2026-06-20",
+      scoreTotal: 99
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-20|cat1|asin:EARLYP0|NEW_TOP50_ENTRY",
+      asin: "EARLYP0",
+      eventTitle: "same date higher level",
+      eventLevel: "P0",
+      reviewDueDate: "2026-06-20",
+      scoreTotal: 50
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-22|cat1|asin:LATERP0|NEW_TOP50_ENTRY",
+      asin: "LATERP0",
+      eventTitle: "later high priority",
+      eventLevel: "P0",
+      reviewDueDate: "2026-06-22",
+      scoreTotal: 100
+    });
+
+    expect(store.listReviewDueEvents("2026-06-22").map((event) => event.asin)).toEqual([
+      "OLDEST",
+      "EARLYP0",
+      "EARLYP2",
+      "LATERP0"
+    ]);
+    expect(store.claimReviewDueEvents("2026-06-22", "priority-claim", { limit: 2 }).map((event) => event.asin)).toEqual([
+      "OLDEST",
+      "EARLYP0"
+    ]);
   });
 
   describe("listTopInsights", () => {

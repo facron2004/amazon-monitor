@@ -63,7 +63,7 @@ export function registerKeywordRoutes(app: Express, store: Store, options: { col
       response.status(202).json(job);
       return;
     }
-    const keywords = store.listKeywords().filter((keyword) => keyword.status === "enabled");
+    const keywords = store.listKeywords({ status: "enabled" });
     const jobs = keywords.map((k) => store.pushJob("keyword", k.id, date));
     console.log(`[${ts()}] [API] Collect all requested: ${jobs.length} keyword jobs queued, date=${date}`);
     response.status(202).json(jobs);

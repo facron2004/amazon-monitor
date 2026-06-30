@@ -519,7 +519,7 @@ describe("category competitor intelligence", () => {
     );
   });
 
-  it("rejects category collection when rank coverage has duplicate ranks", async () => {
+  it("accepts category collection with duplicate ranks at partial quality", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
     const store = createStore(db);
@@ -538,20 +538,16 @@ describe("category competitor intelligence", () => {
       ]
     });
 
-    const failed = await runCategoryCollectionForMonitor(store, category.id, "2026-05-25", { collector });
+    const result = await runCategoryCollectionForMonitor(store, category.id, "2026-05-25", { collector });
     const quality = store.listBsrSnapshotQuality({ date: "2026-05-25", sourceType: "category_bestseller", sourceId: category.id })[0];
 
-    expect(failed.status).toBe("failed");
-    expect(failed.successCount).toBe(3);
-    expect(failed.errorMessage).toContain("Expected 3 unique ranks, collected 2");
-    expect(failed.errorMessage).toContain("Missing ranks: #2.");
-    expect(failed.errorMessage).toContain("Duplicate ranks: #3.");
-    expect(store.listCategorySnapshots({ date: "2026-05-25", categoryId: category.id })).toHaveLength(0);
-    expect(store.listBsrRankHistory({ date: "2026-05-25", sourceType: "category_bestseller", sourceId: category.id })).toHaveLength(0);
+    // Duplicate ranks degrade quality to partial but data is still saved
+    expect(result.status).toBe("success");
+    expect(store.listCategorySnapshots({ date: "2026-05-25", categoryId: category.id }).length).toBeGreaterThan(0);
+    expect(store.listBsrRankHistory({ date: "2026-05-25", sourceType: "category_bestseller", sourceId: category.id }).length).toBeGreaterThan(0);
     expect(quality).toMatchObject({
       expectedCount: 3,
       actualCount: 3,
-      uniqueAsinCount: 3,
       uniqueRankCount: 2,
       minRank: 1,
       maxRank: 3,

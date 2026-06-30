@@ -44,6 +44,14 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
   const categories = resolveCategories(store, options.categoryId);
   const generated = new Map<string, InsightEventInput>();
 
+  // Hoist competitor pool and watch states out of the per-category loop —
+  // both are global (not category-scoped) and were previously re-queried
+  // for every category, causing N full-table scans of competitor_pool.
+  const competitors = store.listCompetitors();
+  const watchStates = store.listAsinWatchStates();
+  const competitorsByAsin = new Map(competitors.map((item) => [item.asin, item]));
+  const watchByAsin = new Map(watchStates.map((item) => [item.asin, item]));
+
   for (const category of categories) {
     const snapshots = store.listCategorySnapshots({ date, categoryId: category.id, limit: category.crawlTopN || 1000 });
     if (snapshots.length === 0) {
@@ -61,16 +69,14 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
     });
     const brandMatrix = store.listBrandMatrix({ date, categoryId: category.id });
     const categorySignals = store.listCategorySignals({ date, categoryId: category.id, limit: 1000 });
-    const competitors = store.listCompetitors();
-    const watchStates = store.listAsinWatchStates();
     const context: CategoryInsightContext = {
       category,
       date,
       snapshotsByAsin: new Map(snapshots.map((item) => [item.asin, item])),
       priceByAsin: new Map(priceHistory.map((item) => [item.asin, item])),
       brandByName: new Map(brandMatrix.map((item) => [item.brand, item])),
-      competitorsByAsin: new Map(competitors.map((item) => [item.asin, item])),
-      watchByAsin: new Map(watchStates.map((item) => [item.asin, item])),
+      competitorsByAsin,
+      watchByAsin,
       medianReviewChange: medianPositiveReviewChange(priceHistory)
     };
 

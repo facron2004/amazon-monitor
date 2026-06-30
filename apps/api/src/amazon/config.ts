@@ -95,7 +95,12 @@ export function maxDetailProducts(): number {
 }
 
 export function detailCacheMaxItems(): number {
-  return Number(process.env.AMAZON_COLLECT_DETAIL_CACHE_ITEMS ?? 0);  // 默认禁用缓存
+  // Default 1000: cache is keyed by (parserVersion|date|marketplace|asin) and
+  // the same ASIN reappears across multiple keywords/categories on the same
+  // day — re-opening the detail page for it is pure waste. Collector
+  // instances are module-level singletons, so the cache survives across
+  // jobs within a worker run. Set to 0 to disable.
+  return Number(process.env.AMAZON_COLLECT_DETAIL_CACHE_ITEMS ?? 1000);
 }
 
 export function blockHeavyResources(): boolean {

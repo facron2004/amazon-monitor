@@ -85,6 +85,17 @@ describe("report routes", () => {
       reviewDueDate: "2026-06-21",
       evidence: { currentRank: 30 }
     }));
+    store.upsertInsightEvent(eventFixture({
+      id: "2026-05-20|category:1|asin:B0PRE00005|RANK_SURGE",
+      eventDate: "2026-05-20",
+      asin: "B0PRE00005",
+      brand: "PreWindow",
+      eventType: "RANK_SURGE",
+      scoreTotal: 62,
+      scoreLevel: "B",
+      reviewDueDate: "2026-06-18",
+      evidence: { currentRank: 42 }
+    }));
 
     const weekly = await request(app)
       .get("/api/reports/insights/period?endDate=2026-06-25&period=weekly")
@@ -101,7 +112,8 @@ describe("report routes", () => {
         aLevelCount: 1,
         coreRiskCount: 1,
         newBreakoutCount: 1,
-        reviewDueCount: 2,
+        reviewDueCount: 3,
+        overdueReviewDueCount: 3,
         reviewedCount: 1,
         confirmedCount: 1
       }
@@ -110,6 +122,8 @@ describe("report routes", () => {
     expect(weekly.body.topBrands[0]).toMatchObject({ brand: "Acme", eventCount: 2, topScore: 96 });
     expect(weekly.body.markdown).toContain("Weekly Insight Report (2026-06-19 to 2026-06-25)");
     expect(weekly.body.markdown).toContain("B0OLD00004");
+    expect(weekly.body.markdown).toContain("Overdue review backlog: 3");
+    expect(weekly.body.markdown).toContain("B0PRE00005");
 
     const monthly = await request(app)
       .get("/api/reports/insights/period?endDate=2026-06-25&period=monthly")

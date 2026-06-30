@@ -19,15 +19,17 @@ import { useKeywordChart } from "./useKeywordChart";
 import { useNotifications } from "./useNotifications";
 import { useDashboardData } from "./useDashboardData";
 import { tabs, type TabKey } from "../constants/tabs";
+import type { InsightReportPeriod } from "../api-types";
 import { toErrorMessage } from "../utils/error-message";
 
 export function useAppController() {
   const { showToast } = useToast();
   const { setChartElement, renderKeywordChart, resizeKeywordChart, disposeKeywordChart } = useKeywordChart();
 
-  const activeTab = ref<TabKey>("categories");
+  const activeTab = ref<TabKey>("overview");
   const sidebarOpen = ref(false);
   const date = ref(isoDate());
+  const reportPeriod = ref<InsightReportPeriod>("weekly");
 
   // Per-domain loading states — each tab has its own loading ref
   const overviewLoading = ref(false);
@@ -65,7 +67,7 @@ export function useAppController() {
   const { actionMessage, errorMessage, setAction, setError, clearMessages } = useStatusMessages({ showToast });
   const activeTabLabel = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.label ?? "总览");
 
-  const dashboard = useDashboardData(date);
+  const dashboard = useDashboardData(date, reportPeriod);
   const dashboardStore = useDashboardStore();
   const { collectJobs } = storeToRefs(dashboardStore);
 
@@ -173,6 +175,22 @@ export function useAppController() {
     await insightEventsStore.loadEventDetail(event.id);
   }
 
+  async function setReportPeriod(period: InsightReportPeriod) {
+    if (reportPeriod.value === period) return;
+    reportPeriod.value = period;
+    if (activeTab.value !== "reports") return;
+
+    reportsLoading.value = true;
+    errorMessage.value = "";
+    try {
+      await dashboard.loadPeriodInsightReport(false);
+    } catch (error) {
+      errorMessage.value = toErrorMessage(error);
+    } finally {
+      reportsLoading.value = false;
+    }
+  }
+
   /**
    * Fetch the latest collection queue snapshot for the dashboard freshness badge.
    * Independent of the active tab — the badge should always reflect reality,
@@ -265,6 +283,7 @@ export function useAppController() {
     activeTab,
     sidebarOpen,
     date,
+    reportPeriod,
     loading,
     collecting,
     freshness,
@@ -278,6 +297,7 @@ export function useAppController() {
     errorMessage,
     activeTabLabel,
     ...dashboard,
+    setReportPeriod,
     topSummary: storeToRefs(insightEventsStore).topSummary,
     topSummaryLoading: storeToRefs(insightEventsStore).topSummaryLoading,
     openActionCenterForEvent,

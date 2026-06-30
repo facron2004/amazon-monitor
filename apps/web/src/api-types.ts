@@ -62,6 +62,7 @@ export interface PeriodInsightReportSummary {
   coreRiskCount: number;
   newBreakoutCount: number;
   reviewDueCount: number;
+  overdueReviewDueCount: number;
   reviewedCount: number;
   confirmedCount: number;
   revertedCount: number;

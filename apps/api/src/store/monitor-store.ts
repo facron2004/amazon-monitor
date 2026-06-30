@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { CategoryMonitor, CategoryMonitorInput, KeywordMonitor, KeywordMonitorInput } from "@amazon-monitor/shared";
 import { mapCategoryMonitor, mapKeyword, type CategoryMonitorRow, type KeywordRow } from "./monitor-mappers.js";
-import { nowIso } from "./sql-utils.js";
+import { nowIso, withTransaction } from "./sql-utils.js";
 import type { Store } from "./types.js";
 import { normalizeTopN, validateCategoryInput } from "./validation.js";
 
@@ -92,8 +92,10 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
         throw new Error(`Keyword ${id} not found`);
       }
 
-      db.exec("BEGIN");
-      try {
+      // Use withTransaction (SAVEPOINT-based) instead of raw BEGIN/COMMIT —
+      // node:sqlite does not support nested BEGIN, and the caller may already
+      // be inside a withTransaction block.
+      withTransaction(db, () => {
         db.prepare("DELETE FROM amazon_keyword_serp_snapshot WHERE keyword_id = ?").run(id);
         db.prepare(
           `DELETE FROM amazon_competitor_pool
@@ -106,19 +108,19 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
               )`
         ).run(keyword.keyword, id);
         db.prepare("DELETE FROM amazon_keyword_monitor WHERE id = ?").run(id);
-        db.exec("COMMIT");
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
+      });
     },
 
     getKeyword(id) {
       return getKeyword(db, id);
     },
 
-    listKeywords() {
-      return (db.prepare("SELECT * FROM amazon_keyword_monitor ORDER BY id").all() as unknown as KeywordRow[]).map(mapKeyword);
+    listKeywords(filter = {}) {
+      const status = filter.status;
+      const rows = status === undefined
+        ? (db.prepare("SELECT * FROM amazon_keyword_monitor ORDER BY id").all() as unknown as KeywordRow[])
+        : (db.prepare("SELECT * FROM amazon_keyword_monitor WHERE status = ? ORDER BY id").all(status === "enabled" ? 1 : 0) as unknown as KeywordRow[]);
+      return rows.map(mapKeyword);
     },
 
     createCategoryMonitor(input) {

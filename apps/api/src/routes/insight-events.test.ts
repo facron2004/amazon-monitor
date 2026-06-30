@@ -33,6 +33,45 @@ describe("insight event routes", () => {
         expect(response.body.assignee).toBe("Alice");
       });
 
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0ROUTE002|NEW_TOP50_ENTRY",
+      asin: "B0ROUTE002",
+      eventTitle: "Bob owner event",
+      status: "FOLLOWED",
+      reviewDueDate: null,
+      assignee: "Bob"
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0ROUTE003|NEW_TOP50_ENTRY",
+      asin: "B0ROUTE003",
+      eventTitle: "Unassigned owner event",
+      status: "FOLLOWED",
+      reviewDueDate: null
+    });
+    await request(app)
+      .get("/api/insight-events?date=2026-06-19&assignee=Alice")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { id: string }) => item.id)).toEqual([event.id]);
+      });
+
+    await request(app)
+      .get("/api/insight-events?date=2026-06-19&unassignedOnly=true")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE003"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events?unassignedOnly=maybe")
+      .expect(400);
+
+    await request(app)
+      .get(`/api/insight-events?assignee=${"a".repeat(121)}`)
+      .expect(400);
+
     await request(app)
       .patch(`/api/insight-events/${encodeURIComponent(event.id)}/assignee`)
       .send({ assignee: null })
@@ -117,6 +156,60 @@ describe("insight event routes", () => {
       reviewResult: "UNCLEAR"
     });
     expect(store.getInsightEvent(event.id)).toMatchObject({ reviewResult: "UNCLEAR" });
+  });
+
+  it("filters the review-due route with the same query contract as the main insight list", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const event = sampleRouteInsightEvent();
+    store.upsertInsightEvent({ ...event, assignee: "Alice" });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-18|category:1|asin:B0ROUTE002|RANK_SURGE",
+      eventDate: "2026-06-18",
+      asin: "B0ROUTE002",
+      brand: "Beta",
+      eventType: "RANK_SURGE",
+      eventLevel: "P1",
+      eventTitle: "Beta review pending",
+      status: "REVIEW_PENDING",
+      reviewDueDate: "2026-06-20"
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0ROUTE003|NEW_TOP50_ENTRY",
+      asin: "B0ROUTE003",
+      eventTitle: "Already followed",
+      status: "FOLLOWED",
+      reviewDueDate: "2026-06-20"
+    });
+
+    await request(app)
+      .get("/api/insight-events/review-due?date=2026-06-22&assignee=Alice")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE001"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/review-due?date=2026-06-22&status=REVIEW_PENDING&level=P1&eventType=RANK_SURGE")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE002"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/review-due?date=2026-06-22&unassignedOnly=true&limit=1")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE002"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/review-due?date=2026-06-22&unassignedOnly=maybe")
+      .expect(400);
   });
 });
 

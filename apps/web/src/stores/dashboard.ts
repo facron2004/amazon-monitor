@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import type { CollectJob, CollectTaskLog, DashboardSummary, QueueStats, WorkerStatus } from "@amazon-monitor/shared";
 import { collectApi } from "../api-collect";
 import { dashboardApi } from "../api-dashboard";
-import type { CategoryReportResponse, DailyReportResponse, PeriodInsightReportResponse } from "../api-types";
+import type { CategoryReportResponse, DailyReportResponse, InsightReportPeriod, PeriodInsightReportResponse } from "../api-types";
 
 export const useDashboardStore = defineStore("dashboard", {
   state: () => ({
@@ -31,18 +31,18 @@ export const useDashboardStore = defineStore("dashboard", {
     async loadWorkerStatus() {
       this.workerStatus = await collectApi.fetchWorkerStatus();
     },
-    async loadReport(date: string, signal?: AbortSignal) {
+    async loadReport(date: string, period: InsightReportPeriod = "weekly", signal?: AbortSignal) {
       const [keywordReport, allCategoryReport, insightReport] = await Promise.all([
         dashboardApi.report(date),
         dashboardApi.categoryReport(date),
-        dashboardApi.periodInsightReport({ date, period: "weekly" }, signal)
+        dashboardApi.periodInsightReport({ date, period }, signal)
       ]);
       this.report = keywordReport;
       this.categoryReport = allCategoryReport;
       this.periodInsightReport = insightReport;
     },
-    async loadPeriodInsightReport(date: string, includeAiSummary = false) {
-      this.periodInsightReport = await dashboardApi.periodInsightReport({ date, period: "weekly", includeAiSummary });
+    async loadPeriodInsightReport(date: string, period: InsightReportPeriod = "weekly", includeAiSummary = false) {
+      this.periodInsightReport = await dashboardApi.periodInsightReport({ date, period, includeAiSummary });
     }
   }
 });

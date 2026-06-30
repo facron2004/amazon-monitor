@@ -102,7 +102,7 @@ function buildPrompt(report: PeriodInsightReport): string {
   return [
     `Period: ${report.period}`,
     `Window: ${report.startDate} to ${report.endDate}`,
-    `Summary: total=${report.summary.totalEvents}, S=${report.summary.sLevelCount}, A=${report.summary.aLevelCount}, coreRisks=${report.summary.coreRiskCount}, newBreakouts=${report.summary.newBreakoutCount}, reviewDue=${report.summary.reviewDueCount}, reviewed=${report.summary.reviewedCount}, confirmed=${report.summary.confirmedCount}, reverted=${report.summary.revertedCount}`,
+    `Summary: total=${report.summary.totalEvents}, S=${report.summary.sLevelCount}, A=${report.summary.aLevelCount}, coreRisks=${report.summary.coreRiskCount}, newBreakouts=${report.summary.newBreakoutCount}, reviewDue=${report.summary.reviewDueCount}, overdueReviewDue=${report.summary.overdueReviewDueCount}, reviewed=${report.summary.reviewedCount}, confirmed=${report.summary.confirmedCount}, reverted=${report.summary.revertedCount}`,
     "Top events:",
     ...report.topEvents.slice(0, 8).map((event, index) => `${index + 1}. ${event.brand} ${event.asin} ${event.eventType} score=${event.scoreTotal}; evidence=${event.eventSummary}; action=${event.suggestedAction}`),
     "Top brands:",

@@ -2,11 +2,12 @@ import type { Express } from "express";
 import type { Store } from "../store.js";
 import { optionalNumber, optionalString } from "./http-utils.js";
 import { competitorKeySchema, limitDaysQuerySchema, validateBody, validateQuery } from "./validation.js";
+import { isAllowedAmazonHost } from "@amazon-monitor/shared";
 
 function isAmazonUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return /\.amazon\.\w{2,}$/i.test(parsed.hostname);
+    return isAllowedAmazonHost(parsed.hostname);
   } catch {
     return false;
   }

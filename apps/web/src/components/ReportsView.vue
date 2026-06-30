@@ -1,22 +1,61 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { BrainCircuit, CalendarDays, FileText, RefreshCw, Sparkles, Target } from "@lucide/vue";
-import type { CategoryReportResponse, DailyReportResponse, PeriodInsightReportResponse } from "../api-types";
+import { BrainCircuit, CalendarDays, RefreshCw, Sparkles, Target } from "@lucide/vue";
+import {
+  ElAlert,
+  ElButton,
+  ElCard,
+  ElCol,
+  ElEmpty,
+  ElProgress,
+  ElRow,
+  ElScrollbar,
+  ElSegmented,
+  ElStatistic,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+  ElTimeline,
+  ElTimelineItem,
+  ElTooltip
+} from "element-plus";
+import type { CategoryReportResponse, DailyReportResponse, InsightReportPeriod, PeriodInsightReportResponse } from "../api-types";
+import type { InsightEvent } from "@amazon-monitor/shared";
+import ReportChartsPanel from "./reports/ReportChartsPanel.vue";
 
 type ReportPane = "insight" | "ai" | "daily" | "category";
+type SegmentValue = string | number | boolean;
 
 interface Props {
   report: DailyReportResponse | null;
   categoryReport: CategoryReportResponse | null;
   periodInsightReport: PeriodInsightReportResponse | null;
+  period: InsightReportPeriod;
+}
+
+interface KpiItem {
+  label: string;
+  value: number;
+  detail: string;
 }
 
 const props = defineProps<Props>();
 const emit = defineEmits<{
   requestAiSummary: [];
+  "update:period": [period: InsightReportPeriod];
 }>();
 
 const activePane = ref<ReportPane>("insight");
+const periodOptions: Array<{ value: InsightReportPeriod; label: string }> = [
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" }
+];
+const paneOptions: Array<{ value: ReportPane; label: string }> = [
+  { value: "insight", label: "Insight" },
+  { value: "ai", label: "AI summary" },
+  { value: "daily", label: "Daily" },
+  { value: "category", label: "Category" }
+];
 
 const aiSummary = computed(() => props.periodInsightReport?.aiSummary ?? null);
 const hasAiSummaryText = computed(() => Boolean(aiSummary.value?.text));
@@ -24,16 +63,34 @@ const reportWindow = computed(() => {
   const report = props.periodInsightReport;
   return report ? `${report.startDate} - ${report.endDate}` : props.report?.date ?? "-";
 });
+const reportLabel = computed(() => (props.period === "monthly" ? "Monthly" : "Weekly"));
+const summary = computed(() => props.periodInsightReport?.summary ?? null);
+const topEvents = computed(() => props.periodInsightReport?.topEvents.slice(0, 6) ?? []);
+const topBrands = computed(() => props.periodInsightReport?.topBrands.slice(0, 8) ?? []);
+const maxBrandEvents = computed(() => Math.max(...topBrands.value.map((brand) => brand.eventCount), 1));
 
-const kpis = computed(() => {
-  const summary = props.periodInsightReport?.summary;
-  return [
-    { label: "Insight events", value: summary?.totalEvents ?? 0 },
-    { label: "S / A", value: `${summary?.sLevelCount ?? 0} / ${summary?.aLevelCount ?? 0}` },
-    { label: "Core risks", value: summary?.coreRiskCount ?? 0 },
-    { label: "Review loop", value: `${summary?.reviewDueCount ?? 0} / ${summary?.reviewedCount ?? 0}` }
-  ];
-});
+const kpis = computed<KpiItem[]>(() => [
+  {
+    label: "Insight events",
+    value: summary.value?.totalEvents ?? 0,
+    detail: `${reportLabel.value.toLowerCase()} signal volume`
+  },
+  {
+    label: "S / A signals",
+    value: summary.value?.sLevelCount ?? 0,
+    detail: `${summary.value?.aLevelCount ?? 0} A-level opportunities`
+  },
+  {
+    label: "Core risks",
+    value: summary.value?.coreRiskCount ?? 0,
+    detail: `${summary.value?.newBreakoutCount ?? 0} breakout events`
+  },
+  {
+    label: "Review loop",
+    value: summary.value?.reviewDueCount ?? 0,
+    detail: `${summary.value?.reviewedCount ?? 0} reviewed, overdue ${summary.value?.overdueReviewDueCount ?? 0}`
+  }
+]);
 
 const markdown = computed(() => {
   if (activePane.value === "ai") {
@@ -45,18 +102,58 @@ const markdown = computed(() => {
   if (activePane.value === "category") {
     return props.categoryReport?.markdown ?? "No category report is available.";
   }
-  return props.periodInsightReport?.markdown ?? "No weekly insight report is available.";
+  return props.periodInsightReport?.markdown ?? `No ${props.period} insight report is available.`;
 });
 
-const aiStateClass = computed(() => {
-  if (aiSummary.value?.status === "generated") return "is-good";
-  if (aiSummary.value?.status === "failed") return "is-bad";
-  return "is-muted";
+const aiStatus = computed(() => {
+  if (aiSummary.value?.status === "generated") {
+    return {
+      type: "success" as const,
+      title: `AI summary generated with ${aiSummary.value.model}`
+    };
+  }
+  if (aiSummary.value?.status === "failed") {
+    return {
+      type: "error" as const,
+      title: `AI summary failed: ${aiSummary.value.error}`
+    };
+  }
+  if (aiSummary.value?.status === "disabled") {
+    return {
+      type: "info" as const,
+      title: `AI summary disabled: ${aiSummary.value.error}`
+    };
+  }
+  return {
+    type: "info" as const,
+    title: "AI summary has not been requested."
+  };
 });
 
-async function requestAiSummary(): Promise<void> {
+function requestAiSummary(): void {
   emit("requestAiSummary");
   activePane.value = "ai";
+}
+
+function selectPeriod(value: SegmentValue): void {
+  if (value === "weekly" || value === "monthly") {
+    emit("update:period", value);
+  }
+}
+
+function percentage(value: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((value / total) * 100));
+}
+
+function levelTagType(event: InsightEvent): "danger" | "warning" | "info" {
+  if (event.eventLevel === "P0") return "danger";
+  if (event.eventLevel === "P1") return "warning";
+  return "info";
+}
+
+function brandShare(value: number): number {
+  return percentage(value, maxBrandEvents.value);
 }
 </script>
 
@@ -67,81 +164,120 @@ async function requestAiSummary(): Promise<void> {
         <span>Reports</span>
         <h2>Insight report workbench</h2>
       </div>
-      <div class="reports-head-meta">
-        <CalendarDays :size="16" />
-        <strong>{{ reportWindow }}</strong>
+      <div class="reports-head-actions">
+        <ElSegmented
+          :model-value="period"
+          :options="periodOptions"
+          size="large"
+          @update:model-value="selectPeriod"
+        />
+        <ElTag class="window-tag" effect="plain" round>
+          <CalendarDays :size="14" />
+          <strong>{{ reportWindow }}</strong>
+        </ElTag>
       </div>
     </header>
 
-    <section class="report-kpis">
-      <article v-for="item in kpis" :key="item.label" class="report-kpi">
-        <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
-      </article>
-    </section>
+    <ElRow :gutter="12" class="report-kpis">
+      <ElCol v-for="item in kpis" :key="item.label" :xs="24" :sm="12" :lg="6">
+        <ElCard class="report-kpi" shadow="never">
+          <ElStatistic :title="item.label" :value="item.value" />
+          <span>{{ item.detail }}</span>
+        </ElCard>
+      </ElCol>
+    </ElRow>
 
     <section class="report-grid">
       <aside class="report-side">
-        <div class="report-side-head">
-          <Target :size="16" />
-          <span>Top events</span>
-        </div>
-        <ol v-if="periodInsightReport?.topEvents.length" class="report-event-list">
-          <li v-for="event in periodInsightReport.topEvents.slice(0, 5)" :key="event.id">
-            <strong>{{ event.brand || event.asin || "Unknown target" }}</strong>
-            <span>{{ event.eventType }} · {{ event.scoreTotal }}</span>
-          </li>
-        </ol>
-        <p v-else class="report-empty">No event evidence for this period.</p>
+        <ElCard shadow="never" class="report-card">
+          <template #header>
+            <div class="panel-title">
+              <Target :size="16" />
+              <span>Priority feed</span>
+              <ElTag size="small" type="danger" effect="light">{{ topEvents.length }}</ElTag>
+            </div>
+          </template>
 
-        <div class="report-side-head">
-          <Sparkles :size="16" />
-          <span>Brand signals</span>
-        </div>
-        <ol v-if="periodInsightReport?.topBrands.length" class="report-brand-list">
-          <li v-for="brand in periodInsightReport.topBrands.slice(0, 5)" :key="brand.brand">
-            <strong>{{ brand.brand }}</strong>
-            <span>{{ brand.eventCount }} events · top {{ brand.topScore }}</span>
-          </li>
-        </ol>
-        <p v-else class="report-empty">No brand signal evidence for this period.</p>
+          <ElTimeline v-if="topEvents.length" class="event-timeline">
+            <ElTimelineItem
+              v-for="event in topEvents"
+              :key="event.id"
+              :type="levelTagType(event)"
+              :timestamp="event.eventDate"
+              placement="top"
+            >
+              <div class="event-feed-item">
+                <div>
+                  <ElTag size="small" :type="levelTagType(event)" effect="dark">{{ event.eventLevel }}</ElTag>
+                  <strong>{{ event.brand || event.asin || "Unknown target" }}</strong>
+                </div>
+                <p>{{ event.eventType }}</p>
+                <ElTooltip :content="event.eventTitle" placement="top" :show-after="350">
+                  <small>{{ event.eventTitle }}</small>
+                </ElTooltip>
+                <ElProgress :percentage="Math.min(event.scoreTotal, 100)" :stroke-width="6" :show-text="false" />
+              </div>
+            </ElTimelineItem>
+          </ElTimeline>
+          <ElEmpty v-else description="No event evidence for this period." :image-size="72" />
+        </ElCard>
+
+        <ElCard shadow="never" class="report-card">
+          <template #header>
+            <div class="panel-title">
+              <Sparkles :size="16" />
+              <span>Brand signal board</span>
+            </div>
+          </template>
+
+          <ElTable v-if="topBrands.length" :data="topBrands" size="small" class="brand-table" height="286">
+            <ElTableColumn prop="brand" label="Brand" min-width="118" show-overflow-tooltip />
+            <ElTableColumn label="Events" width="112">
+              <template #default="{ row }">
+                <div class="brand-events">
+                  <strong>{{ row.eventCount }}</strong>
+                  <ElProgress :percentage="brandShare(row.eventCount)" :stroke-width="5" :show-text="false" />
+                </div>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="Top" width="64">
+              <template #default="{ row }">{{ row.topScore }}</template>
+            </ElTableColumn>
+          </ElTable>
+          <ElEmpty v-else description="No brand signal evidence for this period." :image-size="72" />
+        </ElCard>
       </aside>
 
       <main class="report-main">
-        <div class="report-toolbar">
-          <div class="report-tabs">
-            <button type="button" :class="{ active: activePane === 'insight' }" @click="activePane = 'insight'">
-              <FileText :size="15" />
-              <span>Insight</span>
-            </button>
-            <button type="button" :class="{ active: activePane === 'ai' }" @click="activePane = 'ai'">
-              <BrainCircuit :size="15" />
-              <span>AI summary</span>
-            </button>
-            <button type="button" :class="{ active: activePane === 'daily' }" @click="activePane = 'daily'">
-              <FileText :size="15" />
-              <span>Daily</span>
-            </button>
-            <button type="button" :class="{ active: activePane === 'category' }" @click="activePane = 'category'">
-              <FileText :size="15" />
-              <span>Category</span>
-            </button>
-          </div>
-          <button class="ai-button" type="button" :disabled="!periodInsightReport" @click="requestAiSummary">
-            <RefreshCw :size="15" />
-            <span>{{ hasAiSummaryText ? "Refresh AI" : "Generate AI" }}</span>
-          </button>
-        </div>
+        <ReportChartsPanel :report="periodInsightReport" :report-label="reportLabel" />
 
-        <div class="ai-status" :class="aiStateClass">
-          <BrainCircuit :size="15" />
-          <span v-if="aiSummary?.status === 'generated'">AI summary generated with {{ aiSummary.model }}</span>
-          <span v-else-if="aiSummary?.status === 'failed'">AI summary failed: {{ aiSummary.error }}</span>
-          <span v-else-if="aiSummary?.status === 'disabled'">AI summary disabled: {{ aiSummary.error }}</span>
-          <span v-else>AI summary has not been requested.</span>
-        </div>
+        <ElCard shadow="never" class="report-card report-reader-card">
+          <template #header>
+            <div class="report-toolbar">
+              <ElSegmented v-model="activePane" :options="paneOptions" />
+              <ElButton type="primary" :disabled="!periodInsightReport" @click="requestAiSummary">
+                <RefreshCw :size="15" />
+                <span>{{ hasAiSummaryText ? "Refresh AI" : "Generate AI" }}</span>
+              </ElButton>
+            </div>
+          </template>
 
-        <pre class="report">{{ markdown }}</pre>
+          <ElAlert
+            :title="aiStatus.title"
+            :type="aiStatus.type"
+            :closable="false"
+            show-icon
+            class="ai-status"
+          >
+            <template #icon>
+              <BrainCircuit :size="16" />
+            </template>
+          </ElAlert>
+
+          <ElScrollbar class="report-scroll">
+            <pre class="report">{{ markdown }}</pre>
+          </ElScrollbar>
+        </ElCard>
       </main>
     </section>
   </section>
@@ -165,12 +301,7 @@ async function requestAiSummary(): Promise<void> {
   justify-content: space-between;
 }
 
-.reports-head span,
-.report-kpi span,
-.report-side-head,
-.report-event-list span,
-.report-brand-list span,
-.ai-status {
+.reports-head > div:first-child > span {
   color: #64748b;
   font-size: 12px;
 }
@@ -182,11 +313,16 @@ async function requestAiSummary(): Promise<void> {
   margin: 3px 0 0;
 }
 
-.reports-head-meta {
+.reports-head-actions {
   align-items: center;
-  background: #ffffff;
-  border: 1px solid #d9e2ec;
-  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.window-tag {
+  align-items: center;
   display: inline-flex;
   gap: 8px;
   min-height: 38px;
@@ -194,95 +330,124 @@ async function requestAiSummary(): Promise<void> {
 }
 
 .report-kpis {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.report-kpi,
-.report-side,
-.report-main {
-  background: #ffffff;
-  border: 1px solid #d9e2ec;
-  border-radius: 8px;
+  row-gap: 12px;
 }
 
 .report-kpi {
-  display: grid;
-  gap: 6px;
-  min-height: 76px;
-  padding: 14px;
+  height: 100%;
 }
 
-.report-kpi strong {
+.report-kpi :deep(.el-card__body) {
+  display: grid;
+  gap: 8px;
+  min-height: 96px;
+}
+
+.report-kpi :deep(.el-statistic__content) {
   color: #0f172a;
-  font-size: 24px;
+  font-size: 27px;
+  font-weight: 800;
+}
+
+.report-kpi span {
+  color: #64748b;
+  font-size: 12px;
 }
 
 .report-grid {
   display: grid;
   flex: 1 1 auto;
   gap: 14px;
-  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   min-height: 0;
 }
 
-.report-side {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.report-side,
+.report-main {
+  display: grid;
+  gap: 14px;
   min-height: 0;
-  padding: 14px;
 }
 
-.report-side-head {
+.report-main {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.report-card {
+  min-width: 0;
+}
+
+.panel-title {
   align-items: center;
+  color: #0f172a;
   display: flex;
-  font-weight: 700;
-  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 8px;
   text-transform: uppercase;
 }
 
-.report-event-list,
-.report-brand-list {
-  display: grid;
-  gap: 8px;
-  list-style: none;
-  margin: 0 0 8px;
-  padding: 0;
+.event-timeline {
+  margin: 0;
+  padding-left: 4px;
 }
 
-.report-event-list li,
-.report-brand-list li {
-  background: #f8fafc;
-  border: 1px solid #dbe3ed;
-  border-radius: 8px;
+.event-feed-item {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
-  padding: 10px;
 }
 
-.report-event-list strong,
-.report-brand-list strong {
-  color: #0f172a;
-  font-size: 13px;
+.event-feed-item > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.event-feed-item strong,
+.event-feed-item small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.report-empty {
-  color: #64748b;
-  font-size: 13px;
-  margin: 0 0 8px;
+.event-feed-item p {
+  color: #475569;
+  font-size: 12px;
+  margin: 0;
 }
 
-.report-main {
+.event-feed-item small {
+  color: #64748b;
+  display: block;
+}
+
+.brand-table {
+  width: 100%;
+}
+
+.brand-events {
+  display: grid;
+  gap: 5px;
+}
+
+.brand-events strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.report-reader-card {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 14px;
+}
+
+.report-reader-card :deep(.el-card__body) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .report-toolbar {
@@ -290,83 +455,41 @@ async function requestAiSummary(): Promise<void> {
   display: flex;
   gap: 10px;
   justify-content: space-between;
-  margin-bottom: 10px;
 }
 
-.report-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.report-tabs button,
-.ai-button {
+.report-toolbar :deep(.el-button span) {
   align-items: center;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  color: #475569;
-  cursor: pointer;
   display: inline-flex;
-  font: inherit;
-  font-size: 13px;
   gap: 6px;
-  min-height: 34px;
-  padding: 0 10px;
-}
-
-.report-tabs button.active,
-.ai-button {
-  background: #0f172a;
-  border-color: #0f172a;
-  color: #ffffff;
-}
-
-.ai-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .ai-status {
-  align-items: center;
-  border: 1px solid #dbe3ed;
-  border-radius: 8px;
-  display: inline-flex;
-  gap: 7px;
   margin-bottom: 10px;
-  min-height: 34px;
-  padding: 0 10px;
 }
 
-.ai-status.is-good {
-  background: #ecfdf5;
-  border-color: #bbf7d0;
-  color: #047857;
-}
-
-.ai-status.is-bad {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #b91c1c;
-}
-
-.ai-status.is-muted {
-  background: #f8fafc;
+.report-scroll {
+  flex: 1 1 auto;
+  min-height: 420px;
 }
 
 .report {
-  flex: 1 1 auto;
   min-height: 420px;
-  max-height: none;
 }
 
 @media (max-width: 1040px) {
-  .report-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .report-grid {
+    flex: 0 0 auto;
+    grid-template-columns: 1fr;
+    min-height: auto;
   }
 
-  .report-grid {
-    grid-template-columns: 1fr;
+  .report-side,
+  .report-main {
+    min-height: auto;
+  }
+
+  .report-main {
+    grid-template-rows: auto auto;
   }
 }
 
@@ -381,13 +504,15 @@ async function requestAiSummary(): Promise<void> {
     flex-direction: column;
   }
 
-  .reports-head-meta,
-  .ai-button {
-    justify-content: center;
+  .reports-head-actions {
+    justify-content: stretch;
   }
 
-  .report-kpis {
-    grid-template-columns: 1fr;
+  .window-tag,
+  .reports-head-actions :deep(.el-segmented) {
+    justify-content: center;
+    width: 100%;
   }
+
 }
 </style>

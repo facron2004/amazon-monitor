@@ -27,6 +27,7 @@ export interface PeriodInsightReportSummary {
   coreRiskCount: number;
   newBreakoutCount: number;
   reviewDueCount: number;
+  overdueReviewDueCount: number;
   reviewedCount: number;
   confirmedCount: number;
   revertedCount: number;
@@ -58,13 +59,11 @@ export function buildPeriodInsightReport(
   const startDate = dates[0] ?? input.endDate;
   const insightEvents = uniqueById(dates.flatMap((date) => store.listInsightEvents({ date, limit: 1000 })));
   const candidates = uniqueById([...insightEvents, ...store.listInsightEvents({ limit: 1000 })]);
-  const reviewDueEvents = candidates.filter(
-    (event) => event.reviewDueDate !== null && event.reviewDueDate >= startDate && event.reviewDueDate <= input.endDate
-  );
+  const reviewDueEvents = store.listReviewDueEvents(input.endDate, { limit: 1000 });
   const reviewedEvents = candidates.filter(
     (event) => event.reviewResult !== null && event.updatedAt.slice(0, 10) >= startDate && event.updatedAt.slice(0, 10) <= input.endDate
   );
-  const summary = buildSummary(insightEvents, reviewDueEvents, reviewedEvents);
+  const summary = buildSummary(insightEvents, reviewDueEvents, reviewedEvents, input.endDate);
   const topEvents = [...insightEvents]
     .sort((left, right) => right.scoreTotal - left.scoreTotal || left.eventTitle.localeCompare(right.eventTitle))
     .slice(0, 10);
@@ -96,7 +95,8 @@ export function buildPeriodInsightReport(
 function buildSummary(
   insightEvents: InsightEvent[],
   reviewDueEvents: InsightEvent[],
-  reviewedEvents: InsightEvent[]
+  reviewedEvents: InsightEvent[],
+  endDate: string
 ): PeriodInsightReportSummary {
   return {
     totalEvents: insightEvents.length,
@@ -105,6 +105,7 @@ function buildSummary(
     coreRiskCount: insightEvents.filter((event) => event.eventType === "CORE_COMPETITOR_RISK").length,
     newBreakoutCount: insightEvents.filter((event) => event.eventType === "NEW_PRODUCT_BREAKOUT").length,
     reviewDueCount: reviewDueEvents.length,
+    overdueReviewDueCount: reviewDueEvents.filter((event) => event.reviewDueDate !== null && event.reviewDueDate < endDate).length,
     reviewedCount: reviewedEvents.length,
     confirmedCount: reviewedEvents.filter((event) => event.reviewResult === "CONFIRMED").length,
     revertedCount: reviewedEvents.filter((event) => event.reviewResult === "REVERTED").length
@@ -174,6 +175,7 @@ function buildMarkdown(input: {
     `- Core competitor risks: ${input.summary.coreRiskCount}`,
     `- New-product breakouts: ${input.summary.newBreakoutCount}`,
     `- Review due / reviewed: ${input.summary.reviewDueCount}/${input.summary.reviewedCount}`,
+    `- Overdue review backlog: ${input.summary.overdueReviewDueCount}`,
     "",
     "## Highest Priority Events",
     ...formatEventBullets(input.topEvents, "No insight events in this period."),
@@ -184,8 +186,8 @@ function buildMarkdown(input: {
     "## Review Outcomes",
     ...formatReviewOutcomeBullets(input.reviewOutcomes),
     "",
-    "## Upcoming Review Queue",
-    ...formatEventBullets(input.reviewDueEvents.slice(0, 10), "No review-due events in this period."),
+    "## Review Queue Backlog",
+    ...formatReviewDueBullets(input.reviewDueEvents.slice(0, 10), "No review-due events by the report date."),
     "",
     "## Completed Reviews",
     ...formatReviewedBullets(input.reviewedEvents.slice(0, 10))
@@ -197,6 +199,13 @@ function formatEventBullets(events: InsightEvent[], emptyText: string): string[]
     return [`- ${emptyText}`];
   }
   return events.map((event, index) => `${index + 1}. ${formatEventLine(event)}`);
+}
+
+function formatReviewDueBullets(events: InsightEvent[], emptyText: string): string[] {
+  if (events.length === 0) {
+    return [`- ${emptyText}`];
+  }
+  return events.map((event, index) => `${index + 1}. Due ${event.reviewDueDate ?? "-"}: ${formatEventLine(event)}`);
 }
 
 function formatBrandBullets(brands: PeriodInsightReportBrand[], emptyText: string): string[] {

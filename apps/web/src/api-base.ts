@@ -1,4 +1,4 @@
-const baseUrl = import.meta.env.VITE_API_BASE ?? "/api";
+const baseUrl = import.meta.env.VITE_API_BASE?.trim() || "/api";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface RequestOptions extends RequestInit {

@@ -4,7 +4,7 @@ import { mapBsrRankHistory, type BsrRankHistoryRow } from "./bsr-mappers.js";
 import { mapActionInsight, type ActionInsightRow } from "./competitor-mappers.js";
 import { isoDateOffset } from "./date-utils.js";
 import { mapChange, type ChangeRow } from "./operational-mappers.js";
-import { sanitizeBestsellerSnapshotRow, sanitizeProductPriceHistory, shouldExposeActivityEvent } from "./review-guards.js";
+import { sanitizeBestsellerSnapshotRows, sanitizeProductPriceHistory, shouldExposeActivityEvent } from "./review-guards.js";
 import { mapSnapshot, type SnapshotRow } from "./serp-mappers.js";
 import {
   mapActivityEvent,
@@ -124,7 +124,7 @@ export function createProductActivityStore(db: DatabaseSync): ProductActivitySto
         )
         .all(...changeParams) as unknown as ChangeRow[];
 
-      const categorySnapshots = categoryRows.map((row) => mapBestsellerSnapshot(sanitizeBestsellerSnapshotRow(db, row)));
+      const categorySnapshots = sanitizeBestsellerSnapshotRows(db, categoryRows).map(mapBestsellerSnapshot);
       const keywordSnapshots = keywordRows.map(mapSnapshot);
       const events = eventRows.map(mapActivityEvent).filter(shouldExposeActivityEvent);
       const actionInsights = actionRows.map(mapActionInsight);

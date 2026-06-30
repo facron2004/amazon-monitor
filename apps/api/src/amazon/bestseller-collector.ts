@@ -100,7 +100,7 @@ export class PlaywrightAmazonBestSellerCollector {
       for (const collectedPage of pages) {
         collectedPage.products = await collectMissingBestSellerDetails(context, category, collectedPage.products, collectedPage.pageNo, date, this.detailCache);
       }
-      await recoverMissingCriticalMetricsInFreshContext(category, pages, date);
+      await recoverMissingCriticalMetricsInFreshContext(category, pages, date, browser);
 
       return pages;
     } finally {

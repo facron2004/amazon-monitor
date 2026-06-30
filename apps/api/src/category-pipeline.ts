@@ -38,6 +38,7 @@ export interface AmazonBestSellerCollector {
 
 export interface CategoryCollectionOptions {
   collector?: AmazonBestSellerCollector;
+  signal?: AbortSignal;
 }
 
 const defaultCategoryCollector = new PlaywrightAmazonBestSellerCollector();
@@ -102,6 +103,7 @@ export async function runCategoryCollectionForMonitor(
   const collector = options.collector ?? defaultCategoryCollector;
 
   try {
+    if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     console.log(`[${ts()}] [Pipeline] Collecting category="${category.name}" marketplace=${category.marketplace} topN=${category.crawlTopN}...`);
     const pages = await collector.collect(category, date);
     const t1 = Date.now();
@@ -124,12 +126,22 @@ export async function runCategoryCollectionForMonitor(
         .sort((a, b) => a.rank - b.rank)
         .slice(0, category.crawlTopN)
     );
-    if (products.length < category.crawlTopN) {
+
+    // Data quality grading: save partial data instead of failing hard
+    const ratio = category.crawlTopN > 0 ? products.length / category.crawlTopN : 1;
+    let dataQuality: "ok" | "partial";
+    if (ratio >= 0.95) {
+      dataQuality = "ok";
+    } else if (ratio >= 0.8) {
+      dataQuality = "partial";
+    } else {
       throw new StrictBsrCountError(category, pages, products);
     }
     const rankCoverageIssue = strictBsrRankCoverageIssue(products, category.crawlTopN);
     if (rankCoverageIssue) {
-      throw new StrictBsrCountError(category, pages, products, rankCoverageIssue);
+      // Coverage gaps (missing ranks, duplicates) degrade quality to partial,
+      // but still save the data so we don't lose everything for one gap.
+      dataQuality = "partial";
     }
     const decoratedSnapshots = decorateBestsellerSnapshots({
       categoryId: category.id,
@@ -175,38 +187,68 @@ export async function runCategoryCollectionForMonitor(
       activityEvents
     });
 
-    store.deleteCategorySnapshotsForDate(category.id, date);
-    store.insertCategorySnapshots(snapshots);
-    store.replaceBsrRankHistoryForDate({
-      sourceType: "category_bestseller",
-      sourceId: category.id,
-      date,
-      items: buildCategoryBsrRankHistory(category, snapshots)
-    });
-    store.replaceCompetitorActionInsights({
-      sourceType: "category_bestseller",
-      sourceId: category.id,
-      date,
-      items: buildCompetitorActionInsights({
+    if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
+    // Wrap all writes in a single transaction to maintain consistency
+    store.runInTransaction(() => {
+      store.deleteCategorySnapshotsForDate(category.id, date);
+      store.insertCategorySnapshots(snapshots);
+      store.replaceBsrRankHistoryForDate({
+        sourceType: "category_bestseller",
+        sourceId: category.id,
         date,
-        bsrChanges: store.listBsrRankChanges({ date, sourceType: "category_bestseller", sourceId: category.id }),
-        activityEvents
-      })
+        items: buildCategoryBsrRankHistory(category, snapshots)
+      });
+      store.replaceCompetitorActionInsights({
+        sourceType: "category_bestseller",
+        sourceId: category.id,
+        date,
+        items: buildCompetitorActionInsights({
+          date,
+          bsrChanges: store.listBsrRankChanges({ date, sourceType: "category_bestseller", sourceId: category.id }),
+          activityEvents
+        })
+      });
+      store.upsertProductMasterFromCategorySnapshots(snapshots);
+      store.upsertCompetitorsFromCategorySnapshots(snapshots, activityEvents);
+      store.replaceProductPriceHistoryForDate(category.id, date, snapshots);
+      store.replaceBrandMatrix(category.id, date, brandMatrix);
+      store.replaceCategorySignals(category.id, date, signals);
+      store.replaceCategoryActivityEvents(category.id, date, activityEvents);
+      store.saveCategoryReport(date, category.id, report);
+      generateInsightEvents(store, date, { categoryId: category.id });
+      evaluateDueInsightEventReviews(store, date, { categoryId: category.id });
     });
-    store.upsertProductMasterFromCategorySnapshots(snapshots);
-    store.upsertCompetitorsFromCategorySnapshots(snapshots, activityEvents);
-    store.replaceProductPriceHistoryForDate(category.id, date, snapshots);
-    store.replaceBrandMatrix(category.id, date, brandMatrix);
-    store.replaceCategorySignals(category.id, date, signals);
-    store.replaceCategoryActivityEvents(category.id, date, activityEvents);
-    store.saveCategoryReport(date, category.id, report);
-    generateInsightEvents(store, date, { categoryId: category.id });
-    // 当 review_due_date <= date 时(通常为事件日 +1/+3/+7 天),evaluator 会自动
-    // 复盘一批事件;当天采集时 review_due_date 还未到,evaluator 拿到空集是正常的。
-    evaluateDueInsightEventReviews(store, date, { categoryId: category.id });
+
+    // Record BSR quality for partial collections
+    if (dataQuality === "partial") {
+      const issueParts: string[] = [];
+      if (ratio < 1) {
+        issueParts.push(`Collected ${products.length}/${category.crawlTopN} (${Math.round(ratio * 100)}%)`);
+      }
+      if (rankCoverageIssue) {
+        issueParts.push(rankCoverageIssue);
+      }
+      store.recordBsrSnapshotQuality({
+        snapshotDate: date,
+        sourceType: "category_bestseller",
+        sourceId: category.id,
+        sourceName: category.name,
+        marketplace: category.marketplace,
+        category: category.name,
+        expectedCount: category.crawlTopN,
+        actualCount: products.length,
+        uniqueAsinCount: new Set(products.map((p) => p.asin)).size,
+        uniqueRankCount: new Set(products.map((p) => p.rank)).size,
+        minRank: products.length ? Math.min(...products.map((p) => p.rank)) : null,
+        maxRank: products.length ? Math.max(...products.map((p) => p.rank)) : null,
+        qualityStatus: "partial",
+        issue: issueParts.join("; ")
+      });
+    }
 
     const totalMs = Date.now() - t0;
-    console.log(`[${ts()}] [Pipeline] ✓ Category "${category.name}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)} (${snapshots.length} products)`);
+    console.log(`[${ts()}] [Pipeline] ✓ Category "${category.name}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)} (${snapshots.length} products, quality=${dataQuality})`);
 
     const log = store.insertTaskLog({
       taskType: "category_collect",
@@ -219,12 +261,16 @@ export async function runCategoryCollectionForMonitor(
       pageCount: pages.length,
       successCount: snapshots.length,
       failCount: 0,
-      errorMessage: null,
+      errorMessage: dataQuality === "partial" ? `Partial data: ${products.length}/${category.crawlTopN} collected` : null,
       retryCount
     });
     store.markCategoryCollection(category.id, "success");
     return log;
   } catch (error) {
+    // Don't log aborted jobs as failures — the worker handles that
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
     const totalMs = Date.now() - t0;
     console.error(`[${ts()}] [Pipeline] ✗ Category "${category.name}" FAILED after ${formatDuration(totalMs)}: ${error instanceof Error ? error.message : String(error)}`);
     if (error instanceof StrictBsrCountError) {

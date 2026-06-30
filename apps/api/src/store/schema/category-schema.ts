@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_bestseller_category_date_rank ON amazon_bestselle
 CREATE INDEX IF NOT EXISTS idx_bestseller_promo_lookup ON amazon_bestseller_rank_snapshot(asin, marketplace, snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_bestseller_asin_date_rank ON amazon_bestseller_rank_snapshot(asin, snapshot_date DESC, rank_no);
 CREATE INDEX IF NOT EXISTS idx_bestseller_price_low_lookup ON amazon_bestseller_rank_snapshot(category_id, marketplace, asin, snapshot_date, current_price);
+CREATE INDEX IF NOT EXISTS idx_bestseller_snapshot_date ON amazon_bestseller_rank_snapshot(snapshot_date);
 
 CREATE TABLE IF NOT EXISTS amazon_bsr_rank_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

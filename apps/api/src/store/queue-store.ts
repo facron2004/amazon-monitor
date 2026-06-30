@@ -35,29 +35,45 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
   return {
     pushJob(taskType, targetId, date) {
       const now = nowIso();
-      
-      // Check if there is already a pending or processing job for the same target, date, and taskType
+
+      // Atomic dedup via partial unique index idx_queue_dedup_active.
+      // INSERT OR IGNORE skips if a pending/processing job already exists for
+      // this (task_type, target_id, date) — eliminates the race window that
+      // the previous SELECT-then-INSERT had under concurrent pushJob calls.
+      const insertStmt = db.prepare(`
+        INSERT OR IGNORE INTO amazon_collect_job_queue
+        (task_type, target_id, date, status, created_at)
+        VALUES (?, ?, ?, 'pending', ?)
+      `);
+      const result = insertStmt.run(taskType, targetId, date, now);
+
+      if (result.changes > 0) {
+        const newJob = db.prepare(`
+          SELECT * FROM amazon_collect_job_queue WHERE id = ?
+        `).get(Number(result.lastInsertRowid)) as any;
+        return mapCollectJob(newJob);
+      }
+
+      // Existing pending/processing job — return it
       const existing = db.prepare(`
         SELECT * FROM amazon_collect_job_queue
         WHERE task_type = ? AND target_id = ? AND date = ? AND status IN ('pending', 'processing')
         LIMIT 1
       `).get(taskType, targetId, date) as any;
 
-      if (existing) {
-        return mapCollectJob(existing);
+      // Defensive: rare race where the job transitioned between INSERT IGNORE
+      // and SELECT. Re-attempt the insert once.
+      if (!existing) {
+        const retry = insertStmt.run(taskType, targetId, date, now);
+        if (retry.changes > 0) {
+          const newJob = db.prepare(`
+            SELECT * FROM amazon_collect_job_queue WHERE id = ?
+          `).get(Number(retry.lastInsertRowid)) as any;
+          return mapCollectJob(newJob);
+        }
       }
 
-      const result = db.prepare(`
-        INSERT INTO amazon_collect_job_queue
-        (task_type, target_id, date, status, created_at)
-        VALUES (?, ?, ?, 'pending', ?)
-      `).run(taskType, targetId, date, now);
-
-      const newJob = db.prepare(`
-        SELECT * FROM amazon_collect_job_queue WHERE id = ?
-      `).get(Number(result.lastInsertRowid)) as any;
-
-      return mapCollectJob(newJob);
+      return mapCollectJob(existing);
     },
 
     claimNextJob() {
@@ -155,16 +171,29 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
      * to surface "data is X hours stale" without exposing the raw queue.
      */
     getCollectionFreshness() {
+      // SQL-side aggregation: avoids loading the entire queue into JS memory
+      // on every dashboard refresh. ISO 8601 timestamps sort correctly as
+      // strings, so MAX() yields the latest.
       const rows = db.prepare(`
-        SELECT task_type, status, created_at, started_at, completed_at
-        FROM amazon_collect_job_queue
-        ORDER BY id DESC
+        SELECT q.task_type,
+          COUNT(*) AS total_jobs,
+          SUM(CASE WHEN q.status = 'failed' THEN 1 ELSE 0 END) AS failed_jobs,
+          MAX(q.completed_at) AS last_completed_at,
+          MAX(q.started_at) AS last_started_at,
+          (
+            SELECT q2.status FROM amazon_collect_job_queue q2
+            WHERE q2.task_type = q.task_type
+            ORDER BY q2.id DESC LIMIT 1
+          ) AS last_status
+        FROM amazon_collect_job_queue q
+        GROUP BY q.task_type
       `).all() as Array<{
         task_type: "keyword" | "category";
-        status: "pending" | "processing" | "completed" | "failed";
-        created_at: string;
-        started_at: string | null;
-        completed_at: string | null;
+        total_jobs: number;
+        failed_jobs: number;
+        last_completed_at: string | null;
+        last_started_at: string | null;
+        last_status: "completed" | "failed" | "pending" | "processing" | null;
       }>;
 
       const byType = new Map<string, {
@@ -177,24 +206,14 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       }>();
 
       for (const row of rows) {
-        const entry = byType.get(row.task_type) ?? {
+        byType.set(row.task_type, {
           taskType: row.task_type,
-          lastCompletedAt: null,
-          lastStartedAt: null,
-          lastStatus: null,
-          totalJobs: 0,
-          failedJobs: 0
-        };
-        entry.totalJobs += 1;
-        if (row.status === "failed") entry.failedJobs += 1;
-        if (entry.lastStatus === null) entry.lastStatus = row.status;
-        if (row.completed_at !== null && (entry.lastCompletedAt === null || row.completed_at > entry.lastCompletedAt)) {
-          entry.lastCompletedAt = row.completed_at;
-        }
-        if (row.started_at !== null && (entry.lastStartedAt === null || row.started_at > entry.lastStartedAt)) {
-          entry.lastStartedAt = row.started_at;
-        }
-        byType.set(row.task_type, entry);
+          lastCompletedAt: row.last_completed_at,
+          lastStartedAt: row.last_started_at,
+          lastStatus: row.last_status,
+          totalJobs: row.total_jobs,
+          failedJobs: row.failed_jobs
+        });
       }
 
       // Ensure both task types are always returned (even when queue is empty)
@@ -272,27 +291,33 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
         SELECT id FROM amazon_collect_job_queue
         WHERE status = 'processing'
         ORDER BY id ASC
+        LIMIT 1000
       `).all() as Array<{ id: number }>;
 
       if (stuck.length === 0) return [];
 
       const now = nowIso();
-      const update = db.prepare(`
-        UPDATE amazon_collect_job_queue
-        SET status = 'failed', completed_at = ?, error_message = ?
-        WHERE id = ? AND status = 'processing'
-      `);
+      const ids = stuck.map((row) => row.id);
+      const placeholders = ids.map(() => "?").join(",");
 
-      const recovered: number[] = [];
+      // Single batch UPDATE replaces the per-row loop — within a transaction
+      // the SELECT/UPDATE is atomic, so every selected id transitions.
       withTransaction(db, () => {
-        for (const row of stuck) {
-          const result = update.run(now, reason, row.id);
-          if (result.changes > 0) {
-            recovered.push(row.id);
-          }
-        }
+        db.prepare(`
+          UPDATE amazon_collect_job_queue
+          SET status = 'failed', completed_at = ?, error_message = ?
+          WHERE id IN (${placeholders}) AND status = 'processing'
+        `).run(now, reason, ...ids);
       });
-      return recovered;
+
+      // Re-query which ids actually landed in 'failed' (defensive against
+      // a concurrent status change between SELECT and UPDATE).
+      const recoveredRows = db.prepare(`
+        SELECT id FROM amazon_collect_job_queue
+        WHERE id IN (${placeholders}) AND status = 'failed' AND completed_at = ? AND error_message = ?
+      `).all(...ids, now, reason) as Array<{ id: number }>;
+
+      return recoveredRows.map((row) => row.id);
     }
   };
 }

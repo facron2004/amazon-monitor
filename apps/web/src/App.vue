@@ -20,6 +20,7 @@ const {
   activeTab,
   sidebarOpen,
   date,
+  reportPeriod,
   loading,
   collecting,
   freshness,
@@ -38,6 +39,7 @@ const {
   categoryReport,
   periodInsightReport,
   loadPeriodInsightReport,
+  setReportPeriod,
   pendingAlerts,
   highAlerts,
   updateAlert,
@@ -194,6 +196,8 @@ const {
         :report="report"
         :category-report="categoryReport"
         :period-insight-report="periodInsightReport"
+        :period="reportPeriod"
+        @update:period="setReportPeriod"
         @request-ai-summary="loadPeriodInsightReport(true)"
       />
 

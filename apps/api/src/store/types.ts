@@ -46,7 +46,7 @@ export interface MonitorStore {
   markKeywordCollection(id: number, status: KeywordMonitor["todayStatus"]): void;
   deleteKeyword(id: number): void;
   getKeyword(id: number): KeywordMonitor | null;
-  listKeywords(): KeywordMonitor[];
+  listKeywords(filter?: { status?: "enabled" | "disabled" }): KeywordMonitor[];
   createCategoryMonitor(input: CategoryMonitorInput): CategoryMonitor;
   updateCategoryMonitor(id: number, input: Partial<CategoryMonitorInput>): CategoryMonitor;
   markCategoryCollection(id: number, status: CategoryMonitor["todayStatus"]): void;
@@ -107,7 +107,7 @@ export interface InsightEventStore {
   updateInsightEventStatus(id: string, status: InsightEvent["status"], reviewDueDate?: string | null): InsightEvent | null;
   updateInsightEventNote(id: string, note: string): InsightEvent | null;
   updateInsightEventAssignee(id: string, assignee: string | null): InsightEvent | null;
-  listReviewDueEvents(date: string): InsightEvent[];
+  listReviewDueEvents(date: string, params?: Omit<InsightEventListParams, "date">): InsightEvent[];
   claimReviewDueEvents(date: string, claimId: string, options?: { categoryId?: number; limit?: number }): InsightEvent[];
   releaseReviewClaim(claimId: string): void;
   markInsightEventReviewed(id: string, result: InsightReviewResult, note?: string | null, nextReviewDueDate?: string | null): InsightEvent | null;
