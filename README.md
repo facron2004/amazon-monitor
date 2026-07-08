@@ -1,48 +1,48 @@
 # Amazon 关键词竞品价格与排名监控系统
 
+> **v0.5.0** · [更新日志](CHANGELOG.md) · [v0.5.0 Release Notes](https://github.com/facron2004/amazon-monitor/releases/tag/v0.5.0) · 2026-07-08
+
 基于 PRD 落地的可运行系统：关键词配置、Amazon 搜索页真实采集、Category Best Sellers 采集、类目每日竞争情报首页、自营 SKU 经营中心、每日快照、竞品池、昨日对比、告警、任务、日报、采集日志和后台页面已经串成闭环。
 
-## AI Daily Operator Agent
+v0.5.0 引入 **AI Agent 矩阵**（4 个确定性 + 证据绑定 + approval-gated 的分析器）和 **自营 SKU 经营中心**（风险/机会评分、Listing Health、Ads Workflow、Review VOC、Inventory Replenishment、Profit Safety Line 六大支柱），完整对齐 PRD P0 经营闭环。
 
-- Adds `/api/ai/daily-brief` for generating the PRD "today's 5 things" brief from existing insight events, open workflow tasks, and owned SKU risk scores.
-- Persists every Agent run in `ai_runs` with input context, output JSON, model id, status, and error details.
-- The first implementation is deterministic and evidence-bound. It does not call an external LLM, does not invent missing fields, and never executes price, ads, listing, or inventory changes automatically.
-- Every recommended action is returned with `needs_human_approval: true`; low-confidence briefs are prevented from producing P0 actions.
+## AI Agent 矩阵（v0.5.0 核心）
 
-## Listing Health Inspection
+所有 Agent **当前实现都是确定性的**——不调用外部 LLM，不编造缺失字段，**永不执行自动写操作**。每次运行都持久化到 `ai_runs` 表（输入上下文 / 输出 JSON / model id / status / error），所有推荐动作均带 `needs_human_approval: true`。低置信度 brief 不会产出 P0 动作。
 
-- Adds Listing snapshots for owned SKUs through `/api/products/:id/listing-snapshots`.
-- Adds `/api/listing-health` with deterministic checks for title keyword coverage, title length/repetition, image coverage, bullet coverage, Review VOC reflection, and open Q&A gaps.
-- Adds `/api/ai/analyze-listing` as a deterministic Listing Optimizer Agent. It persists to `ai_runs` and only returns approval-gated recommendations.
-- Adds a `Listing Health` sidebar view for queue review, snapshot entry, issue inspection, and Agent recommendations.
+| Agent | 端点 | 数据源 | 核心用途 |
+|---|---|---|---|
+| **AI Daily Operator** | `POST /api/ai/daily-brief` | insight events + open tasks + SKU risk | PRD 要求的"今日 5 件事" |
+| **Listing Optimizer** | `POST /api/ai/analyze-listing` | listing snapshots | 标题/图片/bullet/Q&A 改进 |
+| **Ads Analyst** | `POST /api/ai/analyze-ads` | `ad_daily_metrics` | spend-waste / scale-opportunity 诊断 |
+| **Review VOC** | `POST /api/ai/analyze-review-voc` | `own_product_reviews` | topic clusters + 痛点聚合 |
 
-## Ads Workflow Diagnostics
+> 未来切换到 LLM 实现时，只需替换 `apps/api/src/services/*-agent-service.ts` 内部，**契约（`AiRecommendedAction` 类型 + `needs_human_approval` 字段）保持不变**——前端、其他服务、审计日志都不需要改。
 
-- Adds `ad_daily_metrics` for campaign, ad group, target/search term, spend, sales, ACOS, ROAS, CPC, CTR, CVR, and budget usage evidence.
-- Adds `/api/ads/metrics` and `/api/ads/summary` for manual Ads metric ingest and deterministic spend-waste / scale-opportunity diagnostics.
-- Adds `/api/ai/analyze-ads` as a deterministic Ads Analyst Agent. It persists to `ai_runs` and only returns approval-gated recommendations.
-- Adds an `Ads Workflow` sidebar view for campaign target review, metric entry, risk/scale inspection, and Agent recommendations.
+### AI Daily Operator 详解
 
-## Review VOC Diagnostics
+- 输入：今日 insight events、未关闭的 workflow tasks、SKU 当日 risk score
+- 输出：5 件事 brief，每件事包含 ASIN / brand / 关联事件 / 推荐动作 / confidence / priority
+- 风险控制：`needs_human_approval = true`（写操作绝不自动执行）
+- 审计：`ai_runs` 永久留存调用记录（model id、status、error、duration_ms）
 
-- Adds `own_product_reviews` for review text, rating, sentiment, topic tags, and freshness evidence.
-- Adds `/api/review-voc`, `/api/products/:id/reviews`, and `/api/products/:id/review-voc` for review ingest and 30-day VOC summaries.
-- Adds `/api/ai/analyze-review-voc` as a deterministic Review VOC Agent with approval-gated recommendations.
-- Adds a `Review VOC` sidebar view for SKU triage, topic clusters, recent review samples, and Agent recommendations.
+## 自营 SKU 经营中心
 
-## Inventory Replenishment
+把"我方商品"作为经营对象管理，先用手动录入 / 模拟指标跑通 PRD P0 经营闭环，后续对接 SP-API / Ads API / 库存 / 利润真实数据源。
 
-- Adds `product_inventory_settings` for SKU-level lead time, safety stock, target stock, MOQ, pack size, supplier, and reorder point evidence.
-- Adds `/api/inventory/plans`, `/api/products/:id/inventory-plan`, and `/api/products/:id/inventory-setting`.
-- Calculates deterministic stockout, reorder, overstock, and data-gap signals from owned SKU daily metrics.
-- Adds an `Inventory` sidebar view for replenishment triage, threshold editing, and approval-ready order quantity recommendations.
+| 支柱 | 数据表 | API | 侧边栏视图 | 评分维度 |
+|---|---|---|---|---|
+| **SKU 主数据** | `product_main` | `/api/products` | `ProductsView.vue` | — |
+| **日指标** | `product_daily_metrics` | `POST /api/products/:id/daily-metrics` | `ProductsView` | — |
+| **风险评分** | `product_risk_scores` | `/api/products/:id/risk` | `ProductsView` | 库存 / 销售下滑 / 广告异常 / 核心词排名 / 评分 / 关联事件 |
+| **机会评分** | `product_opportunity_scores` | `/api/products/:id/opportunity` | `ProductsView` | 销售增长 / BSR 提升 / 广告效率 / 关键词提升 / 竞品缺口 / Review 改善 |
+| **Listing Health** | `listing_snapshots` | `/api/listing-health` | `ListingHealthView.vue` | 6 项检查（关键词覆盖、长度、重复、图片、bullet、Q&A、Review 反射） |
+| **Ads Workflow** | `ad_daily_metrics` | `/api/ads/metrics` `/api/ads/summary` | `AdsView.vue` | ACOS / ROAS / CVR / 花费占比 / 预算使用率 |
+| **Review VOC** | `own_product_reviews` | `/api/review-voc` | `ReviewVocView.vue` | sentiment / topic tags / 30 天聚合 |
+| **Inventory** | `product_inventory_settings` | `/api/inventory/plans` | `InventoryView.vue` | stockout / reorder / overstock / data-gap |
+| **Profit Safety** | `product_profit_settings` | `/api/profit/plans` | `ProfitView.vue` | 4 种价格情景 + minimum-safe / target-margin 安全线 |
 
-## Profit Safety Line
-
-- Adds `product_profit_settings` for SKU-level purchase cost, freight, FBA fee, referral rate, storage, return loss, target margin, minimum margin, and Deal fee assumptions.
-- Adds `/api/profit/plans`, `/api/products/:id/profit-plan`, and `/api/products/:id/profit-setting`.
-- Calculates deterministic current, 10% Coupon, 15% Coupon, and Deal price scenarios, plus minimum-safe and target-margin price lines.
-- Adds a `Profit` sidebar view for margin-risk triage and cost assumption editing; it does not perform accounting or automatic repricing.
+**风险/机会评分的核心原则**：缺失数据**不编造结论**——该维度直接不计入总分，并标记 `data_gap: true`，让运营能立即看到"哪里没数据"。
 
 ## 环境要求
 
@@ -54,7 +54,7 @@
 
 ## 技术栈
 
-- `packages/shared`：TypeScript 领域模型与业务规则
+- `packages/shared`：TypeScript 领域模型与业务规则（28 个测试文件，~180 用例覆盖）
 - `apps/api`：Express 4 + Playwright + Node 内置 SQLite + Helmet + Zod + express-rate-limit，本地数据文件在 `data/amazon-monitor.sqlite`
 - `apps/web`：Vue 3 + Vite + Pinia + ECharts + @vueuse/core + @lucide/vue
 
@@ -86,13 +86,15 @@ npm run dev
 - **API 服务**：http://localhost:4000
 
 > 💡 **提示**：开发时使用 5188 端口，前端代码修改会自动热重载。生产环境或构建后使用 4000 端口。
+>
+> 💡 **Worker 独立进程**：`npm run dev:api` 不会自动启动 Worker（避免与采集命令抢占资源）。需要队列处理时另开一个终端 `npm run worker`。Worker 心跳会写 `amazon_worker_heartbeat` 表，UI 顶栏 "Worker 状态" 直接读这张表。
 
 ### 4. 首次使用
 
 系统不会自动写入演示数据。启动后：
 
 1. 在后台新增关键词或类目
-2. 点击”采集当前”或”采集全部”
+2. 点击"采集当前"或"采集全部"
 3. 后端会用 Playwright 打开 Amazon 采集真实数据
 
 ## 构建和部署
@@ -124,7 +126,7 @@ npm run dev              # 启动完整开发环境（API + Web）
 npm run dev:api          # 仅启动 API 服务
 npm run dev:web          # 仅启动 Web 开发服务器
 npm run build            # 构建生产版本
-npm run test             # 运行测试
+npm run test             # 运行全量测试（shared + api + web）
 ```
 
 ### CLI 采集命令
@@ -139,10 +141,11 @@ npm run worker           # 启动 Worker 处理队列任务
 ```
 
 > 💡 **提示**：CLI 命令适合服务器定时任务或快速测试采集功能。
+> Worker 崩溃时，下次启动会通过 `recoverStuckJobs` 自动回收卡在 `processing` 状态的 job，**生产环境建议用 systemd / pm2 守护以避免长时间离线**。
 
 ## 采集说明
 
-生产采集入口是 `apps/api/src/amazon-collector.ts` 的 `PlaywrightAmazonSearchCollector`：
+生产采集入口是 `apps/api/src/amazon/` 下的 Playwright 采集器：
 
 - 按关键词配置打开 Amazon 搜索结果页
 - 解析 ASIN、标题、图片、商品链接、搜索页价格、Coupon、Deal、评分、评论数、Sponsored、Prime、配送文案
@@ -181,6 +184,17 @@ $env:PLAYWRIGHT_HEADLESS="true"
 ```
 
 完整配置说明请参考 `.env.example`。
+
+## Worker 强化（v0.5.0）
+
+v0.5.0 把 Worker 的"超时可控"从"会终止任务"升级为"真的会终止"。
+
+- **可中断超时**：`runJobWithTimeout` 用 `Promise.race` + `AbortController`，20s 跑不完的采集会被**真正取消**——之前 `setTimeout(() => controller.abort(), …)` 只调 abort 不 reject 会被静默吞掉
+- **可注入 runner**：`runJobWithTimeout(store, job, timeoutMs, runner)` 接受自定义 runner，便于 `worker.test.ts` 用 20ms 假 runner 验证 abort 路径
+- **统一环境变量解析**：`intEnv(name, default, min, max)` 取代裸 `Number(process.env.…)`，所有 env 都有边界保护
+- **启动自动回收**：`recoverStuckJobs("Worker 进程重启，上一次未完成的任务被回收")` 在 Worker 启动时把卡在 `processing` 状态的 job 标 `failed`，避免队列永远不被消费
+- **心跳可观测**：每 5s 写 `amazon_worker_heartbeat`（workerId / pid / host / startedAt / version / lastJobId / lastStatus），UI 顶栏绿/红点直接读这张表
+- **多 lane 并行**：默认 2 个 lane 共享队列，每 lane 独立 `claimNextJob` + `AbortController`
 
 ## 通知发送配置
 
@@ -234,6 +248,16 @@ $env:AMAZON_BESTSELLER_STABLE_PASSES="4"
 - `AMAZON_COLLECT_CATEGORY_BLOCK_IMAGES`：阻止产品图片加载，开启后提速显著（图片 URL 仍从搜索结果页获取）
 - `AMAZON_COLLECT_CATEGORY_CONCURRENCY`：多个类目并行采集数（默认 2）
 
+### 类目采集数据质量分级（v0.5.0）
+
+`category-pipeline.ts` 把 TopN 完整度从"硬阈值"改为三档：
+
+- **ok**（≥95%）：完整快照，正常入库
+- **partial**（≥80%）：写入数据但记 `BsrSnapshotQuality.partial`，UI 显示 ⚠️ 提醒
+- **fail**（<80%）：标记失败，但**不**整批丢弃（之前 99/100 也全丢）
+
+这样运营既能立刻看到数据缺口，又不会因为 1% 失败丢失 99% 的有效数据。
+
 ## 类目每日竞争情报首页
 
 类目页会把最新 BSR 数据优先整理成每日战报，完整榜单仍保留在页面下方，适合先看异常和机会，再进入明细排查。
@@ -245,92 +269,148 @@ $env:AMAZON_BESTSELLER_STABLE_PASSES="4"
 - **新品黑马与价格活动雷达**：突出新进榜、快速上升、低评论高排名、价格新低、Coupon 和 Deal 信号，帮助定位需要跟进的商品。
 - **完整 BSR 榜单**：保留品牌、排名区间、关键词筛选和商品明细，商品信息列会限制文本宽度，避免覆盖品牌列。
 
-## 自营 SKU 经营中心
+## Identity / Auth（v0.5.0）
 
-自营 SKU 页面把我方商品作为经营对象管理，先通过手动录入或模拟指标跑通 PRD P0 的经营闭环，后续再接 SP-API、Ads API、库存和利润数据源。
+v0.5.0 补齐了之前缺失的认证层：
 
-- **SKU 主数据**：支持新增自营 SKU、ASIN、站点、品牌、标题、类目、负责人和数据新鲜度字段。
-- **日指标录入**：支持按日期写入销售额、订单数、库存天数、广告花费、ACOS、毛利率、BSR、核心词排名、评分和 Review 数。
-- **风险评分**：按库存风险、销售下滑、广告异常、核心词排名、评分/Review、关联事件压力加权计算，并返回每个维度的可解释原因。
-- **机会评分**：按销售增长、BSR 提升、广告效率、核心词排名提升、竞品缺口和 Review 改善加权计算，缺失数据不会编造结论。
-- **页面入口**：侧边栏“自营 SKU”视图展示 SKU 列表、当日经营 KPI、风险/机会评分、数据新鲜度和近期指标明细。
+- `identity-store.ts`：组织 / 用户 / session / 密码哈希（`PASSWORD_ALGO`）完整 store
+- `auth.ts` + `auth-service.ts`：`POST /api/auth/login`、`POST /api/auth/register`、`POST /api/auth/logout`、`GET /api/auth/me`
+- `useAuthGuard` composable：前端路由守卫
+- `AuthModal.vue`：登录 / 注册模态
+
+## 共享业务规则
+
+`packages/shared/` 是前后端共享的领域模型与业务规则层（**严格单向依赖**：shared ← api/web，不反向）：
+
+- 类型定义：`types.ts` / `types-products.ts` / `insight-events.ts` / `strategy-tags.ts`
+- 业务规则：`amazon-url.ts`（SSRF 防护 + 多市场域名白名单）、`strategy-tags.ts`（策略标签归一化）、`insight-events.ts`（事件去重 + 优先级）
+- 18+ 测试文件，~180 个测试用例
 
 ## 项目结构
 
 ```
 amazon-monitor/
-├── packages/shared/              # 共享类型和业务规则
+├── packages/shared/              # 共享类型和业务规则（前后端共享）
 ├── apps/
 │   ├── api/                      # 后端服务
 │   │   └── src/
-│   │       ├── index.ts          # 启动入口
-│   │       ├── cli.ts            # CLI 工具
-│   │       ├── worker.ts         # Worker 队列处理
-│   │       ├── server.ts         # Express API
-│   │       ├── store.ts          # Store 接口组合
-│   │       ├── store/            # Store 模块化实现
-│   │       │   ├── types.ts      # 10 个子接口定义
-│   │       │   ├── sql-utils.ts  # SQL 工具函数
-│   │       │   ├── db.ts         # 数据库初始化 + Schema 迁移
-│   │       │   ├── migration-utils.ts  # 迁移工具 + 版本追踪
+│   │       ├── index.ts          # 启动入口（含 cron + 可选 RUN_WORKER）
+│   │       ├── cli.ts            # CLI 工具（collect / collect:keyword / collect:category）
+│   │       ├── worker.ts         # Worker 队列处理（v0.5.0 可中断超时 + stuck job 回收）
+│   │       ├── worker.test.ts    # Worker 单元测试（abort 路径 +20ms 假 runner）
+│   │       ├── server.ts         # Express API（含 auth / helmet / rate-limit）
+│   │       ├── store.ts          # Store 接口组合（10+ 子接口）
+│   │       ├── store/            # Store 模块化实现（v0.5.0 新增 10+ 文件）
+│   │       │   ├── types.ts          # 10 个子接口定义
+│   │       │   ├── sql-utils.ts      # SQL 工具函数（含 withTransaction SAVEPOINT 嵌套安全）
+│   │       │   ├── db.ts             # 数据库初始化 + Schema 迁移
+│   │       │   ├── migration-utils.ts # 迁移工具 + 版本追踪
 │   │       │   ├── bsr-store.ts
 │   │       │   ├── category-snapshot-store.ts
 │   │       │   ├── category-insight-store.ts
 │   │       │   ├── category-price-store.ts
 │   │       │   ├── keyword-snapshot-store.ts
-│   │       │   ├── product-store.ts
-│   │       │   ├── monitor-store.ts
-│   │       │   ├── operational-store.ts
-│   │       │   ├── notification-store.ts
-│   │       │   ├── queue-store.ts
+│   │       │   ├── product-store.ts          # ★ v0.5.0 自营 SKU 主数据
+│   │       │   ├── inventory-store.ts        # ★ v0.5.0 库存
+│   │       │   ├── listing-health-store.ts   # ★ v0.5.0 Listing
+│   │       │   ├── ads-store.ts              # ★ v0.5.0 Ads
+│   │       │   ├── profit-store.ts           # ★ v0.5.0 利润
+│   │       │   ├── review-voc-store.ts       # ★ v0.5.0 Review VOC
+│   │       │   ├── sop-store.ts              # ★ v0.5.0 SOP
+│   │       │   ├── task-store.ts             # ★ v0.5.0 任务
+│   │       │   ├── identity-store.ts         # ★ v0.5.0 认证
+│   │       │   ├── ai-run-store.ts           # ★ v0.5.0 AI Agent 审计
 │   │       │   └── ...
-│   │       ├── routes/           # API 路由（按领域组织）
-│   │       │   ├── categories.ts
-│   │       │   ├── keywords.ts
-│   │       │   ├── competitors.ts
-│   │       │   ├── insights.ts
-│   │       │   ├── operations.ts
-│   │       │   └── notifications.ts
-│   │       ├── amazon/           # 采集引擎
-│   │       │   ├── parsers/      # 多市场解析器
-│   │       │   ├── page-guards.ts    # CAPTCHA/封锁检测
-│   │       │   ├── retry.ts          # 重试策略
-│   │       │   ├── browser.ts        # Playwright 浏览器管理
-│   │       │   ├── context.ts        # 浏览器上下文（时区/语言）
-│   │       │   ├── config.ts         # 采集配置
+│   │       ├── store/schema/      # ★ v0.5.0 按领域拆分的 schema
+│   │       │   ├── ads-schema.ts / ai-schema.ts / category-schema.ts
+│   │       │   ├── identity-schema.ts / insight-schema.ts / inventory-schema.ts
+│   │       │   ├── keyword-schema.ts / metadata-schema.ts / monitor-schema.ts
+│   │       │   ├── notification-schema.ts / operational-schema.ts / product-schema.ts
+│   │       │   ├── profit-schema.ts / queue-schema.ts / review-voc-schema.ts
+│   │       │   ├── worker-schema.ts / workflow-schema.ts
+│   │       ├── services/          # ★ v0.5.0 业务服务层（路由 ↔ store 之间）
+│   │       │   ├── ai-agent-service.ts         # AI Daily Operator
+│   │       │   ├── ads-agent-service.ts        # Ads Analyst
+│   │       │   ├── ads-workflow-service.ts
+│   │       │   ├── auth-service.ts
+│   │       │   ├── inventory-planning-service.ts
+│   │       │   ├── listing-health-service.ts
+│   │       │   ├── profit-planning-service.ts
+│   │       │   ├── review-voc-agent-service.ts
+│   │       │   ├── review-voc-service.ts
+│   │       │   ├── sop-service.ts / task-service.ts
+│   │       ├── routes/            # API 路由（v0.5.0 新增 10+ 文件）
+│   │       │   ├── categories.ts / keywords.ts / competitors.ts
+│   │       │   ├── insights.ts / operations.ts / notifications.ts
+│   │       │   ├── reports.ts / validation.ts / http-utils.ts
+│   │       │   ├── products.ts / inventory.ts / listing-health.ts / ads.ts
+│   │       │   ├── review-voc.ts / profit.ts / sops.ts / tasks.ts
+│   │       │   ├── auth.ts / ai.ts / brand-playbooks.ts / insight-events.ts
+│   │       ├── amazon/            # 采集引擎
+│   │       │   ├── parsers/           # 多市场解析器
+│   │       │   ├── page-guards.ts     # CAPTCHA/封锁检测
+│   │       │   ├── retry.ts           # 重试策略
+│   │       │   ├── browser.ts         # Playwright 浏览器管理
+│   │       │   ├── context.ts         # 浏览器上下文（时区/语言）
+│   │       │   ├── config.ts          # 采集配置（含 intEnv 边界保护）
+│   │       │   ├── abort.ts           # ★ v0.5.0 AbortController 辅助
 │   │       │   └── ...
-│   │       ├── pipeline.ts           # 关键词采集流程
-│   │       ├── category-pipeline.ts  # 类目采集流程
-│   │       ├── notifier.ts           # 通知推送
-│   │       ├── excel-report.ts       # Excel 报告
-│   │       └── scheduler.ts          # 定时任务
+│   │       ├── insights/          # 洞察引擎（事件生成、评分、回顾）
+│   │       │   ├── insight-event-generator.ts
+│   │       │   ├── insight-event-builder.ts
+│   │       │   ├── scoring-engine.ts
+│   │       │   ├── brand-playbook.ts
+│   │       │   ├── review-scheduler.ts / review-evaluator.ts
+│   │       │   └── attribution-engine.ts
+│   │       ├── pipeline.ts            # 关键词采集流程
+│   │       ├── category-pipeline.ts   # 类目采集流程（含数据质量分级）
+│   │       ├── notifier.ts            # 通知推送
+│   │       ├── excel-report.ts        # Excel 报告
+│   │       ├── reports/               # 报告生成
+│   │       └── scheduler.ts           # 定时任务
 │   └── web/                      # 前端界面
 │       └── src/
 │           ├── App.vue           # 主应用
 │           ├── stores/           # Pinia 状态管理
-│           │   ├── category.ts
-│           │   ├── keyword.ts
-│           │   ├── competitor.ts
-│           │   ├── alert.ts
-│           │   └── dashboard.ts
+│           │   ├── category.ts / keyword.ts / competitor.ts
+│           │   ├── alert.ts / dashboard.ts
+│           │   ├── insightEvents.ts
+│           │   └── ...
 │           ├── composables/      # 业务逻辑组合
 │           │   ├── useAppController.ts
 │           │   ├── useAppViewEffects.ts
 │           │   ├── app-view-loader.ts   # TTL 视图缓存
 │           │   ├── useKeywords.ts
 │           │   ├── useCategoryIntelligence.ts
+│           │   ├── useCategoryDailyBriefing.ts
+│           │   ├── useCompetitors.ts
+│           │   ├── useAuthGuard.ts
+│           │   ├── collect-jobs.ts
 │           │   └── ...
 │           ├── components/       # Vue 组件
-│           │   ├── ProductsView.vue           # 自营 SKU 经营中心（风险/机会评分 + 指标录入）
-│           │   ├── CategoriesView.vue         # 类目情报页（header + KPI + 三栏 + 洞察 + 榜单）
-│           │   ├── categories/                # 类目情报页的子组件
-│           │   │   ├── CategoryHeader.vue     # 类目下拉 + 日期 + 采集 + 管理模态
-│           │   │   ├── CategoryKpiCards.vue   # 4 个 KPI（异动/活动/风险/Review 增长）
-│           │   │   ├── CategoryLanePanel.vue  # Movers/Promotions/Fading 三栏
-│           │   │   └── CategoryInsightStrip.vue # 其他信号洞察行
-│           │   ├── CategoryBoardPanel.vue     # 完整 BSR 榜单（含 ICE TYPE/Deal-Coupon 筛选与分页）
+│           │   ├── ProductsView.vue           # 自营 SKU 经营中心
+│           │   ├── ListingHealthView.vue      # ★ v0.5.0 Listing
+│           │   ├── AdsView.vue                # ★ v0.5.0 Ads
+│           │   ├── ReviewVocView.vue          # ★ v0.5.0 Review VOC
+│           │   ├── InventoryView.vue          # ★ v0.5.0 库存
+│           │   ├── ProfitView.vue             # ★ v0.5.0 利润
+│           │   ├── CategoriesView.vue         # 类目情报
+│           │   ├── categories/                # 类目情报页子组件
+│           │   │   ├── CategoryHeader.vue
+│           │   │   ├── CategoryKpiCards.vue
+│           │   │   ├── CategoryLanePanel.vue
+│           │   │   ├── CategoryInsightStrip.vue
+│           │   │   └── ProductDetailDrawer.vue
+│           │   ├── CategoryBoardPanel.vue     # 完整 BSR 榜单
+│           │   ├── action-center/             # 行动中心全套组件
+│           │   │   ├── ActionCenterPanel.vue / ActionCenterRow.vue
+│           │   │   ├── ActionCenterKpiCards.vue / ActionCenterColumn.vue
+│           │   │   ├── BrandPlaybookCard.vue / AsinGroupCard.vue
+│           │   │   ├── PriceTimelineCard.vue / InsightEventDrawer.vue
+│           │   │   └── ...
+│           │   ├── reports/                   # 报告视图
 │           │   └── ...
-│           ├── utils/            # 工具函数
+│           ├── utils/            # 工具函数（actionCenter / reportChart 等）
 │           └── api-*.ts          # API 客户端（按领域拆分）
 ├── data/                         # 数据目录
 │   └── amazon-monitor.sqlite     # SQLite 数据库
@@ -348,36 +428,41 @@ amazon-monitor/
 
 ### 后端
 
-- **Store 模块化**：数据库层拆分为 10 个领域子接口（MonitorStore、BsrStore、CategorySnapshotStore 等），每个子接口对应独立实现文件
+- **Store 模块化**：数据库层拆分为 10+ 个领域子接口（MonitorStore、BsrStore、CategorySnapshotStore、ProductStore、AdsStore、InventoryStore、ListingHealthStore、ProfitStore、ReviewVocStore、IdentityStore、AiRunStore 等），每个子接口对应独立实现文件
+- **Schema 按领域拆分**（v0.5.0）：`store/schema/*-schema.ts` 取代单一 `schema.ts`，新增 schema 不再需要改集中文件
+- **Service 层**（v0.5.0）：`services/` 把业务编排（评分、Agent 决策、计划生成）从 routes 中抽出来，routes 只负责 HTTP / 校验 / 鉴权
 - **事务安全**：`withTransaction` 使用 SAVEPOINT 实现嵌套安全，Pipeline 写入操作包裹在 `runInTransaction()` 中
 - **分页支持**：所有 list API 支持 `limit`（上界 1000）和 `offset` 参数
-- **安全加固**：Helmet 安全头、express-rate-limit 速率限制、Zod 输入验证、CORS 配置
-- **Worker 队列**：claim/retry/fail 状态机，支持多 lane 并行处理采集任务（默认 2 并发）
-- **Schema 版本追踪**：`SCHEMA_VERSION` 常量 + `runStoreMigrationOnce` 按 key 追踪迁移
-- **自营 SKU 评分**：`ProductStore` 将 SKU 主数据、日指标、风险评分、机会评分和数据新鲜度统一封装，前端不重复业务规则
+- **安全加固**：Helmet 安全头、express-rate-limit 速率限制、Zod 输入验证、CORS 配置、Amazon URL 域名白名单（`isAllowedAmazonHost`）
+- **Worker 队列**：claim/retry/fail 状态机，支持多 lane 并行处理采集任务（默认 2 并发），启动时自动回收 stuck job
+- **AI Agent 审计**：所有 Agent 调用的输入 / 输出 / model / status 永久写入 `ai_runs` 表
 
 ### 前端
 
-- **Pinia 状态管理**：7 个领域 store，组件通过 `storeToRefs` 直接消费数据，消除多层 props drilling
+- **Pinia 状态管理**：10+ 个领域 store，组件通过 `storeToRefs` 直接消费数据，消除多层 props drilling
 - **Per-domain Loading**：8 个独立的 tab loading 状态 + 采集状态，切换 tab 不再误禁用采集按钮
 - **视图缓存**：30 秒 TTL 缓存避免重复 API 请求
 - **Watch 防抖**：`@vueuse/core` 的 `watchDebounced` 防止快速切换触发请求风暴
 - **组件按需加载**：View 级组件使用 `defineAsyncComponent`，ECharts 按需引入
 - **类目情报首页**：`CategoriesView` 复用 Pinia 类目数据 + `useCategoryDailyBriefing` 派生 KPI、三栏（事件分桶 Movers/Promotions/Fading）、其他信号洞察、BSR 榜单筛选与分页，不新增后端接口
 - **自营 SKU 页面**：`ProductsView` 通过 `useProductStore` 消费 `/api/products`，展示经营指标、风险/机会评分和指标录入弹窗
+- **行动中心**：`action-center/` 子目录下 ~18 个组件，覆盖事件队列、ASIN 分组、Brand Playbook、价格时间线、归属引擎、回顾节奏、信号流等
 - **右侧详情抽屉**：`CategoryDailyBriefingDrawer` 支持 event/brand/opportunity 三种模式，ASIN 与品牌卡片在当前页展开详情
 - **BSR 表格筛选**：客户端筛选（品牌 / ICE TYPE / Deal-Coupon / 排名窗口）+ 文本搜索；筛选变更时自动 reset `bsrTablePage = 1`
+- **Auth 守卫**：`useAuthGuard` composable 路由级鉴权，未登录自动弹出 `AuthModal`
 
 ### 测试覆盖
 
-35 个测试文件，333 个测试用例，覆盖：
+**78 个测试文件 / 572 个测试用例，CI 全绿 ~16s**：
 
-- 共享包：18+ 文件（类型验证、业务规则、集成测试）
-- 后端 Store：队列状态机、SQL 工具
-- 采集引擎：浏览器管理、上下文配置、代理池、品牌质量
-- 页面守卫：CAPTCHA 检测、重试策略（95 个测试）
-- 解析器：多市场价格/货币/评分格式（60 个测试）
-- 端到端流程：关键词 pipeline、类目 intelligence、API 路由
+- 共享包：8 文件 / 39 用例（类型验证、业务规则、集成测试）
+- 后端 API：42 文件 / 387 用例
+  - Store：队列状态机、SQL 工具、identity、ai_runs、stuck job 回收
+  - 采集引擎：浏览器管理、上下文配置、代理池、品牌质量、abort 路径
+  - 解析器：多市场价格/货币/评分格式
+  - 端到端：关键词 pipeline、类目 intelligence、API 路由（含 v0.5.0 的 products/inventory/listing-health/ads/review-voc/profit/sops/tasks/auth/ai）
+  - Worker：`runJobWithTimeout` 在 20ms 超时下必抛 `AbortError`，且 runner 必收到 abort 信号
+- 前端 Web：28 文件 / 146 用例
 
 ## 故障排查
 
@@ -388,6 +473,11 @@ amazon-monitor/
 - Amazon 返回验证码（需要调整采集频率或 IP）
 - 网络超时（增加 `AMAZON_COLLECT_TIMEOUT_MS`）
 - 页面结构变化（需要更新选择器）
+
+### Worker 离线
+
+- 检查 `/api/collect/worker-status`：`alive: false` 时说明 Worker 进程已挂
+- 启动后会自动 `recoverStuckJobs` 回收卡住的 job，**生产环境建议用 systemd / pm2 守护**
 
 ### 性能优化
 
@@ -407,11 +497,24 @@ amazon-monitor/
 
 可使用任何 SQLite 客户端查看，建议定期备份 `data` 目录。
 
+## 发布流程
+
+仓库遵循 [Keep a Changelog](https://keepachangelog.com/) + [Semantic Versioning](https://semver.org/)：
+
+1. `package.json`（根 / `apps/api` / `apps/web` / `packages/shared`）同步 bump
+2. `apps/web` / `apps/api` 里 `@amazon-monitor/shared` 的版本字符串同步更新
+3. `apps/web/src/constants/version.ts` → `VERSION_RELEASE_DATE`
+4. `CHANGELOG.md` 顶部追加新版本小节
+5. `npm run test` 全绿后 commit + push
+6. `gh release create vX.Y.Z --notes-file CHANGELOG.md` 生成 GitHub Release
+
+完整 ADR 见 `docs/adr/`。
+
 ## 更多文档
 
 - [CLAUDE.md](CLAUDE.md) - AI 编码助手项目上下文
 - [AGENTS.md](AGENTS.md) - AI Agent 工作手册和编码约定
-- [更新日志](CHANGELOG.md) - 版本变更记录（Keep a Changelog 格式）
+- [CHANGELOG.md](CHANGELOG.md) - 版本变更记录（Keep a Changelog 格式）
 - [架构决策](docs/adr/) - 关键设计选择的 ADR 记录
 - [环境变量配置](.env.example) - 完整的配置选项说明
 - [历史归档](docs/archive/) - 审计报告、重构进展、优化总结等历史快照
