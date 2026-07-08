@@ -1,5 +1,10 @@
 import type {
+  AdDailyMetric,
+  AdsMetricListFilter,
+  AdsWorkflowSummary,
   AlertLog,
+  AiRun,
+  AiRunListFilter,
   AsinWatchState,
   AsinWatchStateInput,
   BestsellerRankSnapshot,
@@ -19,21 +24,59 @@ import type {
   CompetitorFolder,
   CompetitorPoolItem,
   CompetitorTier,
+  CreateAiRunInput,
+  CreateSopInput,
+  CreateTaskInput,
   DailyChange,
   DashboardSummary,
   InsightEvent,
   InsightEventInput,
   InsightEventListParams,
+  InsightEventNote,
+  InsightEventTaskLink,
   InsightReviewResult,
+  InventoryPlanListFilter,
+  InventoryReplenishmentPlan,
+  InventoryReplenishmentSetting,
   KeywordMonitor,
   KeywordMonitorInput,
+  ListingHealthListFilter,
   NotificationSchedule,
   NotificationScheduleInput,
   NotificationSendLog,
+  Organization,
+  CreateOwnedProductInput,
   ProductActivityCalendar,
   ProductLink,
+  ProductListingHealthItem,
+  ProductListingSnapshot,
   ProductPriceHistory,
-  SerpSnapshot
+  ProductProfitPlan,
+  ProductProfitPlanFilter,
+  ProductProfitSetting,
+  ProductReview,
+  OwnedProduct,
+  OwnedProductDailyMetric,
+  OwnedProductDetail,
+  OwnedProductListItem,
+  OwnedProductStatus,
+  ProductScore,
+  ReviewVocListFilter,
+  ReviewVocSummary,
+  SerpSnapshot,
+  Session,
+  Sop,
+  Task,
+  TaskNote,
+  UpdateOwnedProductInput,
+  UpsertAdDailyMetricInput,
+  UpsertInventoryReplenishmentSettingInput,
+  UpsertProductReviewInput,
+  UpsertProductListingSnapshotInput,
+  UpsertOwnedProductDailyMetricInput,
+  UpsertProductProfitSettingInput,
+  User,
+  UserRole
 } from "@amazon-monitor/shared";
 
 export type { CollectJob } from "@amazon-monitor/shared";
@@ -58,21 +101,21 @@ export interface MonitorStore {
 export interface CategorySnapshotStore {
   deleteCategorySnapshotsForDate(categoryId: number, date: string): void;
   insertCategorySnapshots(items: BestsellerRankSnapshot[]): void;
-  listCategorySnapshots(filter?: { date?: string; categoryId?: number; asin?: string; limit?: number; offset?: number }): BestsellerRankSnapshot[];
+  listCategorySnapshots(filter?: { date?: string; categoryId?: number; asin?: string; brand?: string; startDate?: string; endDate?: string; limit?: number; offset?: number }): BestsellerRankSnapshot[];
   getPreviousCategorySnapshots(categoryId: number, beforeDate: string): BestsellerRankSnapshot[];
   upsertProductMasterFromCategorySnapshots(items: BestsellerRankSnapshot[]): void;
   upsertCompetitorsFromCategorySnapshots(items: BestsellerRankSnapshot[], activityEvents?: CompetitorActivityEvent[]): void;
   replaceBrandMatrix(categoryId: number, date: string, items: BrandMatrixSnapshot[]): void;
-  listBrandMatrix(filter?: { date?: string; categoryId?: number }): BrandMatrixSnapshot[];
+  listBrandMatrix(filter?: { date?: string; categoryId?: number; brand?: string; startDate?: string; endDate?: string; limit?: number }): BrandMatrixSnapshot[];
   replaceCategorySignals(categoryId: number, date: string, items: CategorySignalLog[]): void;
   listCategorySignals(filter?: { date?: string; categoryId?: number; limit?: number; offset?: number }): CategorySignalLog[];
   replaceProductPriceHistoryForDate(categoryId: number, date: string, items: BestsellerRankSnapshot[]): void;
   listProductPriceHistory(filter?: {
-    date?: string; categoryId?: number; asin?: string; marketplace?: string; limit?: number; offset?: number;
+    date?: string; categoryId?: number; asin?: string; marketplace?: string; brand?: string; startDate?: string; endDate?: string; limit?: number; offset?: number;
   }): ProductPriceHistory[];
   replaceCategoryActivityEvents(categoryId: number, date: string, items: CompetitorActivityEvent[]): void;
   listCategoryActivityEvents(filter?: {
-    date?: string; categoryId?: number; asin?: string; brand?: string; eventType?: string; limit?: number; offset?: number;
+    date?: string; categoryId?: number; asin?: string; brand?: string; eventType?: string; startDate?: string; endDate?: string; limit?: number; offset?: number;
   }): CompetitorActivityEvent[];
   saveCategoryReport(date: string, categoryId: number, markdown: string): void;
   getCategoryReport(date: string, categoryId?: number): string;
@@ -103,6 +146,7 @@ export interface InsightEventStore {
   listInsightEvents(params?: InsightEventListParams): InsightEvent[];
   listTopInsights(date: string, limit?: number): InsightEvent[];
   getInsightEvent(id: string): InsightEvent | null;
+  listInsightEventNotes(eventId: string): InsightEventNote[];
   upsertInsightEvent(event: InsightEventInput): InsightEvent;
   updateInsightEventStatus(id: string, status: InsightEvent["status"], reviewDueDate?: string | null): InsightEvent | null;
   updateInsightEventNote(id: string, note: string): InsightEvent | null;
@@ -220,6 +264,149 @@ export interface ProductActivityStore {
   // Methods are spread into Store via createProductActivityStore
 }
 
+export interface ProductStore {
+  createProduct(input: CreateOwnedProductInput): OwnedProduct;
+  updateProduct(id: number, input: UpdateOwnedProductInput): OwnedProduct;
+  getProduct(id: number): OwnedProduct | null;
+  getProductDetail(id: number, date?: string): OwnedProductDetail | null;
+  listProducts(filter?: {
+    orgId?: number;
+    status?: OwnedProductStatus;
+    marketplace?: string;
+    brand?: string;
+    q?: string;
+    date?: string;
+    limit?: number;
+    offset?: number;
+  }): OwnedProductListItem[];
+  upsertProductDailyMetric(input: UpsertOwnedProductDailyMetricInput): OwnedProductDailyMetric;
+  listProductDailyMetrics(productId: number, filter?: {
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  }): OwnedProductDailyMetric[];
+  getProductRiskScore(id: number, date?: string): ProductScore | null;
+  getProductOpportunityScore(id: number, date?: string): ProductScore | null;
+}
+
+export interface AiRunStore {
+  createAiRun(input: CreateAiRunInput): AiRun;
+  getAiRun(id: number): AiRun | null;
+  listAiRuns(filter?: AiRunListFilter): AiRun[];
+}
+
+export interface ListingHealthStore {
+  upsertProductListingSnapshot(input: UpsertProductListingSnapshotInput): ProductListingSnapshot;
+  getProductListingHealth(productId: number, date?: string): ProductListingHealthItem | null;
+  listProductListingHealth(filter?: ListingHealthListFilter): ProductListingHealthItem[];
+}
+
+export interface AdsStore {
+  upsertAdDailyMetric(input: UpsertAdDailyMetricInput): AdDailyMetric;
+  listAdDailyMetrics(filter?: AdsMetricListFilter): AdDailyMetric[];
+  getAdsWorkflowSummary(filter?: AdsMetricListFilter): AdsWorkflowSummary;
+}
+
+export interface ReviewVocStore {
+  upsertProductReview(input: UpsertProductReviewInput): ProductReview;
+  listProductReviews(filter?: ReviewVocListFilter): ProductReview[];
+  getReviewVocSummary(productId: number, filter?: ReviewVocListFilter): ReviewVocSummary | null;
+  listReviewVocSummaries(filter?: ReviewVocListFilter): ReviewVocSummary[];
+}
+
+export interface InventoryStore {
+  upsertInventorySetting(input: UpsertInventoryReplenishmentSettingInput): InventoryReplenishmentSetting;
+  getInventorySetting(productId: number): InventoryReplenishmentSetting | null;
+  getInventoryPlan(productId: number, filter?: InventoryPlanListFilter): InventoryReplenishmentPlan | null;
+  listInventoryPlans(filter?: InventoryPlanListFilter): InventoryReplenishmentPlan[];
+}
+
+export interface ProfitStore {
+  upsertProfitSetting(input: UpsertProductProfitSettingInput): ProductProfitSetting;
+  getProfitSetting(productId: number): ProductProfitSetting | null;
+  getProfitPlan(productId: number, filter?: ProductProfitPlanFilter): ProductProfitPlan | null;
+  listProfitPlans(filter?: ProductProfitPlanFilter): ProductProfitPlan[];
+}
+
+export interface TaskStore {
+  createTask(input: Omit<CreateTaskInput, "taskType"> & { taskType: Task["taskType"] }): Task;
+  updateTask(id: number, input: Partial<{
+    title: string;
+    description: string;
+    priority: Task["priority"];
+    status: Task["status"];
+    assigneeId: number | null;
+    dueDate: string | null;
+    actionTaken: string | null;
+    resultBeforeJson: string | null;
+    resultAfterJson: string | null;
+    reviewNote: string | null;
+    reviewResult: Task["reviewResult"] | null;
+  }>): Task;
+  getTask(id: number): Task | null;
+  listTasks(filter?: {
+    status?: Task["status"];
+    statusIn?: Task["status"][];
+    assigneeId?: number;
+    relatedAsin?: string;
+    priority?: Task["priority"];
+    limit?: number;
+    offset?: number;
+  }): Task[];
+  addTaskNote(input: { taskId: number; authorId?: number | null; body: string }): TaskNote;
+  listTaskNotes(taskId: number): TaskNote[];
+  transitionTaskStatus(id: number, nextStatus: Task["status"]): Task | null;
+  linkEventToTask(eventId: string, taskId: number): InsightEventTaskLink;
+  listTasksForEvent(eventId: string): Task[];
+  listEventsForTask(taskId: number): InsightEventTaskLink[];
+}
+
+export interface SopStore {
+  createSop(input: CreateSopInput): Sop;
+  updateSop(id: number, input: Partial<{
+    title: string;
+    bodyMd: string;
+    category: Sop["category"];
+    status: Sop["status"];
+    tags: string[];
+  }>): Sop;
+  getSop(id: number): Sop | null;
+  listSops(filter?: { status?: Sop["status"]; category?: Sop["category"]; q?: string; limit?: number; offset?: number }): Sop[];
+  publishSop(id: number): Sop;
+  archiveSop(id: number): Sop;
+}
+
+export interface IdentityStore {
+  createOrganization(input: { name: string; plan?: string }): Organization;
+  listOrganizations(): Organization[];
+  getOrganization(id: number): Organization | null;
+  createUser(input: {
+    orgId: number;
+    username: string;
+    password: string;
+    role: UserRole;
+    displayName?: string | null;
+    email?: string | null;
+    passwordAlgo?: string;
+  }): User;
+  replaceBootstrapAdmin(input: {
+    userId: number;
+    username: string;
+    password: string;
+    displayName?: string | null;
+    email?: string | null;
+  }): User;
+  listUsers(): User[];
+  getUserByUsername(username: string): User | null;
+  verifyUserCredentials(username: string, password: string): User | null;
+  recordUserLogin(userId: number): void;
+  createSession(input: { userId: number; expiresAt: string; ip?: string | null; userAgent?: string | null }): { token: string; session: Session };
+  findSessionByToken(token: string): Session | null;
+  revokeSession(sessionId: string): void;
+  purgeExpiredSessions(): number;
+}
+
 export interface Store extends
   MonitorStore,
   CategorySnapshotStore,
@@ -232,7 +419,17 @@ export interface Store extends
   DashboardStore,
   QueueStore,
   WorkerStore,
-  ProductActivityStore {
+  ProductActivityStore,
+  ProductStore,
+  AiRunStore,
+  ListingHealthStore,
+  AdsStore,
+  ReviewVocStore,
+  InventoryStore,
+  ProfitStore,
+  TaskStore,
+  SopStore,
+  IdentityStore {
   reset(): void;
   runInTransaction(work: () => void): void;
   getCategoryDetail(categoryId: number, date: string): {

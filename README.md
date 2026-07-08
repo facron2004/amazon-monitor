@@ -1,6 +1,48 @@
 # Amazon 关键词竞品价格与排名监控系统
 
-基于 PRD 落地的可运行系统：关键词配置、Amazon 搜索页真实采集、Category Best Sellers 采集、类目每日竞争情报首页、每日快照、竞品池、昨日对比、告警、日报、采集日志和后台页面已经串成闭环。
+基于 PRD 落地的可运行系统：关键词配置、Amazon 搜索页真实采集、Category Best Sellers 采集、类目每日竞争情报首页、自营 SKU 经营中心、每日快照、竞品池、昨日对比、告警、任务、日报、采集日志和后台页面已经串成闭环。
+
+## AI Daily Operator Agent
+
+- Adds `/api/ai/daily-brief` for generating the PRD "today's 5 things" brief from existing insight events, open workflow tasks, and owned SKU risk scores.
+- Persists every Agent run in `ai_runs` with input context, output JSON, model id, status, and error details.
+- The first implementation is deterministic and evidence-bound. It does not call an external LLM, does not invent missing fields, and never executes price, ads, listing, or inventory changes automatically.
+- Every recommended action is returned with `needs_human_approval: true`; low-confidence briefs are prevented from producing P0 actions.
+
+## Listing Health Inspection
+
+- Adds Listing snapshots for owned SKUs through `/api/products/:id/listing-snapshots`.
+- Adds `/api/listing-health` with deterministic checks for title keyword coverage, title length/repetition, image coverage, bullet coverage, Review VOC reflection, and open Q&A gaps.
+- Adds `/api/ai/analyze-listing` as a deterministic Listing Optimizer Agent. It persists to `ai_runs` and only returns approval-gated recommendations.
+- Adds a `Listing Health` sidebar view for queue review, snapshot entry, issue inspection, and Agent recommendations.
+
+## Ads Workflow Diagnostics
+
+- Adds `ad_daily_metrics` for campaign, ad group, target/search term, spend, sales, ACOS, ROAS, CPC, CTR, CVR, and budget usage evidence.
+- Adds `/api/ads/metrics` and `/api/ads/summary` for manual Ads metric ingest and deterministic spend-waste / scale-opportunity diagnostics.
+- Adds `/api/ai/analyze-ads` as a deterministic Ads Analyst Agent. It persists to `ai_runs` and only returns approval-gated recommendations.
+- Adds an `Ads Workflow` sidebar view for campaign target review, metric entry, risk/scale inspection, and Agent recommendations.
+
+## Review VOC Diagnostics
+
+- Adds `own_product_reviews` for review text, rating, sentiment, topic tags, and freshness evidence.
+- Adds `/api/review-voc`, `/api/products/:id/reviews`, and `/api/products/:id/review-voc` for review ingest and 30-day VOC summaries.
+- Adds `/api/ai/analyze-review-voc` as a deterministic Review VOC Agent with approval-gated recommendations.
+- Adds a `Review VOC` sidebar view for SKU triage, topic clusters, recent review samples, and Agent recommendations.
+
+## Inventory Replenishment
+
+- Adds `product_inventory_settings` for SKU-level lead time, safety stock, target stock, MOQ, pack size, supplier, and reorder point evidence.
+- Adds `/api/inventory/plans`, `/api/products/:id/inventory-plan`, and `/api/products/:id/inventory-setting`.
+- Calculates deterministic stockout, reorder, overstock, and data-gap signals from owned SKU daily metrics.
+- Adds an `Inventory` sidebar view for replenishment triage, threshold editing, and approval-ready order quantity recommendations.
+
+## Profit Safety Line
+
+- Adds `product_profit_settings` for SKU-level purchase cost, freight, FBA fee, referral rate, storage, return loss, target margin, minimum margin, and Deal fee assumptions.
+- Adds `/api/profit/plans`, `/api/products/:id/profit-plan`, and `/api/products/:id/profit-setting`.
+- Calculates deterministic current, 10% Coupon, 15% Coupon, and Deal price scenarios, plus minimum-safe and target-margin price lines.
+- Adds a `Profit` sidebar view for margin-risk triage and cost assumption editing; it does not perform accounting or automatic repricing.
 
 ## 环境要求
 
@@ -203,6 +245,16 @@ $env:AMAZON_BESTSELLER_STABLE_PASSES="4"
 - **新品黑马与价格活动雷达**：突出新进榜、快速上升、低评论高排名、价格新低、Coupon 和 Deal 信号，帮助定位需要跟进的商品。
 - **完整 BSR 榜单**：保留品牌、排名区间、关键词筛选和商品明细，商品信息列会限制文本宽度，避免覆盖品牌列。
 
+## 自营 SKU 经营中心
+
+自营 SKU 页面把我方商品作为经营对象管理，先通过手动录入或模拟指标跑通 PRD P0 的经营闭环，后续再接 SP-API、Ads API、库存和利润数据源。
+
+- **SKU 主数据**：支持新增自营 SKU、ASIN、站点、品牌、标题、类目、负责人和数据新鲜度字段。
+- **日指标录入**：支持按日期写入销售额、订单数、库存天数、广告花费、ACOS、毛利率、BSR、核心词排名、评分和 Review 数。
+- **风险评分**：按库存风险、销售下滑、广告异常、核心词排名、评分/Review、关联事件压力加权计算，并返回每个维度的可解释原因。
+- **机会评分**：按销售增长、BSR 提升、广告效率、核心词排名提升、竞品缺口和 Review 改善加权计算，缺失数据不会编造结论。
+- **页面入口**：侧边栏“自营 SKU”视图展示 SKU 列表、当日经营 KPI、风险/机会评分、数据新鲜度和近期指标明细。
+
 ## 项目结构
 
 ```
@@ -226,6 +278,7 @@ amazon-monitor/
 │   │       │   ├── category-insight-store.ts
 │   │       │   ├── category-price-store.ts
 │   │       │   ├── keyword-snapshot-store.ts
+│   │       │   ├── product-store.ts
 │   │       │   ├── monitor-store.ts
 │   │       │   ├── operational-store.ts
 │   │       │   ├── notification-store.ts
@@ -268,6 +321,7 @@ amazon-monitor/
 │           │   ├── useCategoryIntelligence.ts
 │           │   └── ...
 │           ├── components/       # Vue 组件
+│           │   ├── ProductsView.vue           # 自营 SKU 经营中心（风险/机会评分 + 指标录入）
 │           │   ├── CategoriesView.vue         # 类目情报页（header + KPI + 三栏 + 洞察 + 榜单）
 │           │   ├── categories/                # 类目情报页的子组件
 │           │   │   ├── CategoryHeader.vue     # 类目下拉 + 日期 + 采集 + 管理模态
@@ -300,6 +354,7 @@ amazon-monitor/
 - **安全加固**：Helmet 安全头、express-rate-limit 速率限制、Zod 输入验证、CORS 配置
 - **Worker 队列**：claim/retry/fail 状态机，支持多 lane 并行处理采集任务（默认 2 并发）
 - **Schema 版本追踪**：`SCHEMA_VERSION` 常量 + `runStoreMigrationOnce` 按 key 追踪迁移
+- **自营 SKU 评分**：`ProductStore` 将 SKU 主数据、日指标、风险评分、机会评分和数据新鲜度统一封装，前端不重复业务规则
 
 ### 前端
 
@@ -309,6 +364,7 @@ amazon-monitor/
 - **Watch 防抖**：`@vueuse/core` 的 `watchDebounced` 防止快速切换触发请求风暴
 - **组件按需加载**：View 级组件使用 `defineAsyncComponent`，ECharts 按需引入
 - **类目情报首页**：`CategoriesView` 复用 Pinia 类目数据 + `useCategoryDailyBriefing` 派生 KPI、三栏（事件分桶 Movers/Promotions/Fading）、其他信号洞察、BSR 榜单筛选与分页，不新增后端接口
+- **自营 SKU 页面**：`ProductsView` 通过 `useProductStore` 消费 `/api/products`，展示经营指标、风险/机会评分和指标录入弹窗
 - **右侧详情抽屉**：`CategoryDailyBriefingDrawer` 支持 event/brand/opportunity 三种模式，ASIN 与品牌卡片在当前页展开详情
 - **BSR 表格筛选**：客户端筛选（品牌 / ICE TYPE / Deal-Coupon / 排名窗口）+ 文本搜索；筛选变更时自动 reset `bsrTablePage = 1`
 

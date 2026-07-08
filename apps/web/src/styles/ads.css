@@ -1,0 +1,188 @@
+.ads-toolbar {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+.ads-toolbar__actions,
+.ads-detail-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ads-metrics {
+  flex: 0 0 auto;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.ads-error {
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ads-layout {
+  display: grid;
+  flex: 1;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ads-list-panel,
+.ads-detail-panel {
+  min-height: 0;
+}
+
+.ads-table-wrap table {
+  min-width: 860px;
+}
+
+.ads-table-wrap tbody tr {
+  cursor: pointer;
+}
+
+.ads-table-wrap tbody tr.selected {
+  background: #eef2ff;
+}
+
+.ads-campaign-cell {
+  display: grid;
+  gap: 3px;
+  max-width: 360px;
+}
+
+.ads-campaign-cell strong,
+.ads-detail-grid strong,
+.agent-output strong {
+  color: var(--text-primary);
+}
+
+.ads-campaign-cell span,
+.ads-campaign-cell small,
+.ads-section p,
+.ads-section small,
+.ads-detail-grid span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ads-campaign-cell strong,
+.ads-campaign-cell span,
+.ads-campaign-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ads-detail-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ads-detail-grid div {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.ads-detail-grid strong {
+  font-size: 18px;
+}
+
+.ads-section {
+  border-bottom: 1px solid var(--border-color);
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 0 0 14px;
+}
+
+.ads-section h3 {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.ads-insight {
+  align-items: flex-start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.ads-insight p,
+.agent-output p {
+  margin: 2px 0;
+}
+
+.ads-ok {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  color: #166534;
+  font-size: 12px;
+  padding: 10px;
+}
+
+.agent-output {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.agent-output ol {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agent-output li {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.agent-output li > span {
+  background: #0f766e;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 7px;
+  text-align: center;
+}
+
+.ads-metric-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+  .ads-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .ads-metrics {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+}

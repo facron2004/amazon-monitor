@@ -1,4 +1,4 @@
-const baseUrl = import.meta.env.VITE_API_BASE?.trim() || "/api";
+const baseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE?.trim() || "/api");
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface RequestOptions extends RequestInit {
@@ -8,9 +8,39 @@ export interface RequestOptions extends RequestInit {
   timeoutMs?: number;
 }
 
-export async function request<T>(path: string, init?: RequestOptions): Promise<T> {
-  const token = localStorage.getItem("amazon_monitor_auth_token");
+function normalizeBaseUrl(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
 
+export function buildRequestUrl(path: string, base = baseUrl): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  const normalizedBase = normalizeBaseUrl(base);
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (!normalizedBase) {
+    return normalizedPath;
+  }
+  if (normalizedBase.endsWith("/api") && normalizedPath.startsWith("/api/")) {
+    return `${normalizedBase}${normalizedPath.slice("/api".length)}`;
+  }
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function resolveAuthHeaders(init?: RequestOptions): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const legacyToken = localStorage.getItem("amazon_monitor_auth_token");
+    if (legacyToken) {
+      headers.Authorization = `Bearer ${legacyToken}`;
+    }
+  } catch {
+    // ignore
+  }
+  return headers;
+}
+
+export async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   // Build a timeout-aware AbortSignal
   const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -27,19 +57,25 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
   }
 
   try {
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(buildRequestUrl(path), {
       ...init,
+      credentials: init?.credentials ?? "include",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...resolveAuthHeaders(init),
         ...(init?.headers ?? {})
       }
     });
 
     if (!response.ok) {
       if (response.status === 401) {
-        localStorage.removeItem("amazon_monitor_auth_token");
+        try {
+          localStorage.removeItem("amazon_monitor_auth_token");
+          localStorage.removeItem("amazon_monitor_session");
+        } catch {
+          // ignore
+        }
         window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
       }
       const error = await response.json().catch(() => ({ message: response.statusText }));

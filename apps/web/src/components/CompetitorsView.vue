@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CompetitorFolder, CompetitorPoolItem, ProductActivityCalendar } from "@amazon-monitor/shared";
+import type { AsinWatchLevel, AsinWatchState, CompetitorFolder, CompetitorPoolItem, ProductActivityCalendar } from "@amazon-monitor/shared";
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "../constants/competitors";
 import type { CompetitorInsightSuggestion, CompetitorKpi } from "../utils/competitor-pool";
 import CompetitorActivityCalendarPanel from "./CompetitorActivityCalendarPanel.vue";
@@ -15,6 +15,8 @@ interface Props {
   competitorQuery: string;
   competitorSourceFilter: CompetitorSourceFilter;
   competitorTierFilter: CompetitorTierFilter;
+  watchStates: AsinWatchState[];
+  watchStateUpdatingAsin: string | null;
   selectedCompetitorKeywordId: number | null;
   selectedCompetitor: CompetitorPoolItem | null;
   productActivityCalendar: ProductActivityCalendar | null;
@@ -30,6 +32,7 @@ interface Emits {
   (e: "open-competitor-drawer", item: CompetitorPoolItem): void;
   (e: "close-competitor-drawer"): void;
   (e: "toggle-key-competitor", item: CompetitorPoolItem): void;
+  (e: "set-watch-state", item: CompetitorPoolItem, level: AsinWatchLevel): void;
   (e: "open-product-activity-calendar", item: CompetitorPoolItem): void;
   (e: "open-amazon", item: CompetitorPoolItem): void;
 }
@@ -53,6 +56,8 @@ const emit = defineEmits<Emits>();
           :competitor-query="competitorQuery"
           :competitor-source-filter="competitorSourceFilter"
           :competitor-tier-filter="competitorTierFilter"
+          :watch-states="watchStates"
+          :watch-state-updating-asin="watchStateUpdatingAsin"
           :selected-competitor-keyword-id="selectedCompetitorKeywordId"
           :selected-competitor="selectedCompetitor"
           @update:competitor-query="emit('update:competitor-query', $event)"
@@ -61,6 +66,7 @@ const emit = defineEmits<Emits>();
           @select-competitor-folder="emit('select-competitor-folder', $event)"
           @open-competitor-drawer="emit('open-competitor-drawer', $event)"
           @toggle-key-competitor="emit('toggle-key-competitor', $event)"
+          @set-watch-state="(item, level) => emit('set-watch-state', item, level)"
           @open-product-activity-calendar="emit('open-product-activity-calendar', $event)"
           @open-amazon="emit('open-amazon', $event)"
         />
@@ -72,8 +78,11 @@ const emit = defineEmits<Emits>();
 
     <CompetitorDrawerPanel
       :selected-competitor="selectedCompetitor"
+      :watch-states="watchStates"
+      :watch-state-updating-asin="watchStateUpdatingAsin"
       @close-competitor-drawer="emit('close-competitor-drawer')"
       @toggle-key-competitor="emit('toggle-key-competitor', $event)"
+      @set-watch-state="(item, level) => emit('set-watch-state', item, level)"
       @open-product-activity-calendar="emit('open-product-activity-calendar', $event)"
       @open-amazon="emit('open-amazon', $event)"
     />

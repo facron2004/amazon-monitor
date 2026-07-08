@@ -1,4 +1,5 @@
 import type { BestSellerProductInput, CategoryMonitor } from "@amazon-monitor/shared";
+import { abortableDelay, abortableWait, type AbortableCollectOptions, throwIfAborted } from "./abort.js";
 import { closeBrowser, installCategoryResourceBlocker, launchAmazonBrowser, waitForNetworkIdleIfEnabled } from "./browser.js";
 import {
   bestSellerExtraPages,
@@ -22,10 +23,15 @@ import { buildBestSellerPageUrl } from "./urls.js";
 export class PlaywrightAmazonBestSellerCollector {
   private readonly detailCache = new Map<string, BestSellerDetailCacheValue>();
 
-  async collect(category: CategoryMonitor, date: string): Promise<CollectedBestSellerPage[]> {
+  async collect(category: CategoryMonitor, date: string, options: AbortableCollectOptions = {}): Promise<CollectedBestSellerPage[]> {
     const browser = await launchAmazonBrowser();
+    const abortBrowser = () => {
+      void closeBrowser(browser);
+    };
+    options.signal?.addEventListener("abort", abortBrowser, { once: true });
 
     try {
+      throwIfAborted(options.signal);
       const context = await createBestSellerContext(browser, category.marketplace);
 
       const page = await context.newPage();
@@ -37,6 +43,7 @@ export class PlaywrightAmazonBestSellerCollector {
       let collected = 0;
 
       for (let pageNo = 1; pageNo <= maxPageCount && collected < category.crawlTopN; pageNo += 1) {
+        throwIfAborted(options.signal);
         const url = buildBestSellerPageUrl(category.categoryUrl, pageNo);
         let inRange: BestSellerProductInput[] = [];
         let newInRange: BestSellerProductInput[] = [];
@@ -46,12 +53,13 @@ export class PlaywrightAmazonBestSellerCollector {
 
         for (let attempt = 1; attempt <= categoryRetryCount(); attempt += 1) {
           try {
+            throwIfAborted(options.signal);
             await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs() });
             await waitForNetworkIdleIfEnabled(page, timeoutMs());
             await assertCategoryNotBlocked(page, category, pageNo, date);
             await waitForBestSellerCards(page, category, pageNo, date);
             const expectedOnPage = Math.min(bestSellerPageSize(), category.crawlTopN - collected);
-            const products = await extractBestSellerCardsWithScroll(page, category, pageNo, date, expectedOnPage);
+            const products = await extractBestSellerCardsWithScroll(page, category, pageNo, date, expectedOnPage, options);
             inRange = products.filter((product) => product.rank <= category.crawlTopN);
             newInRange = inRange.filter((product) => !seenAsins.has(product.asin));
             if (newInRange.length === 0) {
@@ -78,7 +86,7 @@ export class PlaywrightAmazonBestSellerCollector {
               throw error;
             }
             retryCount += 1;
-            await page.waitForTimeout(searchRetryDelayMs() * attempt);
+            await abortableDelay(searchRetryDelayMs() * attempt, options.signal);
             await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => undefined);
           }
         }
@@ -93,17 +101,19 @@ export class PlaywrightAmazonBestSellerCollector {
         pages.push({ pageNo, products: newInRange, url: loadedUrl, retryCount });
 
         if (pageNo < maxPageCount && collected < category.crawlTopN) {
-          await page.waitForTimeout(pageDelayMs());
+          await abortableWait(page.waitForTimeout(pageDelayMs()), options.signal);
         }
       }
 
       for (const collectedPage of pages) {
-        collectedPage.products = await collectMissingBestSellerDetails(context, category, collectedPage.products, collectedPage.pageNo, date, this.detailCache);
+        throwIfAborted(options.signal);
+        collectedPage.products = await collectMissingBestSellerDetails(context, category, collectedPage.products, collectedPage.pageNo, date, this.detailCache, options);
       }
-      await recoverMissingCriticalMetricsInFreshContext(category, pages, date, browser);
+      await recoverMissingCriticalMetricsInFreshContext(category, pages, date, browser, options);
 
       return pages;
     } finally {
+      options.signal?.removeEventListener("abort", abortBrowser);
       await closeBrowser(browser);
     }
   }

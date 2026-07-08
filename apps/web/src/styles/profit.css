@@ -1,0 +1,169 @@
+.profit-toolbar {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+.profit-toolbar__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.profit-metrics {
+  flex: 0 0 auto;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.profit-error {
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.profit-layout {
+  display: grid;
+  flex: 1;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(370px, 0.85fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.profit-list-panel,
+.profit-detail-panel {
+  min-height: 0;
+}
+
+.profit-table-wrap table {
+  min-width: 940px;
+}
+
+.profit-table-wrap tbody tr {
+  cursor: pointer;
+}
+
+.profit-table-wrap tbody tr.selected {
+  background: #eef2ff;
+}
+
+.profit-product-cell {
+  display: grid;
+  gap: 3px;
+  max-width: 380px;
+}
+
+.profit-product-cell strong,
+.profit-detail-grid strong,
+.profit-scenario-grid strong,
+.profit-costs strong {
+  color: var(--text-primary);
+}
+
+.profit-product-cell span,
+.profit-product-cell small,
+.profit-table-wrap small,
+.profit-detail-grid span,
+.profit-section p,
+.profit-section small,
+.profit-costs span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.profit-product-cell strong,
+.profit-product-cell span,
+.profit-product-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profit-table-wrap td strong {
+  display: block;
+}
+
+.profit-detail-grid,
+.profit-scenario-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profit-detail-grid div,
+.profit-scenario-grid article {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.profit-detail-grid strong {
+  font-size: 18px;
+}
+
+.profit-section {
+  border-bottom: 1px solid var(--border-color);
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 0 0 14px;
+}
+
+.profit-section h3 {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.profit-costs {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 130px minmax(0, 1fr);
+}
+
+.profit-issue {
+  align-items: flex-start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.profit-issue p {
+  margin: 2px 0;
+}
+
+.profit-ok {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  color: #166534;
+  font-size: 12px;
+  padding: 10px;
+}
+
+.profit-setting-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+  .profit-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .profit-metrics {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { BrainCircuit, CalendarDays, RefreshCw, Sparkles, Target } from "@lucide/vue";
+import { BrainCircuit, CalendarDays, Download, RefreshCw, Sparkles, Target } from "@lucide/vue";
 import {
   ElAlert,
   ElButton,
@@ -19,9 +19,18 @@ import {
   ElTimelineItem,
   ElTooltip
 } from "element-plus";
+import {
+  insightEventTypeLabels,
+  strategyTagLabels,
+  type InsightEvent,
+  type StrategyTag
+} from "@amazon-monitor/shared";
 import type { CategoryReportResponse, DailyReportResponse, InsightReportPeriod, PeriodInsightReportResponse } from "../api-types";
-import type { InsightEvent } from "@amazon-monitor/shared";
+import { downloadDailyReportExcel } from "../api-dashboard";
+import { toErrorMessage } from "../utils/error-message";
 import ReportChartsPanel from "./reports/ReportChartsPanel.vue";
+import ReportReviewOutcomePanel from "./reports/ReportReviewOutcomePanel.vue";
+import ReportReviewQueuePanel from "./reports/ReportReviewQueuePanel.vue";
 
 type ReportPane = "insight" | "ai" | "daily" | "category";
 type SegmentValue = string | number | boolean;
@@ -46,15 +55,17 @@ const emit = defineEmits<{
 }>();
 
 const activePane = ref<ReportPane>("insight");
+const downloadingExcel = ref(false);
+const excelDownloadError = ref("");
 const periodOptions: Array<{ value: InsightReportPeriod; label: string }> = [
-  { value: "weekly", label: "Weekly" },
-  { value: "monthly", label: "Monthly" }
+  { value: "weekly", label: "按周" },
+  { value: "monthly", label: "按月" }
 ];
 const paneOptions: Array<{ value: ReportPane; label: string }> = [
-  { value: "insight", label: "Insight" },
-  { value: "ai", label: "AI summary" },
-  { value: "daily", label: "Daily" },
-  { value: "category", label: "Category" }
+  { value: "insight", label: "洞察" },
+  { value: "ai", label: "AI 摘要" },
+  { value: "daily", label: "日报" },
+  { value: "category", label: "类目" }
 ];
 
 const aiSummary = computed(() => props.periodInsightReport?.aiSummary ?? null);
@@ -63,7 +74,8 @@ const reportWindow = computed(() => {
   const report = props.periodInsightReport;
   return report ? `${report.startDate} - ${report.endDate}` : props.report?.date ?? "-";
 });
-const reportLabel = computed(() => (props.period === "monthly" ? "Monthly" : "Weekly"));
+const dailyReportDate = computed(() => props.report?.date ?? props.periodInsightReport?.endDate ?? "");
+const reportLabel = computed(() => (props.period === "monthly" ? "月度" : "周度"));
 const summary = computed(() => props.periodInsightReport?.summary ?? null);
 const topEvents = computed(() => props.periodInsightReport?.topEvents.slice(0, 6) ?? []);
 const topBrands = computed(() => props.periodInsightReport?.topBrands.slice(0, 8) ?? []);
@@ -71,68 +83,81 @@ const maxBrandEvents = computed(() => Math.max(...topBrands.value.map((brand) =>
 
 const kpis = computed<KpiItem[]>(() => [
   {
-    label: "Insight events",
+    label: "洞察事件",
     value: summary.value?.totalEvents ?? 0,
-    detail: `${reportLabel.value.toLowerCase()} signal volume`
+    detail: `${reportLabel.value}信号量`
   },
   {
-    label: "S / A signals",
+    label: "S/A 级信号",
     value: summary.value?.sLevelCount ?? 0,
-    detail: `${summary.value?.aLevelCount ?? 0} A-level opportunities`
+    detail: `${summary.value?.aLevelCount ?? 0} 个 A 级机会`
   },
   {
-    label: "Core risks",
+    label: "核心风险",
     value: summary.value?.coreRiskCount ?? 0,
-    detail: `${summary.value?.newBreakoutCount ?? 0} breakout events`
+    detail: `${summary.value?.newBreakoutCount ?? 0} 个突破事件`
   },
   {
-    label: "Review loop",
+    label: "待复盘",
     value: summary.value?.reviewDueCount ?? 0,
-    detail: `${summary.value?.reviewedCount ?? 0} reviewed, overdue ${summary.value?.overdueReviewDueCount ?? 0}`
+    detail: `已复盘 ${summary.value?.reviewedCount ?? 0}，逾期 ${summary.value?.overdueReviewDueCount ?? 0}`
   }
 ]);
 
 const markdown = computed(() => {
   if (activePane.value === "ai") {
-    return aiSummary.value?.text ?? aiSummary.value?.error ?? "AI summary has not been generated for this report.";
+    return aiSummary.value?.text ?? aiSummary.value?.error ?? "尚未为本报告生成 AI 摘要。";
   }
   if (activePane.value === "daily") {
-    return props.report?.markdown ?? "No daily keyword report is available.";
+    return props.report?.markdown ?? "暂无关键词日报。";
   }
   if (activePane.value === "category") {
-    return props.categoryReport?.markdown ?? "No category report is available.";
+    return props.categoryReport?.markdown ?? "暂无类目报告。";
   }
-  return props.periodInsightReport?.markdown ?? `No ${props.period} insight report is available.`;
+  return props.periodInsightReport?.markdown ?? `暂无${props.period === "monthly" ? "月" : "周"}度洞察报告。`;
 });
 
 const aiStatus = computed(() => {
   if (aiSummary.value?.status === "generated") {
     return {
       type: "success" as const,
-      title: `AI summary generated with ${aiSummary.value.model}`
+      title: `AI 摘要已生成（${aiSummary.value.model}）`
     };
   }
   if (aiSummary.value?.status === "failed") {
     return {
       type: "error" as const,
-      title: `AI summary failed: ${aiSummary.value.error}`
+      title: `AI 摘要生成失败：${aiSummary.value.error}`
     };
   }
   if (aiSummary.value?.status === "disabled") {
     return {
       type: "info" as const,
-      title: `AI summary disabled: ${aiSummary.value.error}`
+      title: `AI 摘要已禁用：${aiSummary.value.error}`
     };
   }
   return {
     type: "info" as const,
-    title: "AI summary has not been requested."
+    title: "尚未请求 AI 摘要。"
   };
 });
 
 function requestAiSummary(): void {
   emit("requestAiSummary");
   activePane.value = "ai";
+}
+
+async function downloadExcel(): Promise<void> {
+  if (!dailyReportDate.value) return;
+  downloadingExcel.value = true;
+  excelDownloadError.value = "";
+  try {
+    await downloadDailyReportExcel(dailyReportDate.value);
+  } catch (error) {
+    excelDownloadError.value = toErrorMessage(error);
+  } finally {
+    downloadingExcel.value = false;
+  }
 }
 
 function selectPeriod(value: SegmentValue): void {
@@ -155,14 +180,18 @@ function levelTagType(event: InsightEvent): "danger" | "warning" | "info" {
 function brandShare(value: number): number {
   return percentage(value, maxBrandEvents.value);
 }
+
+function strategyLabel(tag: StrategyTag): string {
+  return strategyTagLabels[tag];
+}
 </script>
 
 <template>
   <section class="reports-view">
     <header class="reports-head">
       <div>
-        <span>Reports</span>
-        <h2>Insight report workbench</h2>
+        <span>报告</span>
+        <h2>洞察报告工作台</h2>
       </div>
       <div class="reports-head-actions">
         <ElSegmented
@@ -175,8 +204,24 @@ function brandShare(value: number): number {
           <CalendarDays :size="14" />
           <strong>{{ reportWindow }}</strong>
         </ElTag>
+        <ElButton
+          :loading="downloadingExcel"
+          :disabled="!dailyReportDate"
+          @click="downloadExcel"
+        >
+          <Download :size="15" />
+          <span>下载 Excel</span>
+        </ElButton>
       </div>
     </header>
+
+    <ElAlert
+      v-if="excelDownloadError"
+      :title="excelDownloadError"
+      type="error"
+      show-icon
+      @close="excelDownloadError = ''"
+    />
 
     <ElRow :gutter="12" class="report-kpis">
       <ElCol v-for="item in kpis" :key="item.label" :xs="24" :sm="12" :lg="6">
@@ -193,7 +238,7 @@ function brandShare(value: number): number {
           <template #header>
             <div class="panel-title">
               <Target :size="16" />
-              <span>Priority feed</span>
+              <span>优先级</span>
               <ElTag size="small" type="danger" effect="light">{{ topEvents.length }}</ElTag>
             </div>
           </template>
@@ -209,9 +254,9 @@ function brandShare(value: number): number {
               <div class="event-feed-item">
                 <div>
                   <ElTag size="small" :type="levelTagType(event)" effect="dark">{{ event.eventLevel }}</ElTag>
-                  <strong>{{ event.brand || event.asin || "Unknown target" }}</strong>
+                  <strong>{{ event.brand || event.asin || "未知对象" }}</strong>
                 </div>
-                <p>{{ event.eventType }}</p>
+                <p>{{ insightEventTypeLabels[event.eventType] }}</p>
                 <ElTooltip :content="event.eventTitle" placement="top" :show-after="350">
                   <small>{{ event.eventTitle }}</small>
                 </ElTooltip>
@@ -219,20 +264,20 @@ function brandShare(value: number): number {
               </div>
             </ElTimelineItem>
           </ElTimeline>
-          <ElEmpty v-else description="No event evidence for this period." :image-size="72" />
+          <ElEmpty v-else description="本期暂无事件证据。" :image-size="72" />
         </ElCard>
 
         <ElCard shadow="never" class="report-card">
           <template #header>
             <div class="panel-title">
               <Sparkles :size="16" />
-              <span>Brand signal board</span>
+              <span>品牌信号榜</span>
             </div>
           </template>
 
           <ElTable v-if="topBrands.length" :data="topBrands" size="small" class="brand-table" height="286">
-            <ElTableColumn prop="brand" label="Brand" min-width="118" show-overflow-tooltip />
-            <ElTableColumn label="Events" width="112">
+            <ElTableColumn prop="brand" label="品牌" min-width="118" show-overflow-tooltip />
+            <ElTableColumn label="事件" width="112">
               <template #default="{ row }">
                 <div class="brand-events">
                   <strong>{{ row.eventCount }}</strong>
@@ -240,12 +285,38 @@ function brandShare(value: number): number {
                 </div>
               </template>
             </ElTableColumn>
-            <ElTableColumn label="Top" width="64">
+            <ElTableColumn label="最高分" width="64">
               <template #default="{ row }">{{ row.topScore }}</template>
             </ElTableColumn>
+            <ElTableColumn label="策略标签" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                <div class="strategy-tags">
+                  <ElTag
+                    v-for="tag in row.strategyTags.slice(0, 2)"
+                    :key="tag"
+                    size="small"
+                    effect="plain"
+                    round
+                  >
+                    {{ strategyLabel(tag) }}
+                  </ElTag>
+                  <ElTag v-if="row.strategyTags.length > 2" size="small" effect="plain" round>
+                    +{{ row.strategyTags.length - 2 }}
+                  </ElTag>
+                  <span v-if="row.strategyTags.length === 0">-</span>
+                </div>
+              </template>
+            </ElTableColumn>
           </ElTable>
-          <ElEmpty v-else description="No brand signal evidence for this period." :image-size="72" />
+          <ElEmpty v-else description="本期暂无品牌信号证据。" :image-size="72" />
         </ElCard>
+
+        <ReportReviewQueuePanel
+          :events="periodInsightReport?.reviewDueEvents ?? []"
+          :current-date="periodInsightReport?.endDate ?? dailyReportDate"
+        />
+
+        <ReportReviewOutcomePanel :events="periodInsightReport?.reviewedEvents ?? []" />
       </aside>
 
       <main class="report-main">
@@ -257,7 +328,7 @@ function brandShare(value: number): number {
               <ElSegmented v-model="activePane" :options="paneOptions" />
               <ElButton type="primary" :disabled="!periodInsightReport" @click="requestAiSummary">
                 <RefreshCw :size="15" />
-                <span>{{ hasAiSummaryText ? "Refresh AI" : "Generate AI" }}</span>
+                <span>{{ hasAiSummaryText ? "刷新 AI" : "生成 AI" }}</span>
               </ElButton>
             </div>
           </template>
@@ -319,6 +390,12 @@ function brandShare(value: number): number {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.reports-head-actions :deep(.el-button span) {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
 }
 
 .window-tag {
@@ -437,6 +514,18 @@ function brandShare(value: number): number {
   font-size: 12px;
 }
 
+.strategy-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.strategy-tags span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 .report-reader-card {
   display: flex;
   flex-direction: column;
@@ -509,10 +598,10 @@ function brandShare(value: number): number {
   }
 
   .window-tag,
+  .reports-head-actions :deep(.el-button),
   .reports-head-actions :deep(.el-segmented) {
     justify-content: center;
     width: 100%;
   }
-
 }
 </style>

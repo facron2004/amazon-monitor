@@ -14,6 +14,7 @@ import type {
   ProductPriceHistory
 } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
+import { isoDateOffset } from "../store/date-utils.js";
 import { inferAttribution, type AttributionInput } from "./attribution-engine.js";
 import {
   buildInsightEvent,
@@ -35,6 +36,8 @@ export interface CategoryInsightContext {
   snapshotsByAsin: Map<string, BestsellerRankSnapshot>;
   priceByAsin: Map<string, ProductPriceHistory>;
   brandByName: Map<string, BrandMatrixSnapshot>;
+  brandTop100ShareChangeByName: Map<string, number>;
+  coreCompetitorRising3DaysByAsin: Set<string>;
   competitorsByAsin: Map<string, CompetitorPoolItem>;
   watchByAsin: Map<string, AsinWatchState>;
   medianReviewChange: number | null;
@@ -68,6 +71,8 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
       limit: 1000
     });
     const brandMatrix = store.listBrandMatrix({ date, categoryId: category.id });
+    const previousSnapshots = store.getPreviousCategorySnapshots(category.id, date);
+    const recentSnapshots = store.listCategorySnapshots({ categoryId: category.id, startDate: isoDateOffset(date, -2), endDate: date });
     const categorySignals = store.listCategorySignals({ date, categoryId: category.id, limit: 1000 });
     const context: CategoryInsightContext = {
       category,
@@ -75,6 +80,8 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
       snapshotsByAsin: new Map(snapshots.map((item) => [item.asin, item])),
       priceByAsin: new Map(priceHistory.map((item) => [item.asin, item])),
       brandByName: new Map(brandMatrix.map((item) => [item.brand, item])),
+      brandTop100ShareChangeByName: buildBrandTop100ShareChanges(snapshots, previousSnapshots),
+      coreCompetitorRising3DaysByAsin: buildThreeDayRisingAsins(recentSnapshots, date),
       competitorsByAsin,
       watchByAsin,
       medianReviewChange: medianPositiveReviewChange(priceHistory)
@@ -89,7 +96,7 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
 
     for (const change of rankChanges) {
       const insight = insightFromRankChange(context, change);
-      if (insight) {
+      if (insight && !generated.has(insight.id)) {
         generated.set(insight.id, insight);
       }
     }
@@ -183,7 +190,7 @@ function insightFromActivityEvent(context: CategoryInsightContext, event: Compet
     couponAfter: event.couponAfter,
     dealType: event.dealType,
     priceLowWindow,
-    attributionTags: attribution.tags,
+    attributionTags: attributionTagsForSource(event.eventType, attribution.tags),
     evidenceItems: attribution.evidenceItems,
     suggestedAction: event.suggestedAction,
     brand,
@@ -192,14 +199,22 @@ function insightFromActivityEvent(context: CategoryInsightContext, event: Compet
 }
 
 function insightFromRankChange(context: CategoryInsightContext, change: BsrRankChange): InsightEventInput | null {
-  if (change.changeType !== "dropped" && !(change.changeType === "rank_down" && (change.rankChange ?? 0) <= -20)) {
+  const rankChange = change.rankChange ?? 0;
+  const isRankSurge = change.changeType === "rank_up" && rankChange >= 20;
+  const isRankDrop = change.changeType === "rank_down" && rankChange <= -20;
+  if (change.changeType !== "dropped" && !isRankDrop && !isRankSurge) {
     return null;
   }
   const snapshot = context.snapshotsByAsin.get(change.asin) ?? null;
   const price = context.priceByAsin.get(change.asin) ?? null;
   const brand = change.brand ? context.brandByName.get(change.brand) ?? null : null;
   const competitor = context.competitorsByAsin.get(change.asin) ?? null;
-  const eventType: InsightEventType = change.changeType === "dropped" ? "DROPPED_FROM_TOP100" : "RANK_DROP";
+  const eventType: InsightEventType = change.changeType === "dropped" ? "DROPPED_FROM_TOP100" : isRankSurge ? "RANK_SURGE" : "RANK_DROP";
+  const suggestedAction = change.changeType === "dropped"
+    ? "复盘该 ASIN 跌出 Top100 的价格、活动和品牌位变化。"
+    : isRankSurge
+      ? "检查同日价格、Coupon、Deal、Review 和关键词排名信号，并观察未来 3 天排名路径。"
+      : "检查是否由活动结束、价格变化或竞品上攻导致排名下滑。";
   const attribution = inferAttribution(buildAttributionInput(context, {
     currentRank: change.currentRank,
     previousRank: change.previousRank,
@@ -238,7 +253,7 @@ function insightFromRankChange(context: CategoryInsightContext, change: BsrRankC
     priceLowWindow: null,
     attributionTags: attribution.tags,
     evidenceItems: attribution.evidenceItems,
-    suggestedAction: change.changeType === "dropped" ? "复盘该 ASIN 跌出 Top100 的价格、活动和品牌位变化。" : "检查是否由活动结束、价格变化或竞品上攻导致排名下滑。",
+    suggestedAction,
     brand,
     competitor
   });
@@ -348,7 +363,7 @@ function insightFromSignal(context: CategoryInsightContext, signal: CategorySign
     couponAfter: snapshot?.couponText ?? null,
     dealType: snapshot?.dealBadge ?? null,
     priceLowWindow: price ? priceLowWindowFor(price) : null,
-    attributionTags: attribution.tags,
+    attributionTags: attributionTagsForSource(signal.signalType, attribution.tags),
     evidenceItems: [...attribution.evidenceItems, signal.content],
     suggestedAction: "加入观察，跟踪 3/7/14 天后是否仍能维持 Top50/Top100。",
     brand,
@@ -500,4 +515,86 @@ function mapActivityEventType(event: CompetitorActivityEvent): InsightEventType 
   if (event.eventType === "brand_matrix_drop") return "BRAND_MATRIX_DROP";
   if (event.eventType === "activity_end_rank_drop") return "RANK_DROP";
   return null;
+}
+
+function attributionTagsForSource(sourceType: string, tags: AttributionTag[]): AttributionTag[] {
+  if (sourceType === "brand_matrix_push") {
+    return withRequiredAttributionTag(tags, "BRAND_MATRIX_PUSH");
+  }
+  if (sourceType === "brand_matrix_drop") {
+    return removeAttributionTag(tags, "BRAND_MATRIX_PUSH");
+  }
+  if (sourceType === "new_product_breakout") {
+    return withRequiredAttributionTag(tags, "NEW_PRODUCT_PUSH");
+  }
+  return tags;
+}
+
+function withRequiredAttributionTag(tags: AttributionTag[], tag: AttributionTag): AttributionTag[] {
+  return [...new Set([...tags.filter((item) => item !== "NO_CLEAR_DRIVER"), tag])];
+}
+
+function removeAttributionTag(tags: AttributionTag[], tag: AttributionTag): AttributionTag[] {
+  const filtered = tags.filter((item) => item !== tag && item !== "NO_CLEAR_DRIVER");
+  return filtered.length > 0 ? [...new Set(filtered)] : ["NO_CLEAR_DRIVER"];
+}
+
+function buildBrandTop100ShareChanges(
+  currentSnapshots: BestsellerRankSnapshot[],
+  previousSnapshots: BestsellerRankSnapshot[]
+): Map<string, number> {
+  const current = brandTop100Shares(currentSnapshots);
+  const previous = brandTop100Shares(previousSnapshots);
+  if (current.size === 0 || previous.size === 0) {
+    return new Map();
+  }
+  return new Map(
+    [...new Set([...current.keys(), ...previous.keys()])].map((brand) => [
+      brand,
+      roundShareChange((current.get(brand) ?? 0) - (previous.get(brand) ?? 0))
+    ])
+  );
+}
+
+function brandTop100Shares(snapshots: BestsellerRankSnapshot[]): Map<string, number> {
+  const top100 = snapshots.filter((item) => item.rank <= 100);
+  if (top100.length === 0) {
+    return new Map();
+  }
+  const counts = new Map<string, number>();
+  for (const item of top100) {
+    const brand = item.brand?.trim() || "Unknown";
+    counts.set(brand, (counts.get(brand) ?? 0) + 1);
+  }
+  return new Map([...counts.entries()].map(([brand, count]) => [brand, count / top100.length]));
+}
+
+function roundShareChange(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+function buildThreeDayRisingAsins(snapshots: BestsellerRankSnapshot[], date: string): Set<string> {
+  const dates = [isoDateOffset(date, -2), isoDateOffset(date, -1), date];
+  const requiredDates = new Set(dates);
+  const ranksByAsin = new Map<string, Map<string, number>>();
+
+  for (const snapshot of snapshots) {
+    if (!requiredDates.has(snapshot.snapshotDate)) {
+      continue;
+    }
+    const ranksByDate = ranksByAsin.get(snapshot.asin) ?? new Map<string, number>();
+    ranksByDate.set(snapshot.snapshotDate, snapshot.rank);
+    ranksByAsin.set(snapshot.asin, ranksByDate);
+  }
+
+  const risingAsins = new Set<string>();
+  for (const [asin, ranksByDate] of ranksByAsin) {
+    const first = ranksByDate.get(dates[0]);
+    const second = ranksByDate.get(dates[1]);
+    const third = ranksByDate.get(dates[2]);
+    if (first !== undefined && second !== undefined && third !== undefined && first > second && second > third) {
+      risingAsins.add(asin);
+    }
+  }
+  return risingAsins;
 }

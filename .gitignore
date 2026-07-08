@@ -27,11 +27,19 @@ tmp-ui-check/
 
 # Playwright
 .playwright-mcp/
+.playwright-cli/
 playwright-report/
 test-results/
 
+# AI tool scratch
+amazon-chatgpt-code-review-*.zip
+audit.zip
+packages.zip
+
 # Build artifacts
 release/
+src-tauri/gen/
+src-tauri/target/
 *.tsbuildinfo
 
 # IDE / OS

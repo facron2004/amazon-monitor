@@ -33,7 +33,7 @@ const ICON_MAP: Record<CompetitorKpi["tone"], Component> = {
 
 const TREND_HINT: Record<CompetitorKpi["tone"], { upIsGood: boolean; label: string }> = {
   total: { upIsGood: true, label: "总竞品数 / 全部入池 ASIN" },
-  core: { upIsGood: false, label: "核心分层 / 重点跟踪" },
+  core: { upIsGood: false, label: "核心分层 / 手动核心标记" },
   new: { upIsGood: false, label: "近 7 天新进" },
   price: { upIsGood: true, label: "Coupon/Deal 活动中" },
   key: { upIsGood: false, label: "高优跟进" }
@@ -105,7 +105,7 @@ const items = computed(() => props.kpis);
 .kpi-card--total .kpi-card-icon { background: #dbeafe; color: #1d4ed8; }
 .kpi-card--core .kpi-card-icon { background: #fee2e2; color: #991b1b; }
 .kpi-card--new .kpi-card-icon { background: #dcfce7; color: #166534; }
-.kpi-card--price .kpi-card-icon { background: #ffedd5; color: #b45309; }
+.kpi-card--price .kpi-card-icon { background: #ccfbf1; color: #0f766e; }
 .kpi-card--key .kpi-card-icon { background: #ede9fe; color: #6d28d9; }
 
 .kpi-card-value {
@@ -155,7 +155,7 @@ const items = computed(() => props.kpis);
 .kpi-card--total .kpi-card-spark { color: #1d4ed8; }
 .kpi-card--core .kpi-card-spark { color: #991b1b; }
 .kpi-card--new .kpi-card-spark { color: #166534; }
-.kpi-card--price .kpi-card-spark { color: #b45309; }
+.kpi-card--price .kpi-card-spark { color: #0f766e; }
 .kpi-card--key .kpi-card-spark { color: #6d28d9; }
 
 @media (max-width: 1080px) {

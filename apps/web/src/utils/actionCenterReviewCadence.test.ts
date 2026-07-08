@@ -6,7 +6,10 @@ import type {
   InsightEventLevel,
   InsightEventStatus
 } from "@amazon-monitor/shared";
-import { buildReviewCadenceSummary } from "./actionCenterReviewCadence";
+import {
+  buildReviewCadenceSummary,
+  isReviewCadenceBucketMatch
+} from "./actionCenterReviewCadence";
 
 type EventOverrides = Partial<Omit<InsightEvent, "attributionTags" | "evidence" | "eventLevel" | "status">> & {
   attributionTags?: AttributionTag[];
@@ -74,10 +77,23 @@ describe("action center review cadence", () => {
     const summary = buildReviewCadenceSummary(visibleEvents, dueEvents, "2026-06-29");
 
     expect(summary.buckets).toEqual([
-      { key: "overdue", label: "Overdue", count: 1, p0Count: 1, totalScore: 90 },
-      { key: "today", label: "Today", count: 1, p0Count: 0, totalScore: 70 },
-      { key: "upcoming", label: "Upcoming", count: 1, p0Count: 0, totalScore: 50 }
+      { key: "overdue", label: "已逾期", count: 1, p0Count: 1, p1Count: 0, p2Count: 0, totalScore: 90 },
+      { key: "today", label: "今日到期", count: 1, p0Count: 0, p1Count: 1, p2Count: 0, totalScore: 70 },
+      { key: "upcoming", label: "待到期", count: 1, p0Count: 0, p1Count: 0, p2Count: 1, totalScore: 50 }
     ]);
+    expect(summary.health).toEqual({
+      totalCount: 3,
+      dueNowCount: 2,
+      overdueCount: 1,
+      todayCount: 1,
+      upcomingCount: 1,
+      p0DueCount: 1,
+      totalScore: 210,
+      dueNowPercent: 67,
+      nextDueLabel: "07-02",
+      healthLabel: "1 个逾期",
+      healthTone: "danger"
+    });
     expect(summary.rows.map((row) => [row.event.id, row.bucket, row.daysOffset])).toEqual([
       ["overdue", "overdue", -2],
       ["today", "today", 0],
@@ -96,5 +112,53 @@ describe("action center review cadence", () => {
 
     expect(summary.rows.map((row) => row.event.id)).toEqual(["todo", "pending"]);
     expect(summary.buckets.find((bucket) => bucket.key === "today")?.count).toBe(2);
+  });
+
+  it("summarizes scheduled and empty review queue health", () => {
+    const scheduled = buildReviewCadenceSummary([
+      makeEvent({ id: "future", status: "TODO", eventLevel: "P0", reviewDueDate: "2026-07-06", scoreTotal: 90 })
+    ], [], "2026-06-29");
+
+    expect(scheduled.health).toMatchObject({
+      totalCount: 1,
+      dueNowCount: 0,
+      upcomingCount: 1,
+      p0DueCount: 0,
+      nextDueLabel: "07-06",
+      healthLabel: "已排期",
+      healthTone: "success"
+    });
+
+    expect(buildReviewCadenceSummary([], [], "2026-06-29").health).toMatchObject({
+      totalCount: 0,
+      dueNowCount: 0,
+      dueNowPercent: 0,
+      nextDueLabel: "-",
+      healthLabel: "无复盘队列",
+      healthTone: "info"
+    });
+  });
+
+  it("matches individual events against a cadence bucket", () => {
+    expect(isReviewCadenceBucketMatch(
+      makeEvent({ id: "overdue", status: "TODO", reviewDueDate: "2026-06-27" }),
+      "overdue",
+      "2026-06-29"
+    )).toBe(true);
+    expect(isReviewCadenceBucketMatch(
+      makeEvent({ id: "today", status: "REVIEW_PENDING", reviewDueDate: "2026-06-29" }),
+      "today",
+      "2026-06-29"
+    )).toBe(true);
+    expect(isReviewCadenceBucketMatch(
+      makeEvent({ id: "upcoming", status: "TODO", reviewDueDate: "2026-07-02" }),
+      "upcoming",
+      "2026-06-29"
+    )).toBe(true);
+    expect(isReviewCadenceBucketMatch(
+      makeEvent({ id: "watching", status: "WATCHING", reviewDueDate: "2026-06-29" }),
+      "today",
+      "2026-06-29"
+    )).toBe(false);
   });
 });

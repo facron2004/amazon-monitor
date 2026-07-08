@@ -1,12 +1,19 @@
+import { normalizeAmazonMarketplaceHost } from "@amazon-monitor/shared";
+
+export function intEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
 export function normalizeMarketplaceHost(marketplace: string): string {
-  const trimmed = marketplace.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-  const map: Record<string, string> = {
-    US: "www.amazon.com",
-    UK: "www.amazon.co.uk",
-    DE: "www.amazon.de",
-    JP: "www.amazon.co.jp"
-  };
-  return map[trimmed.toUpperCase()] ?? (trimmed.startsWith("amazon.") ? `www.${trimmed}` : trimmed);
+  return normalizeAmazonMarketplaceHost(marketplace);
 }
 
 export function normalizeLocale(language: string | null): string {
@@ -19,79 +26,79 @@ export function acceptLanguage(language: string | null): string {
 }
 
 export function timeoutMs(): number {
-  return Number(process.env.AMAZON_COLLECT_TIMEOUT_MS ?? 30000);
+  return intEnv("AMAZON_COLLECT_TIMEOUT_MS", 30000, 1000, 120000);
 }
 
 export function searchRetryCount(): number {
-  return Number(process.env.AMAZON_COLLECT_SEARCH_RETRIES ?? 3);
+  return intEnv("AMAZON_COLLECT_SEARCH_RETRIES", 3, 1, 10);
 }
 
 export function searchRetryDelayMs(): number {
-  return Number(process.env.AMAZON_COLLECT_SEARCH_RETRY_DELAY_MS ?? 2500);
+  return intEnv("AMAZON_COLLECT_SEARCH_RETRY_DELAY_MS", 2500, 0, 60000);
 }
 
 export function categoryRetryCount(): number {
-  return Number(process.env.AMAZON_COLLECT_CATEGORY_RETRIES ?? 2);
+  return intEnv("AMAZON_COLLECT_CATEGORY_RETRIES", 2, 1, 10);
 }
 
 export function detailTimeoutMs(): number {
-  return Number(process.env.AMAZON_COLLECT_DETAIL_TIMEOUT_MS ?? 15000);
+  return intEnv("AMAZON_COLLECT_DETAIL_TIMEOUT_MS", 15000, 1000, 120000);
 }
 
 export function pageDelayMs(): number {
-  return Number(process.env.AMAZON_COLLECT_PAGE_DELAY_MS ?? 5000);
+  return intEnv("AMAZON_COLLECT_PAGE_DELAY_MS", 5000, 0, 60000);
 }
 
 export function detailSettleMs(): number {
-  return Number(process.env.AMAZON_COLLECT_DETAIL_SETTLE_MS ?? 300);
+  return intEnv("AMAZON_COLLECT_DETAIL_SETTLE_MS", 300, 0, 10000);
 }
 
 export function bestSellerPageSize(): number {
-  return Number(process.env.AMAZON_BESTSELLER_PAGE_SIZE ?? 50);
+  return intEnv("AMAZON_BESTSELLER_PAGE_SIZE", 50, 1, 100);
 }
 
 export function bestSellerExtraPages(): number {
-  return Number(process.env.AMAZON_BESTSELLER_EXTRA_PAGES ?? 2);
+  return intEnv("AMAZON_BESTSELLER_EXTRA_PAGES", 2, 0, 10);
 }
 
 export function bestSellerScrollPasses(): number {
-  return Number(process.env.AMAZON_BESTSELLER_SCROLL_PASSES ?? 12);
+  return intEnv("AMAZON_BESTSELLER_SCROLL_PASSES", 12, 1, 100);
 }
 
 export function bestSellerMinScrollPasses(): number {
-  return Number(process.env.AMAZON_BESTSELLER_MIN_SCROLL_PASSES ?? 6);
+  return intEnv("AMAZON_BESTSELLER_MIN_SCROLL_PASSES", 6, 0, 100);
 }
 
 export function bestSellerStablePasses(): number {
-  return Number(process.env.AMAZON_BESTSELLER_STABLE_PASSES ?? 4);
+  return intEnv("AMAZON_BESTSELLER_STABLE_PASSES", 4, 1, 50);
 }
 
 export function bestSellerScrollDelayMs(): number {
-  return Number(process.env.AMAZON_BESTSELLER_SCROLL_DELAY_MS ?? 700);
+  return intEnv("AMAZON_BESTSELLER_SCROLL_DELAY_MS", 700, 0, 10000);
 }
 
 export function bestSellerViewportWidth(): number {
-  return Number(process.env.AMAZON_BESTSELLER_VIEWPORT_WIDTH ?? 1920);
+  return intEnv("AMAZON_BESTSELLER_VIEWPORT_WIDTH", 1920, 320, 3840);
 }
 
 export function bestSellerViewportHeight(): number {
-  return Number(process.env.AMAZON_BESTSELLER_VIEWPORT_HEIGHT ?? 1080);
+  return intEnv("AMAZON_BESTSELLER_VIEWPORT_HEIGHT", 1080, 320, 2160);
 }
 
 export function bestSellerDetailTopN(): number {
-  return Number(process.env.AMAZON_BESTSELLER_DETAIL_TOP_N ?? 50);
+  return intEnv("AMAZON_BESTSELLER_DETAIL_TOP_N", 50, 0, 1000);
 }
 
 export function bestSellerPromoDetailTopN(): number {
-  return Number(process.env.AMAZON_BESTSELLER_PROMO_DETAIL_TOP_N ?? 30);
+  return intEnv("AMAZON_BESTSELLER_PROMO_DETAIL_TOP_N", 30, 0, 1000);
 }
 
 export function detailConcurrency(): number {
-  return Number(process.env.AMAZON_COLLECT_DETAIL_CONCURRENCY ?? 3);
+  return intEnv("AMAZON_COLLECT_DETAIL_CONCURRENCY", 3, 1, 10);
 }
 
 export function maxDetailProducts(): number {
-  return Number(process.env.AMAZON_COLLECT_MAX_DETAIL_PRODUCTS ?? 9999);
+  return intEnv("AMAZON_COLLECT_MAX_DETAIL_PRODUCTS", 9999, 0, 10000);
 }
 
 export function detailCacheMaxItems(): number {
@@ -100,7 +107,7 @@ export function detailCacheMaxItems(): number {
   // day — re-opening the detail page for it is pure waste. Collector
   // instances are module-level singletons, so the cache survives across
   // jobs within a worker run. Set to 0 to disable.
-  return Number(process.env.AMAZON_COLLECT_DETAIL_CACHE_ITEMS ?? 1000);
+  return intEnv("AMAZON_COLLECT_DETAIL_CACHE_ITEMS", 1000, 0, 50000);
 }
 
 export function blockHeavyResources(): boolean {

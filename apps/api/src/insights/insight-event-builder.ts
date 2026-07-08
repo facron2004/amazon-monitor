@@ -68,7 +68,9 @@ export function buildInsightEvent(context: CategoryInsightContext, input: BuildI
   const watchState = input.asin ? context.watchByAsin.get(input.asin) ?? null : null;
   const coreCompetitor = isCoreCompetitor(input.competitor, watchState);
   const daysListed = input.competitor ? daysBetween(input.competitor.firstSeenDate, context.date) + 1 : input.previousRank === null ? 1 : null;
-  const scoring = scoreInsightEvent(buildScoringInput(input, daysListed, coreCompetitor));
+  const brandTop100ShareChange = input.brand ? context.brandTop100ShareChangeByName.get(input.brand.brand) ?? null : null;
+  const coreCompetitorRising3Days = coreCompetitor && input.asin !== null && context.coreCompetitorRising3DaysByAsin.has(input.asin);
+  const scoring = scoreInsightEvent(buildScoringInput(input, daysListed, coreCompetitor, brandTop100ShareChange, coreCompetitorRising3Days));
   const eventLevel = promoteCoreCompetitorEventLevel(eventLevelFromScore(scoring.total), input.eventType, coreCompetitor);
   const event: InsightEventInput = {
     id: insightEventId(context.date, context.category.id, input.asin, input.brandName, input.eventType),
@@ -104,9 +106,13 @@ export function buildInsightEvent(context: CategoryInsightContext, input: BuildI
       dealType: input.dealType,
       brandRisingCount: input.brand?.rankUpCount ?? null,
       brandNewEntryCount: input.brand?.newEntryCount ?? null,
+      brandDroppedCount: input.brand?.droppedCount ?? null,
+      brandRankDownCount: input.brand?.rankDownCount ?? null,
       brandTop100Count: input.brand?.productCountTop100 ?? null,
+      brandTop100ShareChange,
       priceLowWindow: input.priceLowWindow,
       isCoreCompetitor: coreCompetitor,
+      coreCompetitorRising3Days,
       strategyTags: inferStrategyTags({
         eventType: input.eventType,
         attributionTags: input.attributionTags,
@@ -136,7 +142,13 @@ export function buildInsightEvent(context: CategoryInsightContext, input: BuildI
   return event;
 }
 
-function buildScoringInput(input: BuildInsightInput, daysListed: number | null, isCoreCompetitor: boolean): InsightScoringInput {
+function buildScoringInput(
+  input: BuildInsightInput,
+  daysListed: number | null,
+  isCoreCompetitor: boolean,
+  brandTop100ShareChange: number | null,
+  coreCompetitorRising3Days: boolean
+): InsightScoringInput {
   return {
     eventType: input.eventType,
     currentRank: input.currentRank,
@@ -150,9 +162,11 @@ function buildScoringInput(input: BuildInsightInput, daysListed: number | null, 
     priceLowWindow: input.priceLowWindow,
     brandRisingCount: input.brand?.rankUpCount ?? null,
     brandNewTop100Count: input.brand?.newEntryCount ?? null,
-    brandTop100ShareChange: null,
+    brandDroppedCount: input.brand?.droppedCount ?? null,
+    brandRankDownCount: input.brand?.rankDownCount ?? null,
+    brandTop100ShareChange,
     isCoreCompetitor,
-    coreCompetitorRising3Days: false
+    coreCompetitorRising3Days
   };
 }
 
@@ -245,6 +259,9 @@ function eventTitle(input: BuildInsightInput): string {
   }
   if (input.eventType === "BRAND_MATRIX_SURGE") {
     return `【品牌矩阵上攻】${input.brandName ?? "未知品牌"} 多 ASIN 同步上升`;
+  }
+  if (input.eventType === "BRAND_MATRIX_DROP") {
+    return `【品牌矩阵下滑】${input.brandName ?? "未知品牌"} 多 ASIN 同步回落`;
   }
   if (input.eventType === "PRICE_NEW_LOW") {
     return `【价格新低】${target} 触达 ${input.priceLowWindow ?? ""} 低价`;

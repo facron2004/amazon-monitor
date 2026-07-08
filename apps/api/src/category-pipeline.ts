@@ -11,6 +11,7 @@ import {
   type CollectTaskLog
 } from "@amazon-monitor/shared";
 import { PlaywrightAmazonBestSellerCollector, runLimitedConcurrency } from "./amazon-collector.js";
+import { abortErrorIfSignaled, type AbortableCollectOptions, throwIfAborted } from "./amazon/abort.js";
 import {
   buildCategoryBsrRankHistory,
   dedupeProductsByAsin,
@@ -24,6 +25,7 @@ import { generateInsightEvents } from "./insights/insight-event-generator.js";
 import { evaluateDueInsightEventReviews } from "./insights/review-evaluator.js";
 import type { Store } from "./store.js";
 import { isoDate } from "./pipeline.js";
+import { intEnv } from "./amazon/config.js";
 
 export interface CollectedBestSellerPage {
   pageNo: number;
@@ -33,7 +35,7 @@ export interface CollectedBestSellerPage {
 }
 
 export interface AmazonBestSellerCollector {
-  collect(category: CategoryMonitor, date: string): Promise<CollectedBestSellerPage[]>;
+  collect(category: CategoryMonitor, date: string, options?: AbortableCollectOptions): Promise<CollectedBestSellerPage[]>;
 }
 
 export interface CategoryCollectionOptions {
@@ -103,9 +105,10 @@ export async function runCategoryCollectionForMonitor(
   const collector = options.collector ?? defaultCategoryCollector;
 
   try {
-    if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    throwIfAborted(options.signal);
     console.log(`[${ts()}] [Pipeline] Collecting category="${category.name}" marketplace=${category.marketplace} topN=${category.crawlTopN}...`);
-    const pages = await collector.collect(category, date);
+    const pages = await collector.collect(category, date, { signal: options.signal });
+    throwIfAborted(options.signal);
     const t1 = Date.now();
     console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing products...`);
     const retryCount = totalPageRetryCount(pages);
@@ -187,7 +190,7 @@ export async function runCategoryCollectionForMonitor(
       activityEvents
     });
 
-    if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    throwIfAborted(options.signal);
 
     // Wrap all writes in a single transaction to maintain consistency
     store.runInTransaction(() => {
@@ -268,9 +271,9 @@ export async function runCategoryCollectionForMonitor(
     return log;
   } catch (error) {
     // Don't log aborted jobs as failures — the worker handles that
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw error;
-    }
+    const abortError = abortErrorIfSignaled(options.signal);
+    if (abortError) throw abortError;
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
     const totalMs = Date.now() - t0;
     console.error(`[${ts()}] [Pipeline] ✗ Category "${category.name}" FAILED after ${formatDuration(totalMs)}: ${error instanceof Error ? error.message : String(error)}`);
     if (error instanceof StrictBsrCountError) {
@@ -325,7 +328,7 @@ function hasOkCategoryBsrSnapshot(store: Store, categoryId: number, date: string
 }
 
 function categoryCollectionConcurrency(): number {
-  return Number(process.env.AMAZON_COLLECT_CATEGORY_CONCURRENCY ?? 1);
+  return intEnv("AMAZON_COLLECT_CATEGORY_CONCURRENCY", 1, 1, 10);
 }
 
 export { normalizeBestSellerPageRanks };

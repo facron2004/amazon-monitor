@@ -13,6 +13,8 @@ export interface InsightScoringInput {
   priceLowWindow: "T30" | "T60" | "T90" | "ALL" | null;
   brandRisingCount: number | null;
   brandNewTop100Count: number | null;
+  brandDroppedCount: number | null;
+  brandRankDownCount: number | null;
   brandTop100ShareChange: number | null;
   isCoreCompetitor: boolean;
   coreCompetitorRising3Days: boolean;
@@ -114,12 +116,19 @@ function scorePromo(input: InsightScoringInput, reasons: string[]): number {
 function scoreBrand(input: InsightScoringInput, reasons: string[]): number {
   const rising = input.brandRisingCount ?? 0;
   const newTop100 = input.brandNewTop100Count ?? 0;
+  const dropped = input.brandDroppedCount ?? 0;
+  const rankDown = input.brandRankDownCount ?? 0;
   const shareChange = input.brandTop100ShareChange ?? 0;
   const values: number[] = [];
   if (rising >= 5) values.push(15);
   else if (rising >= 3) values.push(10);
   if (newTop100 >= 2) values.push(12);
   if (shareChange >= 0.05) values.push(8);
+  if (dropped >= 3) values.push(15);
+  else if (dropped >= 2) values.push(12);
+  if (rankDown >= 5) values.push(15);
+  else if (rankDown >= 3) values.push(10);
+  if (shareChange <= -0.05) values.push(8);
   const score = Math.min(15, values.reduce((sum, value) => sum + value, 0));
   if (score > 0) {
     reasons.push(`品牌动作分 ${score}`);

@@ -1,5 +1,6 @@
 import type { BrowserContext } from "playwright";
 import type { BestSellerProductInput, CategoryMonitor, KeywordMonitor, SerpProductInput } from "@amazon-monitor/shared";
+import { type AbortableCollectOptions, throwIfAborted } from "./abort.js";
 import { installResourceBlocker } from "./browser.js";
 import { bestSellerDetailTopN, detailConcurrency, maxDetailProducts } from "./config.js";
 import { runLimitedConcurrency } from "./concurrency.js";
@@ -32,8 +33,10 @@ export async function collectMissingBestSellerDetails(
   products: BestSellerProductInput[],
   pageNo: number,
   date: string,
-  detailCache: Map<string, BestSellerDetailCacheValue>
+  detailCache: Map<string, BestSellerDetailCacheValue>,
+  options: AbortableCollectOptions = {}
 ): Promise<BestSellerProductInput[]> {
+  throwIfAborted(options.signal);
   const cacheKeyFor = (product: BestSellerProductInput) => detailCacheKey(date, category.marketplace, product.asin);
   const withCachedDetails = products.map((product) => applyCachedBestSellerDetails(product, detailCache.get(cacheKeyFor(product))));
   // Cap how many detail pages we open per best-seller task. `crawlTopN=100`
@@ -50,10 +53,12 @@ export async function collectMissingBestSellerDetails(
 
   const enriched = await runLimitedConcurrency(missing, detailConcurrency(), async (product) => {
     try {
-      const enrichedProduct = await collectBestSellerProductDetails(context, category, product, pageNo, date);
+      throwIfAborted(options.signal);
+      const enrichedProduct = await collectBestSellerProductDetails(context, category, product, pageNo, date, options);
       detailCache.set(cacheKeyFor(product), pickBestSellerDetail(enrichedProduct));
       return enrichedProduct;
     } catch {
+      throwIfAborted(options.signal);
       return product;
     }
   });
@@ -66,8 +71,10 @@ async function collectBestSellerProductDetails(
   category: CategoryMonitor,
   product: BestSellerProductInput,
   pageNo: number,
-  date: string
+  date: string,
+  options: AbortableCollectOptions = {}
 ): Promise<BestSellerProductInput> {
+  throwIfAborted(options.signal);
   const page = await context.newPage();
   try {
     await installResourceBlocker(page);
@@ -78,6 +85,7 @@ async function collectBestSellerProductDetails(
       productUrl: product.productUrl,
       assertPageReady: () => assertCategoryNotBlocked(page, category, pageNo, date)
     });
+    throwIfAborted(options.signal);
     const detailTitle = detail.title ?? product.title;
     const brand = await resolveBrandFromStorePage(page, detail.storeUrl, detail.brand ?? product.brand, detailTitle);
     const currentPrice = preferCurrentPrice(product.currentPrice, detail.currentPrice);
@@ -106,8 +114,10 @@ export async function collectPageProductDetailRanks(
   pageNo: number,
   date: string,
   detailLimit: number,
-  detailRankCache: Map<string, DetailRankCacheValue>
+  detailRankCache: Map<string, DetailRankCacheValue>,
+  options: AbortableCollectOptions = {}
 ): Promise<{ products: SerpProductInput[]; collectedCount: number }> {
+  throwIfAborted(options.signal);
   const cacheKeyFor = (product: SerpProductInput) => detailCacheKey(date, keyword.marketplace, product.asin);
   const detailsToCollect = prioritizeDetailCollection(
     products.filter((product) => !detailRankCache.has(cacheKeyFor(product)))
@@ -121,8 +131,10 @@ export async function collectPageProductDetailRanks(
 
   const enriched = await runLimitedConcurrency(detailsToCollect, detailConcurrency(), async (product) => {
     try {
-      return await collectProductDetailRanks(context, keyword, product, pageNo, date);
+      throwIfAborted(options.signal);
+      return await collectProductDetailRanks(context, keyword, product, pageNo, date, options);
     } catch (error) {
+      throwIfAborted(options.signal);
       if (error instanceof Error && error.message.includes("Amazon blocked collection")) {
         throw error;
       }
@@ -148,8 +160,10 @@ async function collectProductDetailRanks(
   keyword: KeywordMonitor,
   product: SerpProductInput,
   pageNo: number,
-  date: string
+  date: string,
+  options: AbortableCollectOptions = {}
 ): Promise<SerpProductInput> {
+  throwIfAborted(options.signal);
   const page = await context.newPage();
   try {
     await installResourceBlocker(page);
@@ -161,6 +175,7 @@ async function collectProductDetailRanks(
       productUrl: product.productUrl,
       assertPageReady: () => assertNotBlocked(page, keyword, pageNo, date)
     });
+    throwIfAborted(options.signal);
     const detailTitle = detail.title ?? product.title;
     const brand = await resolveBrandFromStorePage(page, detail.storeUrl, detail.brand ?? product.brand, detailTitle);
     const currentPrice = preferCurrentPrice(product.currentPrice, detail.currentPrice);

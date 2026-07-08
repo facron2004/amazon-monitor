@@ -1,5 +1,25 @@
 import type { Express } from "express";
-import { asinWatchLevels, insightEventLevels, insightEventStatuses, insightEventTypes, insightReviewResults } from "@amazon-monitor/shared";
+import {
+  asinWatchLevels,
+  actionEvidenceMovementFilters,
+  actionStageFilters,
+  actionScoreDriverFilters,
+  attributionTags,
+  insightEventLevels,
+  insightEventSortKeys,
+  insightEventStatuses,
+  insightEventTypes,
+  insightReviewResults,
+  isActionEvidenceMovementMatch,
+  isActionStageMatch,
+  isActionScoreDriverMatch,
+  isReviewCadenceBucketMatch,
+  reviewCadenceBucketKeys,
+  strategyTags,
+  type InsightEvent,
+  type InsightEventListParams,
+  type InsightEventTrendPoint
+} from "@amazon-monitor/shared";
 import { generateInsightEvents } from "../insights/insight-event-generator.js";
 import { evaluateDueInsightEventReviews } from "../insights/review-evaluator.js";
 import { scheduleNextReviewDate } from "../insights/review-scheduler.js";
@@ -19,15 +39,26 @@ const booleanQuerySchema = z.union([
 
 const insightEventListQuerySchema = z.object({
   date: dateSchema.optional(),
+  reviewedOnDate: booleanQuerySchema.optional(),
   status: z.enum(insightEventStatuses).optional(),
   level: z.enum(insightEventLevels).optional(),
   eventType: z.enum(insightEventTypes).optional(),
+  reviewResult: z.enum(insightReviewResults).optional(),
   categoryId: z.coerce.number().int().min(1).optional(),
   keywordId: z.coerce.number().int().min(1).optional(),
   brand: z.string().min(1).max(200).optional(),
   asin: z.string().min(1).max(30).optional(),
   assignee: z.string().trim().min(1).max(120).optional(),
+  attributionTag: z.enum(attributionTags).optional(),
+  evidenceMovement: z.enum(actionEvidenceMovementFilters).optional(),
+  reviewCadence: z.enum(reviewCadenceBucketKeys).optional(),
+  actionStage: z.enum(actionStageFilters).optional(),
+  scoreDriver: z.enum(actionScoreDriverFilters).optional(),
+  strategyTag: z.enum(strategyTags).optional(),
+  sortBy: z.enum(insightEventSortKeys).optional(),
   unassignedOnly: booleanQuerySchema.optional(),
+  coreOnly: booleanQuerySchema.optional(),
+  newBreakoutOnly: booleanQuerySchema.optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   offset: z.coerce.number().int().min(0).optional()
 });
@@ -55,6 +86,7 @@ const assigneePatchSchema = z.object({
 });
 
 const reviewSchema = z.object({
+  date: dateSchema.optional(),
   result: z.enum(insightReviewResults),
   note: z.string().max(5000).nullable().optional()
 });
@@ -78,10 +110,15 @@ const topSummaryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).optional()
 });
 
+const insightEventTrendQuerySchema = insightEventListQuerySchema.extend({
+  endDate: dateSchema.optional(),
+  days: z.coerce.number().int().min(1).max(30).optional()
+});
+
 export function registerInsightEventRoutes(app: Express, store: Store): void {
   app.get("/api/insight-events", (request, response) => {
     const query = validateQuery(insightEventListQuerySchema, request.query);
-    response.json(store.listInsightEvents(query));
+    response.json(listInsightEventsForQuery(store, query, query.date ?? getDate(request)));
   });
 
   // Dashboard "今日必须关注 N 件事" feed.
@@ -95,7 +132,25 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
   app.get("/api/insight-events/review-due", (request, response) => {
     const query = validateQuery(insightEventListQuerySchema, request.query);
     const { date, ...params } = query;
-    response.json(store.listReviewDueEvents(date ?? getDate(request), params));
+    const targetDate = date ?? getDate(request);
+    response.json(listReviewDueEventsForQuery(store, targetDate, params));
+  });
+
+  app.get("/api/insight-events/trend", (request, response) => {
+    const query = validateQuery(insightEventTrendQuerySchema, request.query);
+    const { date, endDate: requestedEndDate, days, limit: _limit, offset: _offset, ...filters } = query;
+    const endDate = requestedEndDate ?? date ?? getDate(request);
+    response.json(buildInsightEventTrend(store, endDate, days ?? 7, filters));
+  });
+
+  app.get("/api/insight-events/:id/notes", (request, response) => {
+    const id = validateEventId(request.params.id);
+    const event = store.getInsightEvent(id);
+    if (!event) {
+      response.status(404).json({ message: "insight event not found" });
+      return;
+    }
+    response.json(store.listInsightEventNotes(id));
   });
 
   app.post("/api/insight-events/review-due/evaluate", (request, response) => {
@@ -193,7 +248,7 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
       response.status(404).json({ message: "insight event not found" });
       return;
     }
-    const reviewDate = getDate(request);
+    const reviewDate = body.date ?? getDate(request);
     const nextReviewDueDate = scheduleNextReviewDate({
       eventDate: current.eventDate,
       eventType: current.eventType,
@@ -229,6 +284,118 @@ function validateEventId(id: string): string {
     throw Object.assign(new Error("Invalid insight event id"), { statusCode: 400 });
   }
   return decoded;
+}
+
+function buildInsightEventTrend(
+  store: Store,
+  endDate: string,
+  days: number,
+  filters: Omit<InsightEventListParams, "date" | "limit" | "offset">
+): InsightEventTrendPoint[] {
+  return dateWindow(endDate, days).map((date) => {
+    const events = applyDerivedInsightEventFilters(
+      store.listInsightEvents({ ...filters, date, limit: 1000 }),
+      filters,
+      date
+    );
+    const reviewDueEvents = applyDerivedInsightEventFilters(
+      store.listReviewDueEvents(date, { ...filters, limit: 1000 }),
+      filters,
+      date
+    );
+    return summarizeTrendPoint(date, events, reviewDueEvents.length);
+  });
+}
+
+function listInsightEventsForQuery(store: Store, query: InsightEventListParams, currentDate: string): InsightEvent[] {
+  const effectiveQuery = query.reviewedOnDate && !query.date ? { ...query, date: currentDate } : query;
+  if (!hasDerivedInsightFilters(effectiveQuery)) {
+    return store.listInsightEvents(effectiveQuery);
+  }
+
+  const { limit, offset, ...filters } = effectiveQuery;
+  const events = store.listInsightEvents({ ...filters, limit: 1000 });
+  return paginateEvents(
+    applyDerivedInsightEventFilters(events, filters, currentDate),
+    limit ?? 50,
+    offset
+  );
+}
+
+function listReviewDueEventsForQuery(
+  store: Store,
+  date: string,
+  query: Omit<InsightEventListParams, "date">
+): InsightEvent[] {
+  if (!hasDerivedInsightFilters(query)) {
+    return store.listReviewDueEvents(date, query);
+  }
+
+  const { limit, offset, ...filters } = query;
+  const events = store.listReviewDueEvents(date, { ...filters, limit: 1000 });
+  return paginateEvents(
+    applyDerivedInsightEventFilters(events, filters, date),
+    limit,
+    offset
+  );
+}
+
+function applyDerivedInsightEventFilters(
+  events: InsightEvent[],
+  filters: Pick<InsightEventListParams, "evidenceMovement" | "reviewCadence" | "actionStage" | "scoreDriver">,
+  currentDate: string
+): InsightEvent[] {
+  return events
+    .filter((event) => !filters.evidenceMovement || isActionEvidenceMovementMatch(event, filters.evidenceMovement))
+    .filter((event) => !filters.reviewCadence || isReviewCadenceBucketMatch(event, filters.reviewCadence, currentDate))
+    .filter((event) => !filters.actionStage || isActionStageMatch(event, filters.actionStage, currentDate))
+    .filter((event) => !filters.scoreDriver || isActionScoreDriverMatch(event, filters.scoreDriver));
+}
+
+function hasDerivedInsightFilters(
+  filters: Pick<InsightEventListParams, "evidenceMovement" | "reviewCadence" | "actionStage" | "scoreDriver">
+): boolean {
+  return Boolean(filters.evidenceMovement || filters.reviewCadence || filters.actionStage || filters.scoreDriver);
+}
+
+function paginateEvents(events: InsightEvent[], limit: number | undefined, offset: number | undefined): InsightEvent[] {
+  const start = offset ?? 0;
+  if (limit === undefined) {
+    return start > 0 ? events.slice(start) : events;
+  }
+  return events.slice(start, start + limit);
+}
+
+function summarizeTrendPoint(date: string, events: InsightEvent[], reviewDueCount: number): InsightEventTrendPoint {
+  const openCount = events.filter((event) => isOpenEvent(event)).length;
+  const reviewedEvents = events.filter((event) => event.reviewResult !== null);
+
+  return {
+    date,
+    totalCount: events.length,
+    openCount,
+    closedCount: events.length - openCount,
+    reviewDueCount,
+    p0Count: events.filter((event) => event.eventLevel === "P0").length,
+    reviewedCount: reviewedEvents.length,
+    validatedCount: reviewedEvents.filter((event) => event.reviewResult === "CONFIRMED" || event.reviewResult === "CONTINUING").length
+  };
+}
+
+function isOpenEvent(event: InsightEvent): boolean {
+  return event.status === "TODO" || event.status === "WATCHING" || event.status === "REVIEW_PENDING";
+}
+
+function dateWindow(endDate: string, days: number): string[] {
+  return Array.from({ length: days }, (_value, index) => isoDateOffset(endDate, index - days + 1));
+}
+
+function isoDateOffset(date: string, offsetDays: number): string {
+  const parsed = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) return date;
+  const next = new Date(parsed);
+  next.setUTCDate(next.getUTCDate() + offsetDays);
+  return next.toISOString().slice(0, 10);
 }
 
 function validateAsin(asin: string): string {

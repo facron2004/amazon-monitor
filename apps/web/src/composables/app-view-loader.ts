@@ -5,7 +5,15 @@ export interface AppViewLoaders {
   categories(signal?: AbortSignal): Promise<void>;
   keywords(signal?: AbortSignal): Promise<void>;
   competitors(signal?: AbortSignal): Promise<void>;
+  products(signal?: AbortSignal): Promise<void>;
+  inventory(signal?: AbortSignal): Promise<void>;
+  profit(signal?: AbortSignal): Promise<void>;
+  "listing-health"(signal?: AbortSignal): Promise<void>;
+  ads(signal?: AbortSignal): Promise<void>;
+  "review-voc"(signal?: AbortSignal): Promise<void>;
   "action-center"(signal?: AbortSignal): Promise<void>;
+  tasks(signal?: AbortSignal): Promise<void>;
+  sops(signal?: AbortSignal): Promise<void>;
   alerts(signal?: AbortSignal): Promise<void>;
   reports(signal?: AbortSignal): Promise<void>;
   notifications(signal?: AbortSignal): Promise<void>;

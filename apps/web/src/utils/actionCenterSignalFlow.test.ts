@@ -5,7 +5,12 @@ import type {
   InsightEventStatus,
   InsightEventType
 } from "@amazon-monitor/shared";
-import { getActionSignalFlowRows } from "./actionCenterSignalFlow";
+import { attributionTagLabels } from "@amazon-monitor/shared";
+import {
+  getActionSignalFlowRows,
+  getActionSignalFlowStageRows,
+  getActionSignalFlowSummary
+} from "./actionCenterSignalFlow";
 
 type EventOverrides = Partial<Omit<InsightEvent, "eventLevel" | "eventType" | "status">> & {
   eventLevel?: InsightEventLevel;
@@ -77,10 +82,47 @@ describe("action center signal flow", () => {
 
     expect(rows[0]).toMatchObject({
       id: "unknown-brand",
-      brandLabel: "Unknown brand",
-      asinLabel: "No ASIN",
+      brandLabel: "未知品牌",
+      asinLabel: "无 ASIN",
       timestampLabel: "06-30 12:34",
+      actionStageLabel: "待分配",
+      nextActionLabel: "先分配负责人，再推进下一步。",
       scorePercent: 100
+    });
+  });
+
+  it("adds an evidence driver and next action for the rendered signal flow", () => {
+    const rows = getActionSignalFlowRows([
+      makeEvent({
+        id: "due",
+        attributionTags: ["COUPON_DRIVEN"],
+        assignee: "Ada",
+        reviewDueDate: "2026-06-29",
+        status: "REVIEW_PENDING",
+        suggestedAction: "Check whether the coupon lift held."
+      }),
+      makeEvent({
+        id: "assigned",
+        attributionTags: [],
+        assignee: "Lin",
+        status: "TODO",
+        suggestedAction: "Watch the ASIN for 3 days."
+      })
+    ], "2026-06-30");
+
+    expect(rows[0]).toMatchObject({
+      id: "due",
+      actionStageLabel: "立即复盘",
+      actionStageTone: "danger",
+      driverLabel: "Coupon 驱动",
+      nextActionLabel: "打开事件并核对复盘证据。"
+    });
+    expect(rows[1]).toMatchObject({
+      id: "assigned",
+      actionStageLabel: "可执行",
+      actionStageTone: "warning",
+      driverLabel: attributionTagLabels.NO_CLEAR_DRIVER,
+      nextActionLabel: "Watch the ASIN for 3 days."
     });
   });
 
@@ -92,5 +134,62 @@ describe("action center signal flow", () => {
     ], "2026-06-30", 2);
 
     expect(rows).toHaveLength(2);
+  });
+
+  it("summarizes the visible signal flow pressure", () => {
+    const summary = getActionSignalFlowSummary([
+      makeEvent({ id: "due", eventLevel: "P2", scoreTotal: 30, reviewDueDate: "2026-06-29" }),
+      makeEvent({ id: "p0", eventLevel: "P0", scoreTotal: 90 }),
+      makeEvent({ id: "p1", eventLevel: "P1", scoreTotal: 60 })
+    ], "2026-06-30", 2);
+
+    expect(summary).toEqual({
+      totalCount: 3,
+      renderedCount: 2,
+      dueNowCount: 1,
+      p0Count: 1,
+      averageScore: 60,
+      averageScorePercent: 60,
+      pressureLabel: "1 个待复盘",
+      pressureTone: "danger"
+    });
+  });
+
+  it("builds stage rows for the visible operational flow", () => {
+    const rows = getActionSignalFlowStageRows([
+      makeEvent({ id: "due", status: "TODO", reviewDueDate: "2026-06-29" }),
+      makeEvent({ id: "unassigned", status: "TODO" }),
+      makeEvent({ id: "ready", status: "TODO", assignee: "Ada" }),
+      makeEvent({ id: "watching", status: "WATCHING", assignee: "Ada" }),
+      makeEvent({ id: "scheduled", status: "REVIEW_PENDING", assignee: "Ada", reviewDueDate: "2026-07-03" }),
+      makeEvent({ id: "closed", status: "REVIEWED", assignee: "Ada" })
+    ], "2026-06-30");
+
+    expect(rows.map((row) => [row.key, row.count, row.percent, row.tone])).toEqual([
+      ["reviewDue", 1, 17, "danger"],
+      ["unassigned", 1, 17, "warning"],
+      ["ready", 1, 17, "warning"],
+      ["watching", 1, 17, "info"],
+      ["scheduled", 1, 17, "info"],
+      ["closed", 1, 17, "success"]
+    ]);
+  });
+
+  it("reports high-score and empty flow states", () => {
+    expect(getActionSignalFlowSummary([
+      makeEvent({ id: "high", eventLevel: "P1", scoreTotal: 80 })
+    ], "2026-06-30")).toMatchObject({
+      pressureLabel: "高分信息流",
+      pressureTone: "warning",
+      averageScore: 80
+    });
+
+    expect(getActionSignalFlowSummary([], "2026-06-30")).toMatchObject({
+      totalCount: 0,
+      renderedCount: 0,
+      pressureLabel: "暂无可见信息流",
+      pressureTone: "info",
+      averageScore: 0
+    });
   });
 });

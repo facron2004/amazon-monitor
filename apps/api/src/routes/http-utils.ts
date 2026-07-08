@@ -31,10 +31,6 @@ export function sendError(response: Response, error: unknown): void {
 
 export function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) {
   return (req: Request, res: Response, next: NextFunction) => {
-    fn(req, res, next).catch((err: unknown) => {
-      const statusCode = (err as { statusCode?: number })?.statusCode ?? 400;
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(statusCode).json({ message });
-    });
+    fn(req, res, next).catch(next);
   };
 }

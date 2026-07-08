@@ -16,6 +16,8 @@ describe("scoreInsightEvent", () => {
       priceLowWindow: "T90",
       brandRisingCount: 5,
       brandNewTop100Count: 2,
+      brandDroppedCount: 0,
+      brandRankDownCount: 0,
       brandTop100ShareChange: 0.06,
       isCoreCompetitor: true,
       coreCompetitorRising3Days: true
@@ -48,6 +50,7 @@ describe("scoreInsightEvent", () => {
       reviewCount: 200, daysListed: null,
       couponAdded: false, dealAdded: false,
       priceChangeRate: null, priceLowWindow: null,
+      brandDroppedCount: 0, brandRankDownCount: 0,
       isCoreCompetitor: false, coreCompetitorRising3Days: false
     };
     // null 输入全默认 0 → brandScore=0
@@ -65,6 +68,17 @@ describe("scoreInsightEvent", () => {
     // 单阈值触发:只有 share=0.06 触发 → 8
     const onlyShare = scoreInsightEvent({ ...baseInput, brandRisingCount: 0, brandNewTop100Count: 0, brandTop100ShareChange: 0.06 });
     expect(onlyShare.breakdown.brandScore).toBe(8);
+
+    const drop = scoreInsightEvent({
+      ...baseInput,
+      eventType: "BRAND_MATRIX_DROP",
+      brandRisingCount: 0,
+      brandNewTop100Count: 0,
+      brandDroppedCount: 2,
+      brandRankDownCount: 3,
+      brandTop100ShareChange: -0.05
+    });
+    expect(drop.breakdown.brandScore).toBe(15);
   });
 
   // scoreRisk: 非核心竞品 = 0,核心但 rank>50 = 0,T30 触发
@@ -75,7 +89,7 @@ describe("scoreInsightEvent", () => {
       reviewCount: 200, daysListed: null,
       couponAdded: false, dealAdded: false,
       priceChangeRate: null, priceLowWindow: null,
-      brandRisingCount: null, brandNewTop100Count: null, brandTop100ShareChange: null,
+      brandRisingCount: null, brandNewTop100Count: null, brandDroppedCount: null, brandRankDownCount: null, brandTop100ShareChange: null,
       coreCompetitorRising3Days: false
     };
     const nonCore = scoreInsightEvent({ ...base, isCoreCompetitor: false });
@@ -104,7 +118,7 @@ describe("scoreInsightEvent", () => {
       reviewCount: 200, daysListed: null,
       couponAdded: false, dealAdded: false,
       priceChangeRate: null, priceLowWindow: null,
-      brandRisingCount: null, brandNewTop100Count: null, brandTop100ShareChange: null,
+      brandRisingCount: null, brandNewTop100Count: null, brandDroppedCount: null, brandRankDownCount: null, brandTop100ShareChange: null,
       isCoreCompetitor: false, coreCompetitorRising3Days: false
     };
     // currentRank=80 (>50, <=100 → 20),rankChange=80 (>=80 → 30) → max(20,30)=30

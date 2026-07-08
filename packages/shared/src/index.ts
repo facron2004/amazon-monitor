@@ -15,5 +15,7 @@ export {
 export { decorateBestsellerSnapshots, decorateSnapshotRanks, summarizePriceBand } from "./ranking.js";
 export { analyzeDailyChanges, buildCategoryReportMarkdown, buildDailyReportMarkdown } from "./reports.js";
 export * from "./insight-events.js";
+export * from "./insight-event-derived-filters.js";
+export * from "./review-schedule.js";
 export * from "./strategy-tags.js";
-export { isAllowedAmazonHost, assertAmazonUrl } from "./amazon-url.js";
+export { assertAmazonUrl, isAllowedAmazonHost, isAllowedAmazonMarketplace, normalizeAmazonMarketplaceHost } from "./amazon-url.js";

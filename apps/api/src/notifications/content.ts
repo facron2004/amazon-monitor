@@ -1,6 +1,11 @@
 import type { BestsellerRankSnapshot, DashboardSummary } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
-import { buildInsightHtmlSections, buildInsightTextSections, collectDailyInsightReportData } from "../reports/insight-report.js";
+import {
+  appendDailyInsightReportMarkdown,
+  buildInsightHtmlSections,
+  buildInsightTextSections,
+  collectDailyInsightReportData
+} from "../reports/insight-report.js";
 import { cleanEnvValue } from "./env.js";
 import { escapeHtml } from "./text-utils.js";
 
@@ -10,7 +15,7 @@ export function buildNotificationContent(store: Store, date: string, summary?: D
   const combinedReport = [categoryReport, report].filter((item) => item.trim()).join("\n\n---\n\n");
   const insightData = collectDailyInsightReportData(store, date);
   if (combinedReport.trim()) {
-    return appendBsrPromoTextSummary(appendInsightTextSummary(combinedReport, insightData), store, date);
+    return appendBsrPromoTextSummary(appendDailyInsightReportMarkdown(combinedReport, insightData), store, date);
   }
 
   const dashSummary = summary ?? store.getDashboardSummary(date);
@@ -168,13 +173,6 @@ function appendBsrPromoTextSummary(content: string, store: Store, date: string):
     return content;
   }
   return [content, "", "## BSR Coupon / Deal", ...lines].join("\n");
-}
-
-function appendInsightTextSummary(content: string, insightData: ReturnType<typeof collectDailyInsightReportData>): string {
-  if (!insightData.insightEvents.length && !insightData.reviewDueEvents.length && !insightData.reviewedEvents.length) {
-    return content;
-  }
-  return [content, "", ...buildInsightTextSections(insightData)].join("\n");
 }
 
 function bsrPromoItems(store: Store, date: string, limit: number): BestsellerRankSnapshot[] {

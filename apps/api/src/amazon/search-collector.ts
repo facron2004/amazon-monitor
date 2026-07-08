@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import type { KeywordMonitor, SerpProductInput } from "@amazon-monitor/shared";
+import { abortableDelay, abortableWait, type AbortableCollectOptions, throwIfAborted } from "./abort.js";
 import { closeBrowser, installResourceBlocker, launchAmazonBrowser, waitForNetworkIdleIfEnabled } from "./browser.js";
 import { acceptLanguage, normalizeLocale, normalizeMarketplaceHost, pageDelayMs, searchRetryCount, searchRetryDelayMs, timeoutMs } from "./config.js";
 import { createAmazonContext } from "./context.js";
@@ -13,10 +14,15 @@ import { buildSearchUrl } from "./urls.js";
 export class PlaywrightAmazonSearchCollector implements AmazonSearchCollector {
   private readonly detailRankCache = new Map<string, DetailRankCacheValue>();
 
-  async collect(keyword: KeywordMonitor, date: string): Promise<CollectedSearchPage[]> {
+  async collect(keyword: KeywordMonitor, date: string, options: AbortableCollectOptions = {}): Promise<CollectedSearchPage[]> {
     const browser = await launchAmazonBrowser();
+    const abortBrowser = () => {
+      void closeBrowser(browser);
+    };
+    options.signal?.addEventListener("abort", abortBrowser, { once: true });
 
     try {
+      throwIfAborted(options.signal);
       const context = await createAmazonContext(browser, {
         locale: normalizeLocale(keyword.language),
         acceptLanguage: acceptLanguage(keyword.language),
@@ -29,11 +35,13 @@ export class PlaywrightAmazonSearchCollector implements AmazonSearchCollector {
       const pages: CollectedSearchPage[] = [];
       const pageCount = Math.max(1, keyword.crawlPages);
       for (let pageNo = 1; pageNo <= pageCount; pageNo += 1) {
+        throwIfAborted(options.signal);
         const url = buildSearchUrl(keyword, pageNo);
         let products: SerpProductInput[] = [];
         let loadedUrl = url;
         for (let attempt = 1; attempt <= searchRetryCount(); attempt += 1) {
           try {
+            throwIfAborted(options.signal);
             if (attempt > 1) {
               await loadSearchViaHomePage(page, keyword, pageNo, url);
             } else {
@@ -58,23 +66,24 @@ export class PlaywrightAmazonSearchCollector implements AmazonSearchCollector {
               throw error;
             }
             await page.close().catch(() => undefined);
-            await new Promise((resolve) => setTimeout(resolve, searchRetryDelayMs() * attempt));
+            await abortableDelay(searchRetryDelayMs() * attempt, options.signal);
             page = await context.newPage();
             await installResourceBlocker(page);
           }
         }
 
-        const detailResult = await collectPageProductDetailRanks(context, keyword, products, pageNo, date, products.length, this.detailRankCache);
+        const detailResult = await collectPageProductDetailRanks(context, keyword, products, pageNo, date, products.length, this.detailRankCache, options);
 
         pages.push({ pageNo, products: detailResult.products, url: loadedUrl });
 
         if (pageNo < pageCount) {
-          await page.waitForTimeout(pageDelayMs());
+          await abortableWait(page.waitForTimeout(pageDelayMs()), options.signal);
         }
       }
 
       return pages;
     } finally {
+      options.signal?.removeEventListener("abort", abortBrowser);
       await closeBrowser(browser);
     }
   }

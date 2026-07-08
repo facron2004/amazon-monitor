@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { FilterX, SlidersHorizontal } from "@lucide/vue";
-import { ElButton, ElTag } from "element-plus";
+import { ElButton, ElProgress, ElStatistic, ElTag } from "element-plus";
 import type { InsightEventFilters } from "../../stores/insightEvents";
 import {
   clearActionFilter,
   clearActionFilters,
   getActionFilterBadges,
+  getActionFilterSummaryStats,
   type ActionFilterKey
 } from "../../utils/actionCenterFilterSummary";
 
@@ -22,6 +23,11 @@ const emit = defineEmits<{
 }>();
 
 const badges = computed(() => getActionFilterBadges(props.filters));
+const summary = computed(() => getActionFilterSummaryStats(
+  props.filters,
+  props.visibleCount,
+  props.asinCaseCount
+));
 
 function clearBadge(key: ActionFilterKey): void {
   const nextFilters = clearActionFilter(props.filters, key);
@@ -38,11 +44,26 @@ function clearAll(): void {
 
 <template>
   <section class="filter-summary">
-    <div class="filter-summary-main">
-      <SlidersHorizontal :size="15" />
+    <div class="filter-summary-title">
+      <SlidersHorizontal :size="16" />
       <div>
-        <strong>{{ visibleCount }} events / {{ asinCaseCount }} ASIN cases</strong>
-        <small>{{ badges.length ? `${badges.length} active filters` : "Global action view" }}</small>
+        <strong>Action scope</strong>
+        <ElTag :type="summary.scopeTone" effect="light" round>{{ summary.scopeLabel }}</ElTag>
+      </div>
+    </div>
+
+    <div class="filter-summary-metrics">
+      <ElStatistic title="Visible events" :value="summary.visibleCount" />
+      <ElStatistic title="ASIN cases" :value="summary.asinCaseCount" />
+      <div class="filter-depth">
+        <span>Active filters</span>
+        <strong>{{ summary.activeFilterCount }}</strong>
+        <ElProgress :percentage="summary.filterDepthPercent" :show-text="false" />
+      </div>
+      <div class="filter-depth">
+        <span>Events / case</span>
+        <strong>{{ summary.eventsPerCase }}</strong>
+        <small>{{ summary.asinCaseCount ? "Grouped pressure" : "No matching cases" }}</small>
       </div>
     </div>
 
@@ -67,39 +88,90 @@ function clearAll(): void {
 
 <style scoped>
 .filter-summary {
-  align-items: center;
   background: #f8fafc;
   border: 1px solid #d9e2ec;
   border-radius: 8px;
   display: grid;
-  gap: 10px;
-  grid-template-columns: auto minmax(0, 1fr);
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 12px;
 }
 
-.filter-summary-main {
+.filter-summary-title {
   align-items: center;
   display: flex;
-  gap: 9px;
+  gap: 10px;
   min-width: 0;
 }
 
-.filter-summary-main svg {
+.filter-summary-title svg {
   color: #2563eb;
   flex: 0 0 auto;
 }
 
-.filter-summary-main strong {
+.filter-summary-title strong {
   color: #0f172a;
   display: block;
   font-size: 13px;
 }
 
-.filter-summary-main small {
+.filter-summary-title > div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-summary-metrics {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.filter-summary-metrics :deep(.el-statistic) {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.filter-summary-metrics :deep(.el-statistic__head) {
   color: #64748b;
-  display: block;
   font-size: 12px;
-  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.filter-summary-metrics :deep(.el-statistic__content) {
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.filter-depth {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.filter-depth span,
+.filter-depth small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.filter-depth strong {
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.filter-depth :deep(.el-progress-bar__outer) {
+  background-color: #e2e8f0;
 }
 
 .filter-chip-row {
@@ -107,7 +179,6 @@ function clearAll(): void {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  justify-content: flex-end;
   min-width: 0;
 }
 
@@ -118,12 +189,14 @@ function clearAll(): void {
 }
 
 @media (max-width: 900px) {
-  .filter-summary {
-    grid-template-columns: 1fr;
+  .filter-summary-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
-  .filter-chip-row {
-    justify-content: flex-start;
+@media (max-width: 560px) {
+  .filter-summary-metrics {
+    grid-template-columns: 1fr;
   }
 }
 </style>

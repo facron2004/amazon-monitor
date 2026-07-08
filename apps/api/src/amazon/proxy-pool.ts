@@ -1,4 +1,5 @@
 import { URL } from "node:url";
+import { intEnv } from "./config.js";
 
 export interface ParsedProxy {
   server: string;
@@ -19,9 +20,10 @@ export class ProxyPool {
   private maxFailures = 3;
   private proxyApiUrl: string | null = null;
   private currentApiProxy: string | null = null;
+  private currentStaticProxy: string | null = null;
 
   private constructor() {
-    this.maxFailures = Number(process.env.AMAZON_COLLECT_PROXY_MAX_FAILURES ?? 3);
+    this.maxFailures = intEnv("AMAZON_COLLECT_PROXY_MAX_FAILURES", 3, 1, 20);
     this.proxyApiUrl = process.env.AMAZON_COLLECT_PROXY_API ?? null;
     const staticProxiesStr = process.env.AMAZON_COLLECT_PROXIES;
     if (staticProxiesStr) {
@@ -52,17 +54,13 @@ export class ProxyPool {
    * Get parsed proxy config for Playwright launch options
    */
   public async getProxy(): Promise<ParsedProxy | null> {
-    // 1. Try static proxy pool if available
-    const activeStaticProxies = this.staticProxies.filter((p) => p.failures < this.maxFailures);
-    if (activeStaticProxies.length > 0) {
-      // Sort by lastUsed (least recently used)
-      activeStaticProxies.sort((a, b) => a.lastUsed - b.lastUsed);
-      const chosen = activeStaticProxies[0];
-      chosen.lastUsed = Date.now();
-      return this.parseProxyUrl(chosen.url);
+    const staticProxy = this.getNextStaticProxy();
+    if (staticProxy) {
+      this.currentStaticProxy = staticProxy.url;
+      staticProxy.lastUsed = Date.now();
+      return this.parseProxyUrl(staticProxy.url);
     }
 
-    // 2. Try dynamic API proxy if configured
     if (this.proxyApiUrl) {
       if (!this.currentApiProxy) {
         try {
@@ -72,6 +70,7 @@ export class ProxyPool {
           return null;
         }
       }
+
       if (this.currentApiProxy) {
         return this.parseProxyUrl(this.currentApiProxy);
       }
@@ -84,16 +83,17 @@ export class ProxyPool {
    * Mark a proxy URL as failed so it rotates/retries
    */
   public reportFailure(proxyUrl: string): void {
-    // Check if it matches static proxy
-    const found = this.staticProxies.find((p) => p.url === proxyUrl);
-    if (found) {
-      found.failures++;
-      console.warn(`[ProxyPool] Static proxy failed. Failure count: ${found.failures}/${this.maxFailures} for ${proxyUrl}`);
+    const staticProxy = this.staticProxies.find((p) => p.url === proxyUrl || this.parseProxyUrl(p.url)?.server === proxyUrl);
+    if (staticProxy) {
+      staticProxy.failures += 1;
+      console.warn(`[ProxyPool] Static proxy failed. Failure count: ${staticProxy.failures}/${this.maxFailures} for ${proxyUrl}`);
+      if (this.currentStaticProxy === staticProxy.url) {
+        this.currentStaticProxy = null;
+      }
       return;
     }
 
-    // Check if it matches dynamic proxy
-    if (this.currentApiProxy === proxyUrl) {
+    if (this.currentApiProxy && this.matchesProxy(this.currentApiProxy, proxyUrl)) {
       console.warn(`[ProxyPool] Dynamic API proxy failed: ${proxyUrl}. Discarding cache.`);
       this.currentApiProxy = null;
     }
@@ -103,10 +103,25 @@ export class ProxyPool {
    * Reset all failures (e.g. at the start of a new collection sweep)
    */
   public resetFailures(): void {
-    for (const p of this.staticProxies) {
-      p.failures = 0;
+    for (const proxy of this.staticProxies) {
+      proxy.failures = 0;
     }
     this.currentApiProxy = null;
+    this.currentStaticProxy = null;
+  }
+
+  private getNextStaticProxy(): ProxyItem | null {
+    const activeStaticProxies = this.staticProxies.filter((proxy) => proxy.failures < this.maxFailures);
+    if (activeStaticProxies.length === 0) {
+      return null;
+    }
+
+    activeStaticProxies.sort((a, b) => a.lastUsed - b.lastUsed);
+    return activeStaticProxies[0] ?? null;
+  }
+
+  private matchesProxy(configuredProxy: string, reportedProxyUrl: string): boolean {
+    return configuredProxy === reportedProxyUrl || this.parseProxyUrl(configuredProxy)?.server === reportedProxyUrl;
   }
 
   private async fetchDynamicProxy(): Promise<string | null> {
@@ -142,7 +157,6 @@ export class ProxyPool {
       const password = url.password ? decodeURIComponent(url.password) : undefined;
       return { server, username, password };
     } catch {
-      // If it doesn't parse, maybe it's just host:port
       if (/^[a-zA-Z0-9.-]+:\d+$/.test(proxyStr)) {
         return { server: `http://${proxyStr}` };
       }

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
-import type { CompetitorFolder, CompetitorPoolItem, ProductActivityCalendar } from "@amazon-monitor/shared";
+import type { AsinWatchLevel, AsinWatchState, CompetitorFolder, CompetitorPoolItem, ProductActivityCalendar } from "@amazon-monitor/shared";
 import { competitorApi } from "../api-competitors";
+import { insightEventApi } from "../api-insight-events";
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "../constants/competitors";
 import {
   buildCompetitorInsightSuggestion,
@@ -11,6 +12,7 @@ import {
   type CompetitorKpi,
   type KpiDelta
 } from "../utils/competitor-pool";
+import { competitorWatchReason, findCompetitorWatchState } from "../utils/competitorWatchState";
 import { toErrorMessage } from "../utils/error-message";
 
 export const useCompetitorStore = defineStore("competitor", {
@@ -20,6 +22,8 @@ export const useCompetitorStore = defineStore("competitor", {
     competitorQuery: "",
     competitorSourceFilter: "all" as CompetitorSourceFilter,
     competitorTierFilter: "all" as CompetitorTierFilter,
+    watchStates: [] as AsinWatchState[],
+    watchStateUpdatingAsin: null as string | null,
     selectedCompetitorAsin: null as string | null,
     selectedCompetitorKeywordId: null as number | null,
     productActivityCalendar: null as ProductActivityCalendar | null,
@@ -39,27 +43,30 @@ export const useCompetitorStore = defineStore("competitor", {
         competitors: state.competitors,
         competitorQuery: state.competitorQuery,
         competitorSourceFilter: state.competitorSourceFilter,
-        competitorTierFilter: state.competitorTierFilter
+        competitorTierFilter: state.competitorTierFilter,
+        watchStates: state.watchStates
       }),
     selectedCompetitor: (state) => findSelectedCompetitor(state.competitors, state.selectedCompetitorAsin),
     competitorKpis: (state): CompetitorKpi[] =>
-      buildCompetitorKpis(state.competitors, state.yesterdayKpiDelta),
+      buildCompetitorKpis(state.competitors, state.yesterdayKpiDelta, undefined, state.watchStates),
     competitorInsightSuggestion: (state): CompetitorInsightSuggestion =>
-      buildCompetitorInsightSuggestion(state.competitors)
+      buildCompetitorInsightSuggestion(state.competitors, undefined, state.watchStates)
   },
   actions: {
     async loadCompetitors() {
-      const [folderData, competitorData] = await Promise.all([
+      const [folderData, competitorData, watchStateData] = await Promise.all([
         competitorApi.competitorFolders(),
         competitorApi.competitors({
           keywordId: this.selectedCompetitorKeywordId,
           sourceType: this.competitorSourceFilter === "hybrid" ? "hybrid" : "all",
           tier: this.competitorTierFilter
-        })
+        }),
+        insightEventApi.fetchAsinWatchStates()
       ]);
 
       this.competitorFolders = folderData;
       this.competitors = competitorData;
+      this.watchStates = watchStateData;
 
       if (this.selectedCompetitorAsin && !competitorData.some((item) => item.asin === this.selectedCompetitorAsin)) {
         this.selectedCompetitorAsin = null;
@@ -72,6 +79,27 @@ export const useCompetitorStore = defineStore("competitor", {
         await this.loadCompetitors();
       } catch (error) {
         setError(toErrorMessage(error));
+      }
+    },
+    async setWatchState(item: CompetitorPoolItem, watchLevel: AsinWatchLevel, setError: (message: string) => void) {
+      const existing = findCompetitorWatchState(this.watchStates, item.asin);
+      this.watchStateUpdatingAsin = item.asin;
+      try {
+        const updated = await insightEventApi.updateAsinWatchState(item.asin, {
+          watchLevel,
+          watchReason: existing?.watchReason ?? competitorWatchReason(item),
+          firstWatchDate: existing?.firstWatchDate,
+          lastEventDate: existing?.lastEventDate ?? null,
+          note: existing?.note ?? null
+        });
+        this.watchStates = [
+          updated,
+          ...this.watchStates.filter((state) => state.asin !== updated.asin)
+        ];
+      } catch (error) {
+        setError(toErrorMessage(error));
+      } finally {
+        this.watchStateUpdatingAsin = null;
       }
     },
     async selectCompetitorFolder(keywordId: number | null) {

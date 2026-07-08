@@ -86,6 +86,8 @@ export interface PeriodInsightReportResponse {
   summary: PeriodInsightReportSummary;
   topEvents: InsightEvent[];
   topBrands: PeriodInsightReportBrand[];
+  reviewDueEvents: InsightEvent[];
+  reviewedEvents: InsightEvent[];
   reviewOutcomes: Array<{ result: InsightReviewResult; count: number }>;
   markdown: string;
   aiSummary?: PeriodInsightAiSummary;

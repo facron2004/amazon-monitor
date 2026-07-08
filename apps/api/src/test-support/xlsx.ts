@@ -16,8 +16,10 @@ export const DAILY_REPORT_SHEET_NAMES = [
   "Action Insights",
   "Brand Top10 Changes",
   "Alert Log",
+  "Action Checklist",
   "Insight Events",
   "Review Queue",
+  "Review Outcomes",
   "Brand Strategy Tags"
 ];
 

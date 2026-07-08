@@ -36,6 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_bestseller_promo_lookup ON amazon_bestseller_rank
 CREATE INDEX IF NOT EXISTS idx_bestseller_asin_date_rank ON amazon_bestseller_rank_snapshot(asin, snapshot_date DESC, rank_no);
 CREATE INDEX IF NOT EXISTS idx_bestseller_price_low_lookup ON amazon_bestseller_rank_snapshot(category_id, marketplace, asin, snapshot_date, current_price);
 CREATE INDEX IF NOT EXISTS idx_bestseller_snapshot_date ON amazon_bestseller_rank_snapshot(snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_bestseller_brand_date ON amazon_bestseller_rank_snapshot(brand, snapshot_date);
 
 CREATE TABLE IF NOT EXISTS amazon_bsr_rank_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,6 +137,8 @@ CREATE TABLE IF NOT EXISTS amazon_product_price_history (
 CREATE INDEX IF NOT EXISTS idx_product_price_history_date ON amazon_product_price_history(snapshot_date, category_id);
 CREATE INDEX IF NOT EXISTS idx_product_price_history_asin ON amazon_product_price_history(asin, marketplace, snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_product_price_history_promo_lookup ON amazon_product_price_history(asin, marketplace, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_price_history_brand_date ON amazon_product_price_history(brand, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_price_history_category_asin_date ON amazon_product_price_history(category_id, asin, snapshot_date);
 
 CREATE TABLE IF NOT EXISTS amazon_brand_matrix_snapshot (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,6 +164,7 @@ CREATE TABLE IF NOT EXISTS amazon_brand_matrix_snapshot (
   UNIQUE(category_id, snapshot_date, brand)
 );
 CREATE INDEX IF NOT EXISTS idx_brand_matrix_category_date ON amazon_brand_matrix_snapshot(category_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_brand_matrix_brand ON amazon_brand_matrix_snapshot(brand, snapshot_date);
 
 CREATE TABLE IF NOT EXISTS amazon_competitor_signal_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

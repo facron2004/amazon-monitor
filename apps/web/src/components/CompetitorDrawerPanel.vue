@@ -1,21 +1,54 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { CalendarDays, ExternalLink, Star, StarOff, X } from "@lucide/vue";
-import type { CompetitorPoolItem } from "@amazon-monitor/shared";
-import { competitorSourceLabel, competitorTierLabel, formatCount, formatMoney, iceTypeLabel, imgFallback, validCouponText, validDealBadge } from "../utils/formatters";
+import { ElOption, ElSelect, ElTag } from "element-plus";
+import type { AsinWatchLevel, AsinWatchState, CompetitorPoolItem } from "@amazon-monitor/shared";
+import {
+  competitorSourceLabel,
+  competitorTierLabel,
+  formatCount,
+  formatMoney,
+  iceTypeLabel,
+  imgFallback,
+  validCouponText,
+  validDealBadge
+} from "../utils/formatters";
+import {
+  competitorWatchLabel,
+  competitorWatchLevel,
+  competitorWatchLevelOptions,
+  competitorWatchTagType,
+  findCompetitorWatchState,
+  normalizeCompetitorWatchLevel
+} from "../utils/competitorWatchState";
 
 interface Props {
   selectedCompetitor: CompetitorPoolItem | null;
+  watchStates: AsinWatchState[];
+  watchStateUpdatingAsin: string | null;
 }
 
 interface Emits {
   (e: "close-competitor-drawer"): void;
   (e: "toggle-key-competitor", item: CompetitorPoolItem): void;
+  (e: "set-watch-state", item: CompetitorPoolItem, level: AsinWatchLevel): void;
   (e: "open-product-activity-calendar", item: CompetitorPoolItem): void;
   (e: "open-amazon", item: CompetitorPoolItem): void;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+const selectedWatchState = computed(() => {
+  const competitor = props.selectedCompetitor;
+  return competitor ? findCompetitorWatchState(props.watchStates, competitor.asin) : null;
+});
+const selectedWatchLevel = computed(() => competitorWatchLevel(selectedWatchState.value));
+
+function updateWatchLevel(value: unknown): void {
+  if (!props.selectedCompetitor) return;
+  emit("set-watch-state", props.selectedCompetitor, normalizeCompetitorWatchLevel(value));
+}
 </script>
 
 <template>
@@ -27,8 +60,20 @@ const emit = defineEmits<Emits>();
         <div>
           <strong>{{ selectedCompetitor.asin }}</strong>
           <span>{{ selectedCompetitor.title }}</span>
-          <small v-if="validDealBadge(selectedCompetitor.dealBadge)" class="promo-inline" :title="validDealBadge(selectedCompetitor.dealBadge) ?? ''">促销：{{ validDealBadge(selectedCompetitor.dealBadge) }}</small>
-          <small v-else-if="validCouponText(selectedCompetitor.couponText)" class="promo-inline" :title="validCouponText(selectedCompetitor.couponText) ?? ''">促销：{{ validCouponText(selectedCompetitor.couponText) }}</small>
+          <small
+            v-if="validDealBadge(selectedCompetitor.dealBadge)"
+            class="promo-inline"
+            :title="validDealBadge(selectedCompetitor.dealBadge) ?? ''"
+          >
+            促销: {{ validDealBadge(selectedCompetitor.dealBadge) }}
+          </small>
+          <small
+            v-else-if="validCouponText(selectedCompetitor.couponText)"
+            class="promo-inline"
+            :title="validCouponText(selectedCompetitor.couponText) ?? ''"
+          >
+            促销: {{ validCouponText(selectedCompetitor.couponText) }}
+          </small>
         </div>
       </div>
       <button class="icon-button drawer-close" title="关闭" type="button" @click="emit('close-competitor-drawer')">
@@ -54,6 +99,14 @@ const emit = defineEmits<Emits>();
         <strong>{{ competitorTierLabel(selectedCompetitor.competitorTier) }}</strong>
       </article>
       <article>
+        <span>观察优先级</span>
+        <strong>
+          <ElTag :type="competitorWatchTagType(selectedWatchLevel)" effect="light" round>
+            {{ competitorWatchLabel(selectedWatchState) }}
+          </ElTag>
+        </strong>
+      </article>
+      <article>
         <span>类目排名</span>
         <strong>{{ selectedCompetitor.latestCategoryRank ? `#${selectedCompetitor.latestCategoryRank}` : "-" }}</strong>
         <small>{{ selectedCompetitor.latestCategoryName || "-" }}</small>
@@ -69,7 +122,7 @@ const emit = defineEmits<Emits>();
         <small>{{ formatMoney(selectedCompetitor.lowestPrice) }}</small>
       </article>
       <article>
-        <span>评价数</span>
+        <span>评论数</span>
         <strong>{{ formatCount(selectedCompetitor.latestReviewCount) }}</strong>
       </article>
       <article>
@@ -77,6 +130,25 @@ const emit = defineEmits<Emits>();
         <strong>{{ selectedCompetitor.latestBsrRank ? `#${selectedCompetitor.latestBsrRank}` : "-" }}</strong>
         <small>{{ selectedCompetitor.latestBsrCategory || "-" }}</small>
       </article>
+    </div>
+
+    <div class="drawer-section">
+      <h3>运营观察层级</h3>
+      <ElSelect
+        class="drawer-watch-select"
+        :model-value="selectedWatchLevel"
+        :disabled="watchStateUpdatingAsin === selectedCompetitor.asin"
+        :loading="watchStateUpdatingAsin === selectedCompetitor.asin"
+        @update:model-value="updateWatchLevel"
+      >
+        <ElOption
+          v-for="option in competitorWatchLevelOptions"
+          :key="option.value"
+          :label="option.label"
+          :value="option.value"
+        />
+      </ElSelect>
+      <p v-if="selectedWatchState?.watchReason" class="watch-reason">{{ selectedWatchState.watchReason }}</p>
     </div>
 
     <div class="drawer-section">
@@ -104,3 +176,15 @@ const emit = defineEmits<Emits>();
     </div>
   </aside>
 </template>
+
+<style scoped>
+.drawer-watch-select {
+  width: 100%;
+}
+
+.watch-reason {
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+</style>

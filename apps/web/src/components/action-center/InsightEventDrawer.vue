@@ -5,14 +5,23 @@ import type {
   AsinWatchLevel,
   AsinWatchState,
   BrandPlaybookProfile,
+  BsrRankHistory,
   InsightEvent,
+  InsightEventNote,
   InsightEventStatus,
   InsightReviewResult,
   ProductPriceHistory
 } from "@amazon-monitor/shared";
 import { inferInsightEventStrategyTags } from "@amazon-monitor/shared";
 import AttributionTags from "./AttributionTags.vue";
+import ActionEvidenceDeltaPanel from "./ActionEvidenceDeltaPanel.vue";
+import ActionImpactSnapshotPanel from "./ActionImpactSnapshotPanel.vue";
+import ActionRecommendationCard from "./ActionRecommendationCard.vue";
+import ActionNoteTimeline from "./ActionNoteTimeline.vue";
+import ActionReviewCheckpointPanel from "./ActionReviewCheckpointPanel.vue";
+import ActionScoreBreakdownPanel from "./ActionScoreBreakdownPanel.vue";
 import BrandPlaybookCard from "./BrandPlaybookCard.vue";
+import BsrTrendCard from "./BsrTrendCard.vue";
 import InsightEventActionPanel from "./InsightEventActionPanel.vue";
 import InsightScoreBadge from "./InsightScoreBadge.vue";
 import PriceTimelineCard from "./PriceTimelineCard.vue";
@@ -20,14 +29,23 @@ import StrategyTags from "./StrategyTags.vue";
 
 const props = withDefaults(defineProps<{
   event: InsightEvent | null;
+  currentDate: string;
   watchState: AsinWatchState | null;
   brandPlaybook?: BrandPlaybookProfile | null;
   brandPlaybookLoading?: boolean;
+  noteHistory?: InsightEventNote[];
+  noteHistoryLoading?: boolean;
+  bsrHistory?: BsrRankHistory[];
+  bsrHistoryLoading?: boolean;
   priceHistory?: ProductPriceHistory[];
   priceHistoryLoading?: boolean;
 }>(), {
   brandPlaybook: null,
   brandPlaybookLoading: false,
+  noteHistory: () => [],
+  noteHistoryLoading: false,
+  bsrHistory: () => [],
+  bsrHistoryLoading: false,
   priceHistory: () => [],
   priceHistoryLoading: false
 });
@@ -40,23 +58,10 @@ const emit = defineEmits<{
   (event: "watch", id: string): void;
   (event: "watch-state", insight: InsightEvent, level: AsinWatchLevel): void;
   (event: "review", id: string, result: InsightReviewResult, note?: string | null): void;
+  (event: "convert-to-task", insight: InsightEvent): void;
 }>();
 
 const strategyTags = computed(() => props.event ? inferInsightEventStrategyTags(props.event) : []);
-
-const scoreRows = computed(() => {
-  const breakdown = props.event?.scoreBreakdown;
-  if (!breakdown) {
-    return [];
-  }
-  return [
-    ["排名", breakdown.rankingScore],
-    ["商品", breakdown.productScore],
-    ["活动", breakdown.promoScore],
-    ["品牌", breakdown.brandScore],
-    ["风险", breakdown.riskScore]
-  ];
-});
 
 function emitStatus(id: string, status: InsightEventStatus, reviewDueDate?: string | null): void {
   emit("status", id, status, reviewDueDate);
@@ -80,6 +85,10 @@ function emitWatchState(insight: InsightEvent, level: AsinWatchLevel): void {
 
 function emitReview(id: string, result: InsightReviewResult, note?: string | null): void {
   emit("review", id, result, note);
+}
+
+function emitConvertToTask(insight: InsightEvent): void {
+  emit("convert-to-task", insight);
 }
 
 function openProduct(): void {
@@ -108,6 +117,11 @@ function openProduct(): void {
 
     <img v-if="event.evidence.imageUrl" class="drawer-image" :src="event.evidence.imageUrl" :alt="event.eventTitle" loading="lazy" decoding="async" />
 
+    <ActionRecommendationCard :event="event" :current-date="currentDate" />
+    <ActionReviewCheckpointPanel :event="event" :current-date="currentDate" />
+    <ActionImpactSnapshotPanel :event="event" />
+    <ActionEvidenceDeltaPanel :event="event" />
+
     <section class="drawer-section">
       <h3>归因</h3>
       <AttributionTags :tags="event.attributionTags" />
@@ -132,6 +146,13 @@ function openProduct(): void {
       </ul>
     </section>
 
+    <BsrTrendCard
+      v-if="event.asin"
+      class="drawer-section"
+      :rows="bsrHistory"
+      :loading="bsrHistoryLoading"
+    />
+
     <PriceTimelineCard
       v-if="event.asin"
       class="drawer-section"
@@ -146,19 +167,11 @@ function openProduct(): void {
       :loading="brandPlaybookLoading"
     />
 
-    <section class="drawer-section">
-      <h3>评分拆解</h3>
-      <div class="score-breakdown">
-        <span v-for="[label, value] in scoreRows" :key="label">
-          <small>{{ label }}</small>
-          <strong>{{ value }}</strong>
-        </span>
-      </div>
-      <p>{{ event.scoreBreakdown.reasons.join("，") || "暂无评分原因" }}</p>
-    </section>
+    <ActionScoreBreakdownPanel class="drawer-section" :event="event" />
 
     <InsightEventActionPanel
       :event="event"
+      :current-date="currentDate"
       :watch-state="watchState"
       @status="emitStatus"
       @note="emitNote"
@@ -166,6 +179,13 @@ function openProduct(): void {
       @watch="emitWatch"
       @watch-state="emitWatchState"
       @review="emitReview"
+      @convert-to-task="emitConvertToTask"
+    />
+
+    <ActionNoteTimeline
+      :notes="noteHistory"
+      :current-note="event.userNote"
+      :loading="noteHistoryLoading"
     />
 
     <button v-if="event.evidence.productUrl" class="drawer-link" type="button" @click="openProduct">
@@ -261,30 +281,26 @@ function openProduct(): void {
   color: #64748b;
 }
 
-.evidence-grid,
-.score-breakdown {
+.evidence-grid {
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.evidence-grid div,
-.score-breakdown span {
+.evidence-grid div {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 10px;
 }
 
-.evidence-grid dt,
-.score-breakdown small {
+.evidence-grid dt {
   color: #64748b;
   display: block;
   font-size: 12px;
 }
 
-.evidence-grid dd,
-.score-breakdown strong {
+.evidence-grid dd {
   color: #0f172a;
   font-weight: 700;
   margin: 4px 0 0;

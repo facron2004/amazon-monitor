@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -19,6 +20,42 @@ import {
   getSchemaVersion,
   setSchemaVersion
 } from "./migrations.js";
+import { createIdentityStore } from "./identity-store.js";
+import { hashPassword, PASSWORD_ALGO } from "./password.js";
+import { nowIso } from "./sql-utils.js";
+
+function resolveInitialAdminPassword(): string {
+  const configured = process.env.ADMIN_INITIAL_PASSWORD?.trim();
+  if (configured) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === "test") {
+    return "admin123";
+  }
+  if (process.env.NODE_ENV !== "production") {
+    return "Admin123!";
+  }
+  const generated = randomBytes(18).toString("base64url");
+  console.warn(
+    `[Identity] Generated initial admin password for this database: ${generated}. ` +
+    "Set ADMIN_INITIAL_PASSWORD to choose it explicitly."
+  );
+  return generated;
+}
+
+function ensureDefaultIdentity(db: DatabaseSync): void {
+  const userCountRow = db.prepare("SELECT COUNT(*) as cnt FROM users").get() as { cnt: number };
+  if (userCountRow.cnt > 0) return;
+
+  const identity = createIdentityStore(db);
+  const org = identity.listOrganizations().find((item) => item.name === "Default Organization")
+    ?? identity.createOrganization({ name: "Default Organization", plan: "standard" });
+  const { hash } = hashPassword(resolveInitialAdminPassword());
+  db.prepare(
+    `INSERT INTO users (org_id, username, password_hash, password_algo, role, display_name, status, created_at, updated_at)
+     VALUES (?, 'admin', ?, ?, 'admin', 'Administrator', 'active', ?, ?)`
+  ).run(org.id, hash, PASSWORD_ALGO, nowIso(), nowIso());
+}
 
 /**
  * SQLite 繁忙超时配置（毫秒）
@@ -110,6 +147,15 @@ export function initSchema(db: DatabaseSync): void {
     refreshBsrSnapshotQuality(db);
   });
   runStoreMigrationOnce(db, "backfill_product_price_history_promos_v1", () => backfillProductPriceHistoryPromos(db));
+
+  // Stage 0 — identity schema. Seed a default org + admin account when the
+  // users table is empty, including legacy API-key deployments.
+  runStoreMigrationOnce(db, "identity_v1", () => {
+    ensureDefaultIdentity(db);
+  });
+  runStoreMigrationOnce(db, "identity_default_admin_v2", () => {
+    ensureDefaultIdentity(db);
+  });
 
   // 记录当前 schema 版本
   setSchemaVersion(db, SCHEMA_VERSION);

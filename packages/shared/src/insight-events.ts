@@ -1,4 +1,10 @@
 import type { StrategyTag } from "./strategy-tags.js";
+import type {
+  ActionEvidenceMovementFilter,
+  ActionStageFilter,
+  ActionScoreDriverFilter,
+  ReviewCadenceBucketKey
+} from "./insight-event-derived-filters.js";
 
 export const insightEventTypes = [
   "NEW_TOP100_ENTRY",
@@ -26,11 +32,14 @@ export type InsightEventType = (typeof insightEventTypes)[number];
 export const insightEventLevels = ["P0", "P1", "P2"] as const;
 export type InsightEventLevel = (typeof insightEventLevels)[number];
 
-export const insightEventStatuses = ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] as const;
+export const insightEventStatuses = ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED", "CONVERTED_TO_TASK"] as const;
 export type InsightEventStatus = (typeof insightEventStatuses)[number];
 
 export const insightScoreLevels = ["S", "A", "B", "C", "D"] as const;
 export type InsightScoreLevel = (typeof insightScoreLevels)[number];
+
+export const insightEventSortKeys = ["score", "level", "rankChange", "reviewChange", "createdAt"] as const;
+export type InsightEventSortKey = (typeof insightEventSortKeys)[number];
 
 export const attributionTags = [
   "PRICE_DRIVEN",
@@ -98,7 +107,8 @@ export const insightEventStatusLabels: Record<InsightEventStatus, string> = {
   FOLLOWED: "已跟进",
   IGNORED: "已忽略",
   REVIEW_PENDING: "待复盘",
-  REVIEWED: "已复盘"
+  REVIEWED: "已复盘",
+  CONVERTED_TO_TASK: "已转化为任务"
 };
 
 export const insightReviewResultLabels: Record<InsightReviewResult, string> = {
@@ -138,9 +148,13 @@ export interface InsightEvidence {
   dealType?: string | null;
   brandRisingCount?: number | null;
   brandNewEntryCount?: number | null;
+  brandDroppedCount?: number | null;
+  brandRankDownCount?: number | null;
   brandTop100Count?: number | null;
+  brandTop100ShareChange?: number | null;
   priceLowWindow?: "T30" | "T60" | "T90" | "ALL" | null;
   isCoreCompetitor?: boolean;
+  coreCompetitorRising3Days?: boolean;
   strategyTags?: StrategyTag[];
   evidenceItems: string[];
 }
@@ -180,6 +194,14 @@ export interface InsightEvent {
   updatedAt: string;
 }
 
+export interface InsightEventNote {
+  id: string;
+  eventId: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InsightEventInput extends Omit<InsightEvent, "assignee" | "createdAt" | "updatedAt"> {
   assignee?: string | null;
   createdAt?: string;
@@ -188,17 +210,39 @@ export interface InsightEventInput extends Omit<InsightEvent, "assignee" | "crea
 
 export interface InsightEventListParams {
   date?: string;
+  reviewedOnDate?: boolean;
   status?: InsightEventStatus;
   level?: InsightEventLevel;
   eventType?: InsightEventType;
+  reviewResult?: InsightReviewResult;
   categoryId?: number;
   keywordId?: number;
   brand?: string;
   asin?: string;
   assignee?: string;
+  attributionTag?: AttributionTag;
+  evidenceMovement?: ActionEvidenceMovementFilter;
+  reviewCadence?: ReviewCadenceBucketKey;
+  actionStage?: ActionStageFilter;
+  scoreDriver?: ActionScoreDriverFilter;
+  strategyTag?: StrategyTag;
+  sortBy?: InsightEventSortKey;
   unassignedOnly?: boolean;
+  coreOnly?: boolean;
+  newBreakoutOnly?: boolean;
   limit?: number;
   offset?: number;
+}
+
+export interface InsightEventTrendPoint {
+  date: string;
+  totalCount: number;
+  openCount: number;
+  closedCount: number;
+  reviewDueCount: number;
+  p0Count: number;
+  reviewedCount: number;
+  validatedCount: number;
 }
 
 export interface AsinWatchState {

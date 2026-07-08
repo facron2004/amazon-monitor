@@ -133,7 +133,7 @@
 
 .bsr-board-scroll .product-cell .promo-inline {
   display: block;
-  color: #b45309;
+  color: #0f766e;
   font-size: 11px;
   font-weight: 700;
   margin-top: 3px;
@@ -282,9 +282,9 @@
 }
 
 .tier-pill.rising {
-  background: #fffbeb;
-  color: #b45309;
-  border: 1px solid rgba(245, 158, 11, 0.1);
+  background: #fefce8;
+  color: #713f12;
+  border: 1px solid rgba(202, 138, 4, 0.14);
 }
 
 .tier-pill.activity {
@@ -429,7 +429,7 @@
 .drawer-product .promo-inline {
   display: block;
   max-width: 100%;
-  color: #b45309;
+  color: #0f766e;
   font-size: 11.5px;
   font-weight: 700;
   margin-top: 4px;
@@ -680,7 +680,7 @@ td small {
 .level.medium {
   background: var(--color-warning-bg);
   color: var(--color-warning-text);
-  border: 1px solid rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(202, 138, 4, 0.14);
 }
 
 .level.low {
@@ -825,7 +825,7 @@ td small {
 /* SMTP Warning Banner Custom styles */
 .smtp-banner {
   background-color: var(--color-warning-bg);
-  border: 1px solid rgba(234, 88, 12, 0.2);
+  border: 1px solid rgba(202, 138, 4, 0.2);
   border-radius: var(--radius-md);
   padding: 20px;
   margin-bottom: 8px;
@@ -848,7 +848,7 @@ td small {
   font-size: 14px;
   flex-shrink: 0;
   margin-top: 1px;
-  box-shadow: 0 2px 4px rgba(234, 88, 12, 0.2);
+  box-shadow: 0 2px 4px rgba(202, 138, 4, 0.2);
 }
 
 .smtp-banner h3 {

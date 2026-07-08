@@ -23,9 +23,9 @@
   --color-danger-bg: #fef2f2;       /* Red 50 */
   --color-danger-text: #991b1b;     /* Red 800 */
   
-  --color-warning: #ea580c;         /* Amber 600 */
-  --color-warning-bg: #fffbeb;      /* Amber 50 */
-  --color-warning-text: #92400e;    /* Amber 800 */
+  --color-warning: #ca8a04;         /* Yellow 600 */
+  --color-warning-bg: #fefce8;      /* Yellow 50 */
+  --color-warning-text: #713f12;    /* Yellow 900 */
   
   --color-info: #0284c7;            /* Sky 600 */
   --color-info-bg: #f0f9ff;         /* Sky 50 */

@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
-export type WhereBuilder = { clause: string; param?: SQLInputValue };
+export type WhereBuilder = { clause: string; param?: SQLInputValue; params?: SQLInputValue[] };
 
 export function withTransaction(db: DatabaseSync, work: () => void): void {
   db.exec("SAVEPOINT _sp");
@@ -33,6 +33,9 @@ export function buildWhere(...conditions: Array<WhereBuilder | WhereBuilder[] | 
   const sql = flat.length ? `WHERE ${flat.map((c) => c.clause).join(" AND ")}` : "";
   const params: SQLInputValue[] = [];
   for (const c of flat) {
+    if (c.params !== undefined) {
+      params.push(...c.params);
+    }
     if (c.param !== undefined) {
       params.push(c.param);
     }

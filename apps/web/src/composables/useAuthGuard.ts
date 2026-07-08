@@ -1,7 +1,11 @@
 import { ref } from "vue";
+import { useSessionStore } from "../stores/session";
 
 export function useAuthGuard(reloadCurrentView: () => Promise<void>) {
-  const showAuthModal = ref(false);
+  const sessionStore = useSessionStore();
+  const showAuthModal = ref(true);
+  const mode = ref<"login" | "register">("login");
+  const usernameInput = ref("admin");
   const passwordInput = ref("");
   const authError = ref("");
 
@@ -10,29 +14,50 @@ export function useAuthGuard(reloadCurrentView: () => Promise<void>) {
   }
 
   async function handleAuthSubmit() {
-    if (!passwordInput.value.trim()) {
-      authError.value = "请输入 API 访问密码。";
+    authError.value = "";
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    if (!username || !password) {
+      authError.value = "请输入用户名和密码。";
       return;
     }
 
-    localStorage.setItem("amazon_monitor_auth_token", passwordInput.value.trim());
-    authError.value = "";
-
     try {
+      if (mode.value === "register") {
+        const ok = await sessionStore.registerBootstrapAdmin(username, password);
+        if (!ok) {
+          authError.value = sessionStore.error ?? "注册失败。";
+          return;
+        }
+      } else {
+        const ok = await sessionStore.login(username, password);
+        if (!ok) {
+          authError.value = sessionStore.error ?? "登录失败。";
+          return;
+        }
+      }
+
       await reloadCurrentView();
       showAuthModal.value = false;
       passwordInput.value = "";
     } catch (error) {
-      localStorage.removeItem("amazon_monitor_auth_token");
-      authError.value = error instanceof Error ? error.message : "验证失败，请检查密码后重试。";
+      authError.value = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  function switchMode(next: "login" | "register") {
+    mode.value = next;
+    authError.value = "";
   }
 
   return {
     showAuthModal,
+    mode,
+    usernameInput,
     passwordInput,
     authError,
     handleUnauthorized,
-    handleAuthSubmit
+    handleAuthSubmit,
+    switchMode
   };
 }

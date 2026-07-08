@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type {
   AsinWatchState,
   InsightEvent,
   InsightEventInput,
   InsightEvidence,
+  InsightEventNote,
+  InsightEventSortKey,
   InsightScoreBreakdown
 } from "@amazon-monitor/shared";
 import { parseJsonArray } from "./json-utils.js";
-import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereLte, withTransaction } from "./sql-utils.js";
+import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereLte, withTransaction, type WhereBuilder } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
 type InsightEventStoreMethods = Pick<
@@ -16,6 +18,7 @@ type InsightEventStoreMethods = Pick<
   | "listInsightEvents"
   | "listTopInsights"
   | "getInsightEvent"
+  | "listInsightEventNotes"
   | "upsertInsightEvent"
   | "updateInsightEventStatus"
   | "updateInsightEventNote"
@@ -65,6 +68,14 @@ interface AsinWatchStateRow {
   updated_at: string;
 }
 
+interface InsightEventNoteRow {
+  id: string;
+  event_id: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const emptyBreakdown: InsightScoreBreakdown = {
   rankingScore: 0,
   productScore: 0,
@@ -74,20 +85,114 @@ const emptyBreakdown: InsightScoreBreakdown = {
   reasons: []
 };
 
+const insightEventLevelOrderSql = "CASE event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END";
+const insightEventMissingNumericSortValue = "-1000000000000";
+
+function whereJsonArrayContains(column: string, value: SQLInputValue | undefined | null): WhereBuilder | null {
+  if (value === undefined || value === null || value === "") return null;
+  return { clause: jsonArrayContainsClause(column), param: value };
+}
+
+function whereStrategyTag(value: string | undefined | null): WhereBuilder | null {
+  if (!value) return null;
+  const directTagClause = jsonArrayContainsClause("evidence_json", "$.strategyTags");
+  const derived = derivedStrategyTagClause(value);
+  return {
+    clause: `(${directTagClause}${derived.clause ? ` OR ${derived.clause}` : ""})`,
+    params: [value, ...derived.params]
+  };
+}
+
+function whereCoreOnly(): WhereBuilder {
+  return {
+    clause: `(
+      json_extract(evidence_json, '$.isCoreCompetitor') = 1
+      OR EXISTS (
+        SELECT 1 FROM asin_watch_states aws
+        WHERE aws.asin = insight_events.asin
+          AND aws.watch_level = 'CORE'
+      )
+    )`
+  };
+}
+
+function jsonArrayContainsClause(column: string, path?: string): string {
+  const pathArg = path ? `, '${path}'` : "";
+  return `EXISTS (SELECT 1 FROM json_each(${column}${pathArg}) WHERE value = ?)`;
+}
+
+function derivedStrategyTagClause(value: string): { clause: string; params: SQLInputValue[] } {
+  if (value === "LOW_PRICE_RANKING") {
+    return {
+      clause: `(${jsonArrayContainsClause("attribution_tags_json")}
+        AND (COALESCE(json_extract(evidence_json, '$.rankChange'), 0) > 0 OR json_extract(evidence_json, '$.previousRank') IS NULL)
+        AND json_extract(evidence_json, '$.currentRank') BETWEEN 1 AND 100)`,
+      params: ["PRICE_DRIVEN"]
+    };
+  }
+  if (value === "COUPON_DEPENDENT") {
+    return { clause: jsonArrayContainsClause("attribution_tags_json"), params: ["COUPON_DRIVEN"] };
+  }
+  if (value === "DEAL_LIFT") {
+    return { clause: jsonArrayContainsClause("attribution_tags_json"), params: ["DEAL_DRIVEN"] };
+  }
+  if (value === "REVIEW_ACCELERATION") {
+    return { clause: jsonArrayContainsClause("attribution_tags_json"), params: ["REVIEW_DRIVEN"] };
+  }
+  if (value === "NEW_PRODUCT_MATRIX") {
+    return {
+      clause: `(${jsonArrayContainsClause("attribution_tags_json")}
+        AND (
+          COALESCE(json_extract(evidence_json, '$.brandNewEntryCount'), 0) >= 2
+          OR COALESCE(json_extract(evidence_json, '$.brandRisingCount'), 0) >= 3
+          OR ${jsonArrayContainsClause("attribution_tags_json")}
+        ))`,
+      params: ["NEW_PRODUCT_PUSH", "BRAND_MATRIX_PUSH"]
+    };
+  }
+  if (value === "STABLE_HEAD") {
+    return {
+      clause: `(json_extract(evidence_json, '$.currentRank') BETWEEN 1 AND 20
+        AND json_extract(evidence_json, '$.previousRank') BETWEEN 1 AND 20
+        AND ABS(COALESCE(json_extract(evidence_json, '$.rankChange'), 0)) <= 5)`,
+      params: []
+    };
+  }
+  if (value === "SHORT_SURGE_REVERSION") {
+    return {
+      clause: `(${jsonArrayContainsClause("attribution_tags_json")} OR review_result = 'REVERTED')`,
+      params: ["PROMO_END_DROP"]
+    };
+  }
+  if (value === "HIGH_THREAT_CORE") {
+    return {
+      clause: `(json_extract(evidence_json, '$.isCoreCompetitor') = 1
+        AND json_extract(evidence_json, '$.currentRank') BETWEEN 1 AND 50)`,
+      params: []
+    };
+  }
+  return { clause: "", params: [] };
+}
+
 export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMethods {
   return {
     listInsightEvents(params = {}) {
       const { sql: where, params: queryParams } = buildWhere(
-        whereEq("event_date", params.date),
+        whereEventOrReviewedDate(params.date, params.reviewedOnDate),
         whereEq("status", params.status),
         whereEq("event_level", params.level),
         whereEq("event_type", params.eventType),
+        whereEq("review_result", params.reviewResult),
         whereEq("category_id", params.categoryId),
         whereEq("keyword_id", params.keywordId),
         whereEq("brand", params.brand),
         whereEq("asin", params.asin),
         whereEq("assignee", params.assignee),
-        params.unassignedOnly ? { clause: "assignee IS NULL" } : null
+        whereJsonArrayContains("attribution_tags_json", params.attributionTag),
+        whereStrategyTag(params.strategyTag),
+        params.unassignedOnly ? { clause: "assignee IS NULL" } : null,
+        params.coreOnly ? whereCoreOnly() : null,
+        params.newBreakoutOnly ? { clause: "event_type = 'NEW_PRODUCT_BREAKOUT'" } : null
       );
       const limit = clampLimit(params.limit ?? 50);
       const offset = clampOffset(params.offset);
@@ -98,11 +203,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         db
           .prepare(
             `SELECT * FROM insight_events ${where}
-             ORDER BY event_date DESC,
-              CASE event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END DESC,
-              score_total DESC,
-              updated_at DESC,
-              id ASC
+             ${buildInsightEventOrderBy(params.sortBy)}
              ${pagination}`
           )
           .all(...queryParams) as unknown as InsightEventRow[]
@@ -112,6 +213,18 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
     getInsightEvent(id) {
       const row = db.prepare("SELECT * FROM insight_events WHERE id = ?").get(id) as InsightEventRow | undefined;
       return row ? mapInsightEvent(row) : null;
+    },
+
+    listInsightEventNotes(eventId) {
+      return (
+        db
+          .prepare(
+            `SELECT * FROM insight_event_notes
+             WHERE event_id = ?
+             ORDER BY created_at DESC, rowid DESC`
+          )
+          .all(eventId) as unknown as InsightEventNoteRow[]
+      ).map(mapInsightEventNote);
     },
 
     /**
@@ -289,12 +402,17 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         whereEq("status", params.status),
         whereEq("event_level", params.level),
         whereEq("event_type", params.eventType),
+        whereEq("review_result", params.reviewResult),
         whereEq("category_id", params.categoryId),
         whereEq("keyword_id", params.keywordId),
         whereEq("brand", params.brand),
         whereEq("asin", params.asin),
         whereEq("assignee", params.assignee),
-        params.unassignedOnly ? { clause: "assignee IS NULL" } : null
+        whereJsonArrayContains("attribution_tags_json", params.attributionTag),
+        whereStrategyTag(params.strategyTag),
+        params.unassignedOnly ? { clause: "assignee IS NULL" } : null,
+        params.coreOnly ? whereCoreOnly() : null,
+        params.newBreakoutOnly ? { clause: "event_type = 'NEW_PRODUCT_BREAKOUT'" } : null
       );
       const limit = clampLimit(params.limit);
       const offset = clampOffset(params.offset);
@@ -305,10 +423,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         db
           .prepare(
             `SELECT * FROM insight_events ${where}
-             ORDER BY review_due_date ASC,
-              CASE event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END DESC,
-              score_total DESC,
-              id ASC
+             ${buildReviewDueOrderBy(params.sortBy)}
              ${pagination}`
           )
           .all(...queryParams) as unknown as InsightEventRow[]
@@ -453,6 +568,41 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
   };
 }
 
+function buildInsightEventOrderBy(sortBy: InsightEventSortKey | undefined): string {
+  if (sortBy === "score") {
+    return `ORDER BY score_total DESC, ${insightEventLevelOrderSql} DESC, updated_at DESC, id ASC`;
+  }
+  if (sortBy === "level") {
+    return `ORDER BY ${insightEventLevelOrderSql} DESC, score_total DESC, updated_at DESC, id ASC`;
+  }
+  if (sortBy === "rankChange") {
+    return `ORDER BY COALESCE(CAST(json_extract(evidence_json, '$.rankChange') AS REAL), ${insightEventMissingNumericSortValue}) DESC, score_total DESC, id ASC`;
+  }
+  if (sortBy === "reviewChange") {
+    return `ORDER BY COALESCE(CAST(json_extract(evidence_json, '$.reviewCountChange') AS REAL), ${insightEventMissingNumericSortValue}) DESC, score_total DESC, id ASC`;
+  }
+  if (sortBy === "createdAt") {
+    return "ORDER BY created_at DESC, score_total DESC, id ASC";
+  }
+  return `ORDER BY event_date DESC, ${insightEventLevelOrderSql} DESC, score_total DESC, updated_at DESC, id ASC`;
+}
+
+function whereEventOrReviewedDate(date: string | undefined, includeReviewedOnDate: boolean | undefined): WhereBuilder | null {
+  if (!date) return null;
+  if (!includeReviewedOnDate) return whereEq("event_date", date);
+  return {
+    clause: "(event_date = ? OR (review_result IS NOT NULL AND substr(updated_at, 1, 10) = ?))",
+    params: [date, date]
+  };
+}
+
+function buildReviewDueOrderBy(sortBy: InsightEventSortKey | undefined): string {
+  if (sortBy) {
+    return buildInsightEventOrderBy(sortBy);
+  }
+  return `ORDER BY review_due_date ASC, ${insightEventLevelOrderSql} DESC, score_total DESC, id ASC`;
+}
+
 function mapInsightEvent(row: InsightEventRow): InsightEvent {
   return {
     id: row.id,
@@ -476,6 +626,16 @@ function mapInsightEvent(row: InsightEventRow): InsightEvent {
     reviewDueDate: row.review_due_date,
     reviewResult: row.review_result,
     userNote: row.user_note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapInsightEventNote(row: InsightEventNoteRow): InsightEventNote {
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    note: row.note,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

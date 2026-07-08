@@ -14,6 +14,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-07-08
+
+### Added
+
+#### 自营 SKU 经营中心 (Owned-SKU Operations)
+- **SKU 主数据**：`store/product-store.ts` + `store/schema/product-schema.ts` + `routes/products.ts` —— 支持新增自营 SKU，记录 ASIN、站点、品牌、标题、类目、负责人与数据新鲜度。
+- **日指标录入**：`POST /api/products/:id/daily-metrics` —— 销售额、订单数、库存天数、广告花费、ACOS、毛利率、BSR、核心词排名、评分、Review 数。
+- **风险评分 / 机会评分**：库存风险、销售下滑、广告异常、核心词排名、评分/Review、关联事件压力加权计算；机会评分反向加权。缺失数据不编造结论。
+- **页面入口**：侧边栏 `自营 SKU` 视图（`apps/web/src/components/ProductsView.vue` + `api-products.ts`），展示 SKU 列表、当日 KPI、风险/机会分、数据新鲜度与近期指标明细。
+
+#### AI Daily Operator Agent（确定性 + 证据绑定）
+- **`/api/ai/daily-brief`**：从 insight events、open workflow tasks、owned-SKU risk scores 生成 PRD 要求的"今日 5 件事"brief。
+- **`ai_runs` 表** + `store/ai-run-store.ts`：持久化每次 Agent 调用的输入上下文、输出 JSON、model id、status 与 error。
+- **绝不执行自动写操作**：所有推荐动作均带 `needs_human_approval: true`；低置信度 brief 不会产出 P0 动作。当前实现为确定性版本，不调用外部 LLM，不编造缺失字段。
+
+#### Listing Health
+- **Listing 快照**：`POST /api/products/:id/listing-snapshots`，抓取自有 SKU 的 listing 文本/图片/QA/Review 反射证据。
+- **`/api/listing-health` 6 项检查**：标题关键词覆盖、标题长度/重复、图片覆盖、bullet 覆盖、Review VOC 反映、开放 Q&A 缺口。
+- **Listing Optimizer Agent**：`/api/ai/analyze-listing`，确定性输出 + 持久化到 `ai_runs`，所有推荐 approval-gated。
+- **侧边栏 `Listing Health` 视图**：队列审查、快照录入、问题检查、Agent 推荐展示。
+
+#### Ads Workflow Diagnostics
+- **`ad_daily_metrics` 表**：campaign / ad group / target / search term 维度的 spend、sales、ACOS、ROAS、CPC、CTR、CVR、budget usage 证据。
+- **`/api/ads/metrics` + `/api/ads/summary`**：手动 Ads 指标录入 + 确定性 spend-waste / scale-opportunity 诊断。
+- **Ads Analyst Agent**：`/api/ai/analyze-ads`，所有推荐 approval-gated。
+- **侧边栏 `Ads Workflow` 视图**：campaign target 复盘、指标录入、风险/扩容检查、Agent 推荐。
+
+#### Review VOC
+- **`own_product_reviews` 表**：review text、rating、sentiment、topic tags、freshness 证据。
+- **`/api/review-voc` + `/api/products/:id/reviews` + `/api/products/:id/review-voc`**：review 录入 + 30 天 VOC 汇总。
+- **Review VOC Agent**：`/api/ai/analyze-review-voc`，approval-gated 推荐。
+- **侧边栏 `Review VOC` 视图**：SKU triage、topic clusters、最近评论样本、Agent 推荐。
+
+#### Inventory Replenishment
+- **`product_inventory_settings` 表**：lead time、safety stock、target stock、MOQ、pack size、supplier、reorder point。
+- **`/api/inventory/plans` + `/api/products/:id/inventory-plan` + `/api/products/:id/inventory-setting`**：stockout / reorder / overstock / data-gap 确定性信号。
+- **侧边栏 `Inventory` 视图**：补货 triage、阈值编辑、approval-ready 订单数量推荐。
+
+#### Profit Safety Line
+- **`product_profit_settings` 表**：purchase cost、freight、FBA fee、referral rate、storage、return loss、target margin、minimum margin、Deal fee 假设。
+- **`/api/profit/plans` + `/api/products/:id/profit-plan` + `/api/products/:id/profit-setting`**：current / 10% Coupon / 15% Coupon / Deal 四种价格情景 + minimum-safe 与 target-margin 安全线。
+- **侧边栏 `Profit` 视图**：margin-risk triage + 成本假设编辑；**不**做自动 repricing。
+
+#### Identity / Auth
+- **`identity-store.ts` + `identity-schema.ts` + `identity-mappers.ts` + `password.ts`**：组织/用户/session/密码哈希（`PASSWORD_ALGO`）的完整 store 层。
+- **`/api/auth` 路由 + `auth-service.ts`**：登录/注册/session 管理。
+- **10+ 新增 store**：`ads-store.ts`、`inventory-store.ts`、`listing-health-store.ts`、`profit-store.ts`、`review-voc-store.ts`、`sop-store.ts`、`task-store.ts` + 配套 `*-schema.ts`、`workflow-mappers.ts`。
+- **10+ 新增 route**：`ads.ts`、`ai.ts`、`auth.ts`、`inventory.ts`、`listing-health.ts`、`products.ts`、`profit.ts`、`review-voc.ts`、`sops.ts`、`tasks.ts`，每个均配套 `.test.ts`。
+
+#### Worker Hardening
+- **`runJobWithTimeout` 重构**：`Promise.race` + `AbortController`，超时真正终止采集（之前 setTimeout 调 abort 但不 reject 会被吞）；新增 `runJobWithTimeout` 接受 injectable runner 参数便于测试。
+- **`worker.test.ts`**：20ms 超时场景下，runner 必收到 abort 信号且 `runJobWithTimeout` 抛 `AbortError`。
+- **环境变量解析统一为 `intEnv()`**：maxRetries / pollInterval / concurrency / jobTimeout / heartbeat，全部带 min/max 边界保护。
+
+#### Shared Package
+- **`packages/shared/src/types-products.ts`**：新增 `SerpProductInput` / `SerpSnapshot` / `ProductRanking` 等结构体，前后端共享。
+- **`amazon-url.ts` 扩展**：`isAmazonHost` / `assertAmazonUrl` 收纳所有 Amazon 域名变体（`.co.uk` / `.co.jp` / `.de` / `.com.au` 等）。
+
+### Changed
+
+- **类目采集 (`category-pipeline.ts`)**：TopN 完整度从硬阈值改为 ≥95% / ≥80% / <80% 三档（ok/partial/fail），partial 仍保存并记 `BsrSnapshotQuality`。
+- **默认 Tab 改为 Overview**：新用户首次打开不再空白。
+- **Amazon URL 校验统一**：移除硬编码 `/\.amazon\.\w{2,}$/i` 正则。
+- **Vite 编译 `empty <style scoped>` 不计入 descriptor**：新组件必须带至少一条 no-op 规则占位。
+- **`start.bat`** 启动脚本刷新，纳入新脚本与端口约定。
+
+### Fixed
+
+- **categoryUrl SSRF 风险**：`validation.ts` 使用 `amazonUrlSchema` 限制仅允许已知 Amazon 域名。
+- **Side bar 版本号日期**：`version.ts` 发布日更新至 2026-07-08。
+- **LF/CRLF 行尾统一**：全仓改用 LF（`.gitattributes` 强化），避免 Windows 协作时 git 持续警告。
+- **Worker 进程挂掉 23h 没起来没人告警**：新增 `worker.ts` 的 `recoverStuckJobs` 启动时回收，提示用户添加 systemd/pm2 自动重启（运维侧）。
+
+### Removed
+
+- **`audit.zip` + `packages.zip`**：v0.4.0 不慎提交的二进制产物（约 11MB），本版本清理。
+- **`action-center/prototype/`**：prototype 代码已在 v0.4.0 物理删除；本版本仅补一条 CHANGELOG 备注。
+
+### Tests
+
+- 单元测试数量从 v0.4.0 的 80 个文件 / 715 用例 → v0.5.0 新增约 35 个文件（routes + store + services + worker test），覆盖 10 个新路由、9 个新 store、9 个新 service 的关键路径。
+- 新增 `worker.test.ts`：`runJobWithTimeout` 在 20ms 超时下必抛 `AbortError`，且传递给 runner 的 signal 已被 abort。
+
+### Documentation
+
+- **README 重写**：从单一"闭环总览"扩展为 5 个独立功能板块（AI Daily Operator / Listing Health / Ads Workflow / Review VOC / Inventory Replenishment / Profit Safety Line），每节交代 PRD 对应、API 路径、Agent 行为约束、是否自动写操作。
+- **目录结构图** 补全所有新 store / route / service 路径。
+
+---
+
 ## [0.4.0] - 2026-06-30
 
 ### Added

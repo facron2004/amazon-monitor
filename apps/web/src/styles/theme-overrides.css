@@ -10,8 +10,8 @@
   --text-inverse: #f8fbff;
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
-  --color-primary-light: rgba(37, 99, 235, 0.12);
-  --color-primary-border: rgba(96, 165, 250, 0.24);
+  --color-primary-light: rgba(37, 99, 235, 0.1);
+  --color-primary-border: rgba(96, 165, 250, 0.28);
   --border-color: rgba(203, 213, 225, 0.92);
   --border-color-hover: rgba(148, 163, 184, 0.8);
   --radius-sm: 12px;
@@ -20,7 +20,7 @@
   --shadow-sm: 0 8px 18px rgba(15, 23, 42, 0.05);
   --shadow-md: 0 18px 30px rgba(15, 23, 42, 0.06);
   --shadow-lg: 0 24px 42px rgba(15, 23, 42, 0.1);
-  --shadow-glow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  --shadow-glow: 0 0 0 4px rgba(37, 99, 235, 0.14);
 }
 
 #app {
@@ -28,10 +28,7 @@
 }
 
 body {
-  background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 24%),
-    radial-gradient(circle at top right, rgba(14, 116, 144, 0.08), transparent 22%),
-    linear-gradient(180deg, #f5f8fb 0%, #eef3f8 100%);
+  background: linear-gradient(180deg, #f7f8fa 0%, #e9edf2 100%);
   color: var(--text-primary);
 }
 
@@ -126,9 +123,9 @@ select {
 }
 
 .nav button.active {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.26), rgba(15, 23, 42, 0.14));
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.24), rgba(20, 184, 166, 0.12));
   color: #ffffff;
-  border-color: rgba(96, 165, 250, 0.26);
+  border-color: rgba(96, 165, 250, 0.28);
   box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.12), 0 10px 24px rgba(15, 23, 42, 0.18);
 }
 
@@ -172,13 +169,13 @@ select {
 }
 
 .sidebar .primary {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: linear-gradient(135deg, #2563eb, #0f766e);
   border-color: transparent;
   color: #ffffff;
 }
 
 .sidebar .primary:hover {
-  background: linear-gradient(135deg, #1d4ed8, #1e40af);
+  background: linear-gradient(135deg, #1d4ed8, #0f766e);
 }
 
 .main {
@@ -193,7 +190,7 @@ select {
   gap: 24px;
   padding: 28px 32px;
   border: none;
-  border-radius: 28px;
+  border-radius: 18px;
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.92) 48%, rgba(24, 42, 72, 0.86) 100%);
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.16);
   overflow: hidden;
@@ -202,9 +199,8 @@ select {
 .topbar::before {
   content: "";
   position: absolute;
-  inset: auto -12% -55% 42%;
-  height: 300px;
-  background: radial-gradient(circle, rgba(96, 165, 250, 0.28), rgba(37, 99, 235, 0));
+  inset: 0;
+  background: linear-gradient(110deg, rgba(37, 99, 235, 0.2), transparent 36%, rgba(20, 184, 166, 0.12));
   pointer-events: none;
 }
 
@@ -243,7 +239,7 @@ select {
 
 h1 {
   color: #f8fbff;
-  font-size: clamp(32px, 3vw, 44px);
+  font-size: 38px;
   line-height: 1.02;
   max-width: 12ch;
 }
@@ -280,8 +276,8 @@ h1 {
 }
 
 .hero-chip.is-live {
-  background: rgba(37, 99, 235, 0.22);
-  border-color: rgba(147, 197, 253, 0.22);
+  background: rgba(20, 184, 166, 0.18);
+  border-color: rgba(45, 212, 191, 0.26);
 }
 
 .topbar-side {
@@ -311,7 +307,7 @@ h1 {
   display: grid;
   gap: 6px;
   padding: 16px;
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
@@ -328,7 +324,7 @@ h1 {
 .topbar-stat strong {
   color: #ffffff;
   font-size: 28px;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .topbar-stat small {
@@ -360,7 +356,7 @@ h1 {
 
 .metric {
   padding: 22px 24px;
-  border-radius: 24px;
+  border-radius: 16px;
 }
 
 .metric::after {
@@ -376,7 +372,7 @@ h1 {
 
 .panel {
   padding: 16px 20px;
-  border-radius: 18px;
+  border-radius: 14px;
   overflow-y: auto;
   min-height: 0;
 }
@@ -438,7 +434,7 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: rgba(37, 99, 235, 0.06);
+  background: rgba(37, 99, 235, 0.05);
 }
 
 tr.selected {
@@ -489,7 +485,7 @@ tr.selected {
     z-index: 90;
     width: min(320px, calc(100vw - 32px));
     height: 100dvh;
-    border-radius: 0 28px 28px 0;
+    border-radius: 0 18px 18px 0;
     transform: translateX(-110%);
     transition: transform var(--transition-normal);
   }

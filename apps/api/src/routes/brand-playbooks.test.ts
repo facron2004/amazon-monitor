@@ -177,7 +177,7 @@ describe("brand playbook routes", () => {
       surgeCycle: { surgeDays: 2, lastSurgeDate: "2026-06-20" }
     });
     expect(response.body.historicalStrongAsins[0]).toMatchObject({ asin: "B0ACMEA001", bestRank: 5, daysInTop20: 3 });
-    expect(response.body.evidenceItems).toEqual(expect.arrayContaining(["6 price-history ASIN-day rows"]));
+    expect(response.body.evidenceItems).toEqual(expect.arrayContaining(["6 条价格历史 ASIN-天记录"]));
   });
 
   it("returns 400 for invalid query input and 404 for missing category", async () => {

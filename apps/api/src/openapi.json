@@ -64,6 +64,568 @@
         }
       }
     },
+    "/ai/daily-brief": {
+      "post": {
+        "summary": "Generate a Daily Operator Agent brief",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "AI daily brief persisted to ai_runs" },
+          "400": { "description": "Invalid date" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Operator or admin required" }
+        }
+      }
+    },
+    "/ai/analyze-listing": {
+      "post": {
+        "summary": "Generate a Listing Optimizer Agent analysis",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["productId"],
+                "properties": {
+                  "productId": { "type": "integer", "minimum": 1 },
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Listing analysis persisted to ai_runs" },
+          "404": { "description": "Listing health item not found" }
+        }
+      }
+    },
+    "/ai/analyze-ads": {
+      "post": {
+        "summary": "Generate an Ads Analyst Agent analysis",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Ads analysis persisted to ai_runs" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Operator or admin required" }
+        }
+      }
+    },
+    "/ai/analyze-review-voc": {
+      "post": {
+        "summary": "Generate a Review VOC Agent analysis",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["productId"],
+                "properties": {
+                  "productId": { "type": "integer", "minimum": 1 },
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Review VOC analysis persisted to ai_runs" },
+          "404": { "description": "Review VOC summary not found" }
+        }
+      }
+    },
+    "/listing-health": {
+      "get": {
+        "summary": "List owned SKU Listing health scores",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Listing health list" }
+        }
+      }
+    },
+    "/inventory/plans": {
+      "get": {
+        "summary": "List owned SKU inventory replenishment plans",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["healthy", "watch", "critical", "overstock"] } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Inventory replenishment plan list" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/profit/plans": {
+      "get": {
+        "summary": "List owned SKU profit and price safety plans",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["healthy", "watch", "risk", "data_gap"] } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Profit safety plan list" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/review-voc": {
+      "get": {
+        "summary": "List owned SKU Review VOC summaries",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Review VOC summary list" }
+        }
+      }
+    },
+    "/ads/summary": {
+      "get": {
+        "summary": "Summarize Ads workflow diagnostics",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["healthy", "watch", "risk", "scale"] } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Ads workflow summary with diagnostic items" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/ads/metrics": {
+      "get": {
+        "summary": "List Ads daily metrics",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Ads daily metric list" },
+          "404": { "description": "Product not found" }
+        }
+      },
+      "post": {
+        "summary": "Create or update an Ads daily metric",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["date", "campaignId", "campaignName"],
+                "properties": {
+                  "productId": { "type": "integer", "nullable": true, "minimum": 1 },
+                  "date": { "type": "string", "format": "date" },
+                  "campaignId": { "type": "string" },
+                  "campaignName": { "type": "string" },
+                  "adGroupName": { "type": "string", "nullable": true },
+                  "targetText": { "type": "string", "nullable": true },
+                  "searchTerm": { "type": "string", "nullable": true },
+                  "matchType": { "type": "string", "nullable": true },
+                  "impressions": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "clicks": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "spend": { "type": "number", "nullable": true, "minimum": 0 },
+                  "sales": { "type": "number", "nullable": true, "minimum": 0 },
+                  "orders": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "unitsSold": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "acos": { "type": "number", "nullable": true, "minimum": 0 },
+                  "roas": { "type": "number", "nullable": true, "minimum": 0 },
+                  "cpc": { "type": "number", "nullable": true, "minimum": 0 },
+                  "ctr": { "type": "number", "nullable": true, "minimum": 0 },
+                  "cvr": { "type": "number", "nullable": true, "minimum": 0 },
+                  "budget": { "type": "number", "nullable": true, "minimum": 0 },
+                  "budgetUsageRate": { "type": "number", "nullable": true, "minimum": 0 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Ads daily metric saved" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products": {
+      "get": {
+        "summary": "List owned SKU business objects with latest metrics and scores",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active", "paused", "archived"] } },
+          { "name": "marketplace", "in": "query", "schema": { "type": "string" } },
+          { "name": "brand", "in": "query", "schema": { "type": "string" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Owned SKU list" },
+          "401": { "description": "Authentication required" }
+        }
+      },
+      "post": {
+        "summary": "Create owned SKU business object",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["marketplace", "sku", "asin", "title"],
+                "properties": {
+                  "marketplace": { "type": "string" },
+                  "sku": { "type": "string" },
+                  "asin": { "type": "string" },
+                  "brand": { "type": "string", "nullable": true },
+                  "title": { "type": "string" },
+                  "imageUrl": { "type": "string", "nullable": true },
+                  "category": { "type": "string", "nullable": true },
+                  "ownerId": { "type": "integer", "nullable": true },
+                  "status": { "type": "string", "enum": ["active", "paused", "archived"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Owned SKU created" },
+          "403": { "description": "Operator or admin required" },
+          "409": { "description": "SKU already exists for the marketplace" }
+        }
+      }
+    },
+    "/products/{id}": {
+      "get": {
+        "summary": "Get owned SKU detail with recent metrics and scores",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Owned SKU detail" },
+          "404": { "description": "Product not found" }
+        }
+      },
+      "patch": {
+        "summary": "Update owned SKU metadata",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "Updated owned SKU" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/metrics": {
+      "get": {
+        "summary": "List owned SKU daily metrics",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Owned SKU daily metrics" },
+          "404": { "description": "Product not found" }
+        }
+      },
+      "post": {
+        "summary": "Upsert owned SKU daily metric",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "201": { "description": "Metric created or replaced" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/inventory-plan": {
+      "get": {
+        "summary": "Get owned SKU inventory replenishment plan",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Inventory replenishment plan" },
+          "404": { "description": "Inventory plan not found" }
+        }
+      }
+    },
+    "/products/{id}/inventory-setting": {
+      "post": {
+        "summary": "Create or update owned SKU inventory replenishment settings",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "leadTimeDays": { "type": "number", "nullable": true, "minimum": 0, "maximum": 365 },
+                  "safetyStockDays": { "type": "number", "nullable": true, "minimum": 0, "maximum": 365 },
+                  "targetStockDays": { "type": "number", "nullable": true, "minimum": 1, "maximum": 730 },
+                  "minOrderQuantity": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "packSize": { "type": "integer", "nullable": true, "minimum": 1 },
+                  "supplierName": { "type": "string", "nullable": true },
+                  "reorderPointUnits": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "dataSource": { "type": "string" },
+                  "lastSyncedAt": { "type": "string", "nullable": true },
+                  "syncStatus": { "type": "string", "enum": ["pending", "success", "partial", "failed", "manual"] },
+                  "syncError": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Inventory setting saved with refreshed plan" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/profit-plan": {
+      "get": {
+        "summary": "Get owned SKU profit and price safety plan",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Profit safety plan" },
+          "404": { "description": "Profit plan not found" }
+        }
+      }
+    },
+    "/products/{id}/profit-setting": {
+      "post": {
+        "summary": "Create or update owned SKU profit cost assumptions",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "purchaseCost": { "type": "number", "nullable": true, "minimum": 0 },
+                  "inboundFreight": { "type": "number", "nullable": true, "minimum": 0 },
+                  "fbaFee": { "type": "number", "nullable": true, "minimum": 0 },
+                  "referralFeeRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
+                  "storageFee": { "type": "number", "nullable": true, "minimum": 0 },
+                  "returnLossRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
+                  "targetMarginRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
+                  "minimumMarginRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
+                  "dealFee": { "type": "number", "nullable": true, "minimum": 0 },
+                  "dataSource": { "type": "string" },
+                  "lastSyncedAt": { "type": "string", "nullable": true },
+                  "syncStatus": { "type": "string", "enum": ["pending", "success", "partial", "failed", "manual"] },
+                  "syncError": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Profit setting saved with refreshed plan" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/listing-snapshots": {
+      "post": {
+        "summary": "Upsert owned SKU Listing snapshot for health inspection",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["date", "title"],
+                "properties": {
+                  "date": { "type": "string", "format": "date" },
+                  "title": { "type": "string" },
+                  "bulletPoints": { "type": "array", "items": { "type": "string" } },
+                  "imageUrls": { "type": "array", "items": { "type": "string" } },
+                  "coreKeywords": { "type": "array", "items": { "type": "string" } },
+                  "reviewHighlights": { "type": "array", "items": { "type": "string" } },
+                  "qaGaps": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Listing snapshot saved with health score" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/review-voc": {
+      "get": {
+        "summary": "Get owned SKU Review VOC summary",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Review VOC summary" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/reviews": {
+      "get": {
+        "summary": "List owned SKU review evidence",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Product review evidence list" },
+          "404": { "description": "Product not found" }
+        }
+      },
+      "post": {
+        "summary": "Create or update owned SKU review evidence",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["reviewDate", "rating", "title", "body"],
+                "properties": {
+                  "reviewDate": { "type": "string", "format": "date" },
+                  "externalReviewId": { "type": "string", "nullable": true },
+                  "rating": { "type": "number", "minimum": 1, "maximum": 5 },
+                  "title": { "type": "string" },
+                  "body": { "type": "string" },
+                  "reviewerName": { "type": "string", "nullable": true },
+                  "variant": { "type": "string", "nullable": true },
+                  "verifiedPurchase": { "type": "boolean" },
+                  "helpfulVotes": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "sentiment": { "type": "string", "enum": ["positive", "neutral", "negative"], "nullable": true },
+                  "topics": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Review evidence saved with refreshed VOC summary" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/risk-score": {
+      "get": {
+        "summary": "Get deterministic owned SKU risk score",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Risk score" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/opportunity-score": {
+      "get": {
+        "summary": "Get deterministic owned SKU opportunity score",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Opportunity score" },
+          "404": { "description": "Product not found" }
+        }
+      }
+    },
     "/brand-playbooks": {
       "get": {
         "summary": "Get evidence-backed brand playbook profile",
@@ -341,6 +903,458 @@
         "responses": {
           "200": { "description": "List of price history items" },
           "400": { "description": "Invalid query input" }
+        }
+      }
+    },
+    "/activity-events": {
+      "get": {
+        "summary": "List raw category activity events",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
+          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
+          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "List of raw category activity events" }
+        }
+      }
+    },
+    "/bsr/history": {
+      "get": {
+        "summary": "List BSR rank history for Action Center charts",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
+          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "List of BSR rank history points" }
+        }
+      }
+    },
+    "/bsr/quality": {
+      "get": {
+        "summary": "List BSR snapshot quality diagnostics",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
+          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "qualityStatus", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "List of BSR snapshot quality records" }
+        }
+      }
+    },
+    "/bsr/changes": {
+      "get": {
+        "summary": "List BSR rank change events",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
+          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "includeUnchanged", "in": "query", "schema": { "type": "boolean", "default": false } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "List of BSR rank change events" }
+        }
+      }
+    },
+    "/action-insights": {
+      "get": {
+        "summary": "List competitor action insights",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
+          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
+          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
+          { "name": "insightType", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "List of competitor action insights" }
+        }
+      }
+    },
+    "/insight-events": {
+      "get": {
+        "summary": "List Action Center insight events",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "reviewedOnDate", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] } },
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["P0", "P1", "P2"] } },
+          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
+          { "name": "reviewResult", "in": "query", "schema": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] } },
+          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "keywordId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
+          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
+          { "name": "assignee", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 120 } },
+          { "name": "attributionTag", "in": "query", "schema": { "type": "string" } },
+          { "name": "evidenceMovement", "in": "query", "schema": { "type": "string" } },
+          { "name": "reviewCadence", "in": "query", "schema": { "type": "string" } },
+          { "name": "actionStage", "in": "query", "schema": { "type": "string", "enum": ["reviewDue", "unassigned", "ready", "watching", "scheduled", "closed"] } },
+          { "name": "scoreDriver", "in": "query", "schema": { "type": "string" } },
+          { "name": "strategyTag", "in": "query", "schema": { "type": "string" } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["score", "level", "rankChange", "reviewChange", "createdAt"], "default": "score" } },
+          { "name": "unassignedOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "coreOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "newBreakoutOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "List of Action Center insight events" },
+          "400": { "description": "Invalid query input" }
+        }
+      }
+    },
+    "/insight-events/top-summary": {
+      "get": {
+        "summary": "List top Action Center events for the dashboard feed",
+        "parameters": [
+          { "name": "date", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 } }
+        ],
+        "responses": {
+          "200": { "description": "Top ranked Action Center insight events" },
+          "400": { "description": "Invalid query input" }
+        }
+      }
+    },
+    "/insight-events/review-due": {
+      "get": {
+        "summary": "List Action Center events due for review",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "reviewedOnDate", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] } },
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["P0", "P1", "P2"] } },
+          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
+          { "name": "reviewResult", "in": "query", "schema": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] } },
+          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "keywordId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
+          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
+          { "name": "assignee", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 120 } },
+          { "name": "attributionTag", "in": "query", "schema": { "type": "string" } },
+          { "name": "evidenceMovement", "in": "query", "schema": { "type": "string" } },
+          { "name": "reviewCadence", "in": "query", "schema": { "type": "string" } },
+          { "name": "actionStage", "in": "query", "schema": { "type": "string", "enum": ["reviewDue", "unassigned", "ready", "watching", "scheduled", "closed"] } },
+          { "name": "scoreDriver", "in": "query", "schema": { "type": "string" } },
+          { "name": "strategyTag", "in": "query", "schema": { "type": "string" } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["score", "level", "rankChange", "reviewChange", "createdAt"], "default": "score" } },
+          { "name": "unassignedOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "coreOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "newBreakoutOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "List of events due for review" },
+          "400": { "description": "Invalid query input" }
+        }
+      }
+    },
+    "/insight-events/trend": {
+      "get": {
+        "summary": "List Action Center trend points for charts",
+        "parameters": [
+          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "days", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 30, "default": 7 } },
+          { "name": "reviewedOnDate", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] } },
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["P0", "P1", "P2"] } },
+          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
+          { "name": "reviewResult", "in": "query", "schema": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] } },
+          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "keywordId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
+          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
+          { "name": "assignee", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 120 } },
+          { "name": "attributionTag", "in": "query", "schema": { "type": "string" } },
+          { "name": "evidenceMovement", "in": "query", "schema": { "type": "string" } },
+          { "name": "reviewCadence", "in": "query", "schema": { "type": "string" } },
+          { "name": "actionStage", "in": "query", "schema": { "type": "string", "enum": ["reviewDue", "unassigned", "ready", "watching", "scheduled", "closed"] } },
+          { "name": "scoreDriver", "in": "query", "schema": { "type": "string" } },
+          { "name": "strategyTag", "in": "query", "schema": { "type": "string" } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["score", "level", "rankChange", "reviewChange", "createdAt"], "default": "score" } },
+          { "name": "unassignedOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "coreOnly", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "newBreakoutOnly", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": {
+          "200": { "description": "Action Center trend points" },
+          "400": { "description": "Invalid query input" }
+        }
+      }
+    },
+    "/insight-events/review-due/evaluate": {
+      "post": {
+        "summary": "Evaluate due Action Center reviews",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated events after review evaluation" },
+          "400": { "description": "Invalid input" }
+        }
+      }
+    },
+    "/insight-events/generate": {
+      "post": {
+        "summary": "Generate Action Center insight events for a date",
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string", "format": "date" },
+                  "categoryId": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Generated Action Center insight events" },
+          "400": { "description": "Invalid input" }
+        }
+      }
+    },
+    "/insight-events/{id}": {
+      "get": {
+        "summary": "Get one Action Center insight event",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Action Center insight event" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/insight-events/{id}/notes": {
+      "get": {
+        "summary": "List note history for one Action Center insight event",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Action Center insight event note history" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/insight-events/{id}/status": {
+      "patch": {
+        "summary": "Update Action Center event status",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] },
+                  "reviewDueDate": { "type": "string", "format": "date", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated insight event" },
+          "400": { "description": "Invalid input" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/insight-events/{id}/note": {
+      "patch": {
+        "summary": "Update Action Center event note",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["note"],
+                "properties": {
+                  "note": { "type": "string", "maxLength": 5000 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated insight event" },
+          "400": { "description": "Invalid input" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/insight-events/{id}/assignee": {
+      "patch": {
+        "summary": "Update Action Center event owner",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["assignee"],
+                "properties": {
+                  "assignee": { "type": "string", "maxLength": 120, "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated insight event" },
+          "400": { "description": "Invalid input" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/insight-events/{id}/watch": {
+      "post": {
+        "summary": "Add an ASIN from an insight event to the watch list",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "watchLevel": { "type": "string", "enum": ["CORE", "NORMAL", "POTENTIAL", "IGNORED"] },
+                  "watchReason": { "type": "string", "maxLength": 500, "nullable": true },
+                  "note": { "type": "string", "maxLength": 5000, "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated insight event and ASIN watch state" },
+          "400": { "description": "Invalid input" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/insight-events/{id}/review": {
+      "post": {
+        "summary": "Record an Action Center event review result",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["result"],
+                "properties": {
+                  "date": { "type": "string", "format": "date" },
+                  "result": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] },
+                  "note": { "type": "string", "maxLength": 5000, "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Reviewed insight event" },
+          "400": { "description": "Invalid input" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/asin-watch-states": {
+      "get": {
+        "summary": "List ASIN watch states",
+        "responses": {
+          "200": { "description": "List of watched ASIN states" }
+        }
+      }
+    },
+    "/asin-watch-states/{asin}": {
+      "patch": {
+        "summary": "Create or update an ASIN watch state",
+        "parameters": [
+          { "name": "asin", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 30 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["watchLevel"],
+                "properties": {
+                  "watchLevel": { "type": "string", "enum": ["CORE", "NORMAL", "POTENTIAL", "IGNORED"] },
+                  "watchReason": { "type": "string", "maxLength": 500, "nullable": true },
+                  "note": { "type": "string", "maxLength": 5000, "nullable": true },
+                  "firstWatchDate": { "type": "string", "format": "date" },
+                  "lastEventDate": { "type": "string", "format": "date", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated ASIN watch state" },
+          "400": { "description": "Invalid input" }
         }
       }
     },

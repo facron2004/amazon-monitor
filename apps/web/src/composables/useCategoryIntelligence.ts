@@ -9,6 +9,7 @@ interface UseCategoryIntelligenceOptions {
   categoryReport: Ref<CategoryReportResponse | null>;
   setAction(message: string): void;
   setError(message: string): void;
+  refreshCollectionStatus(): Promise<void>;
 }
 
 export function useCategoryIntelligence(options: UseCategoryIntelligenceOptions) {
@@ -26,7 +27,8 @@ export function useCategoryIntelligence(options: UseCategoryIntelligenceOptions)
     collecting: options.collecting,
     categoryReport: options.categoryReport,
     setAction: options.setAction,
-    setError: options.setError
+    setError: options.setError,
+    refreshCollectionStatus: options.refreshCollectionStatus
   });
 
   return {

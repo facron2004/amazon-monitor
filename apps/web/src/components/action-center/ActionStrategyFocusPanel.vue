@@ -41,26 +41,26 @@ function isStrategyFocusRow(row: unknown): row is StrategyFocusRow {
       <div class="strategy-focus-title">
         <Tags :size="16" />
         <div>
-          <span>Strategy focus</span>
-          <strong>Evidence-backed labels</strong>
+          <span>策略聚焦</span>
+          <strong>基于证据的标签</strong>
         </div>
       </div>
-      <ElTag v-if="activeTag" type="success" effect="light" round>Active filter</ElTag>
+      <ElTag v-if="activeTag" type="success" effect="light" round>筛选中</ElTag>
     </header>
 
-    <ElEmpty v-if="rows.length === 0" description="No strategy tags in the current view." :image-size="64" />
+    <ElEmpty v-if="rows.length === 0" description="当前视图暂无策略标签" :image-size="64" />
     <ElTable v-else :data="rows" row-key="tag" size="small">
-      <ElTableColumn label="Strategy" min-width="170">
+      <ElTableColumn label="策略" min-width="170">
         <template #default="scope">
           <div class="strategy-cell">
             <ElTag :type="scope.row.tag === activeTag ? 'success' : 'info'" effect="light" round>
               {{ scope.row.label }}
             </ElTag>
-            <small>{{ scope.row.eventCount }} events</small>
+            <small>{{ scope.row.eventCount }} 条事件</small>
           </div>
         </template>
       </ElTableColumn>
-      <ElTableColumn label="Score" min-width="170">
+      <ElTableColumn label="分数" min-width="170">
         <template #default="scope">
           <div class="score-flow-cell">
             <ElProgress :percentage="scorePercent(scope.row.totalScore)" :show-text="false" />
@@ -75,7 +75,7 @@ function isStrategyFocusRow(row: unknown): row is StrategyFocusRow {
           </ElTag>
         </template>
       </ElTableColumn>
-      <ElTableColumn label="Top signal" min-width="220" show-overflow-tooltip>
+      <ElTableColumn label="最高信号" min-width="220" show-overflow-tooltip>
         <template #default="scope">
           {{ scope.row.topEventTitle }}
         </template>
@@ -83,7 +83,7 @@ function isStrategyFocusRow(row: unknown): row is StrategyFocusRow {
       <ElTableColumn width="92" align="right">
         <template #default="scope">
           <ElButton link type="primary" :disabled="scope.row.tag === activeTag" @click="focusRow(scope.row)">
-            Focus
+            聚焦
           </ElButton>
         </template>
       </ElTableColumn>

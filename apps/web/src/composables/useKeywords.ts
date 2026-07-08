@@ -17,6 +17,7 @@ interface UseKeywordsOptions {
   renderKeywordChart(snapshots: KeywordDetail["snapshots"]): Promise<void>;
   loadCurrentView(): Promise<void>;
   collectAllCategories(): Promise<CollectJob[]>;
+  refreshCollectionStatus(): Promise<void>;
 }
 
 export function useKeywords(options: UseKeywordsOptions) {
@@ -47,9 +48,11 @@ export function useKeywords(options: UseKeywordsOptions) {
       if (keywordId) {
         const job = await keywordApi.collect({ keywordId, date: options.date.value });
         const queuedJob = Array.isArray(job) ? job[0] : job;
+        await options.refreshCollectionStatus();
 
         await waitForCollectJobs([queuedJob], {
-          getJobStatus: (jobId) => collectApi.collectJob(jobId)
+          getJobStatus: (jobId) => collectApi.collectJob(jobId),
+          onPoll: options.refreshCollectionStatus
         });
 
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
@@ -59,6 +62,7 @@ export function useKeywords(options: UseKeywordsOptions) {
           keywordApi.collect({ date: options.date.value }),
           options.collectAllCategories()
         ]);
+        await options.refreshCollectionStatus();
 
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
         options.setAction(`全量采集已进入队列 (${elapsed}s)`);

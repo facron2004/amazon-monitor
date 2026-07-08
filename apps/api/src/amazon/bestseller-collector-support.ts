@@ -1,5 +1,6 @@
 import type { Browser, BrowserContext, Page } from "playwright";
 import type { BestSellerProductInput, CategoryMonitor } from "@amazon-monitor/shared";
+import { abortableWait, type AbortableCollectOptions, throwIfAborted } from "./abort.js";
 import { closeBrowser, launchAmazonBrowser } from "./browser.js";
 import {
   bestSellerMinScrollPasses,
@@ -28,7 +29,8 @@ export async function extractBestSellerCardsWithScroll(
   category: CategoryMonitor,
   pageNo: number,
   date: string,
-  expectedOnPage: number
+  expectedOnPage: number,
+  options: AbortableCollectOptions = {}
 ): Promise<BestSellerProductInput[]> {
   let products: BestSellerProductInput[] = [];
   let lastCount = -1;
@@ -36,6 +38,7 @@ export async function extractBestSellerCardsWithScroll(
   const minPasses = Math.min(bestSellerScrollPasses(), bestSellerMinScrollPasses());
 
   for (let pass = 0; pass <= bestSellerScrollPasses(); pass += 1) {
+    throwIfAborted(options.signal);
     products = await page.evaluate(extractBestSellerCards, {
       categoryName: category.name,
       categoryUrl: category.categoryUrl
@@ -52,7 +55,7 @@ export async function extractBestSellerCardsWithScroll(
     }
 
     await scrollBestSellerPage(page, pass);
-    await page.waitForTimeout(bestSellerScrollDelayMs());
+    await abortableWait(page.waitForTimeout(bestSellerScrollDelayMs()), options.signal);
     await assertCategoryNotBlocked(page, category, pageNo, date);
   }
 
@@ -75,8 +78,10 @@ export async function recoverMissingCriticalMetricsInFreshContext(
   category: CategoryMonitor,
   pages: Array<Pick<CollectedBestSellerPage, "pageNo" | "products">>,
   date: string,
-  sharedBrowser?: Browser
+  sharedBrowser?: Browser,
+  options: AbortableCollectOptions = {}
 ): Promise<void> {
+  throwIfAborted(options.signal);
   const pending = pages.flatMap((page) =>
     page.products
       .filter((product) => shouldRecoverCriticalMetrics(product))
@@ -94,7 +99,8 @@ export async function recoverMissingCriticalMetricsInFreshContext(
   try {
     const context = await createBestSellerContext(browser, category.marketplace);
     const recoveredResults = await runLimitedConcurrency(pending, detailConcurrency(), async (entry) => {
-      const [recovered] = await collectMissingBestSellerDetails(context, category, [entry.product], entry.pageNo, date, new Map());
+      throwIfAborted(options.signal);
+      const [recovered] = await collectMissingBestSellerDetails(context, category, [entry.product], entry.pageNo, date, new Map(), options);
       return recovered;
     });
 

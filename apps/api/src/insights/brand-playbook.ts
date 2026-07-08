@@ -1,6 +1,4 @@
 import type {
-  BestsellerRankSnapshot,
-  BrandMatrixSnapshot,
   BrandPlaybookActivityFrequency,
   BrandPlaybookAsinCountChanges,
   BrandPlaybookCouponIntensity,
@@ -9,8 +7,10 @@ import type {
   BrandPlaybookProfile,
   BrandPlaybookStrongAsin,
   BrandPlaybookSurgeCycle,
-  CompetitorActivityEvent,
-  ProductPriceHistory
+  ProductPriceHistory,
+  BestsellerRankSnapshot,
+  BrandMatrixSnapshot,
+  CompetitorActivityEvent
 } from "@amazon-monitor/shared";
 import { isoDateOffset } from "../store/date-utils.js";
 import type { Store } from "../store.js";
@@ -47,19 +47,22 @@ export function buildBrandPlaybookProfile(store: Store, input: BrandPlaybookInpu
   }
 
   const windowDays = clampWindowDays(input.windowDays ?? defaultWindowDays);
-  const dates = dateWindow(input.date, windowDays);
+  const endDate = input.date;
+  const startDate = isoDateOffset(endDate, -(windowDays - 1));
   const brandKey = normalizeBrand(input.brand);
-  const matrices: BrandMatrixSnapshot[] = [];
-  const snapshots: BestsellerRankSnapshot[] = [];
-  const priceRows: ProductPriceHistory[] = [];
-  const activityEvents: CompetitorActivityEvent[] = [];
 
-  for (const date of dates) {
-    matrices.push(...store.listBrandMatrix({ categoryId: input.categoryId, date }).filter((item) => normalizeBrand(item.brand) === brandKey));
-    snapshots.push(...store.listCategorySnapshots({ categoryId: input.categoryId, date, limit: 1000 }).filter((item) => normalizeBrand(item.brand) === brandKey));
-    priceRows.push(...store.listProductPriceHistory({ categoryId: input.categoryId, date, limit: 1000 }).filter((item) => normalizeBrand(item.brand) === brandKey));
-    activityEvents.push(...store.listCategoryActivityEvents({ categoryId: input.categoryId, date, limit: 1000 }).filter((item) => normalizeBrand(item.brand) === brandKey));
-  }
+  // 以前是 30 天 × 4 张表 = 120 次 SQL，每次 return + JS 过滤 brand。
+  // 现在每张表一次日期范围查询，然后过滤 brand。4 次 SQL 搞定 —— DB 里的
+  // brand 大小写可能不一致（"Apple" vs "apple"），所以 brand 匹配在 JS 做
+  // 而不是用 case-sensitive 的 WHERE brand = ?。
+  const allMatrices = store.listBrandMatrix({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const matrices = allMatrices.filter((item) => normalizeBrand(item.brand) === brandKey);
+  const allSnapshots = store.listCategorySnapshots({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const snapshots = allSnapshots.filter((item) => normalizeBrand(item.brand) === brandKey);
+  const allPriceRows = store.listProductPriceHistory({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const priceRows = allPriceRows.filter((item) => normalizeBrand(item.brand) === brandKey);
+  const allActivityEvents = store.listCategoryActivityEvents({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const activityEvents = allActivityEvents.filter((item) => normalizeBrand(item.brand) === brandKey);
 
   const evidenceDates = new Set<string>();
   for (const item of matrices) evidenceDates.add(item.snapshotDate);
@@ -89,7 +92,7 @@ export function buildBrandPlaybookProfile(store: Store, input: BrandPlaybookInpu
     newProductLaunchFrequency: buildNewProductFrequency(matrices, activityEvents, windowDays),
     surgeCycle: buildSurgeCycle(matrices, activityEvents),
     historicalStrongAsins: buildStrongAsins(snapshots),
-    evidenceItems: buildEvidenceItems(dates[0], input.date, matrices, snapshots, priceRows, activityEvents)
+    evidenceItems: buildEvidenceItems(startDate, input.date, matrices, snapshots, priceRows, activityEvents)
   };
 }
 
@@ -261,10 +264,10 @@ function buildEvidenceItems(
   const snapshotDays = new Set(snapshots.map((item) => item.snapshotDate)).size;
   const eventDays = new Set(events.map((item) => item.eventDate)).size;
   return [
-    `Window ${startDate} to ${endDate}`,
-    `${matrixDays} brand-matrix days, ${snapshotDays} bestseller snapshot days`,
-    `${priceRows.length} price-history ASIN-day rows`,
-    `${events.length} activity events across ${eventDays} days`
+    `观察窗口 ${startDate} 至 ${endDate}`,
+    `${matrixDays} 个品牌矩阵证据日，${snapshotDays} 个 BSR 快照证据日`,
+    `${priceRows.length} 条价格历史 ASIN-天记录`,
+    `${events.length} 条活动事件，覆盖 ${eventDays} 个事件日`
   ];
 }
 
@@ -282,11 +285,6 @@ function countSnapshotsByDate(snapshots: BestsellerRankSnapshot[]): Map<string, 
     top50: value.top50.size,
     top20: value.top20.size
   }]));
-}
-
-function dateWindow(endDate: string, windowDays: number): string[] {
-  const startOffset = -(windowDays - 1);
-  return Array.from({ length: windowDays }, (_value, index) => isoDateOffset(endDate, startOffset + index));
 }
 
 function clampWindowDays(value: number): number {

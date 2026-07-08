@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { CalendarClock, CheckCircle2, Eye, Save, UserRound } from "@lucide/vue";
+import { computed, ref, watch } from "vue";
+import { CalendarClock, CheckCircle2, ClipboardList, Eye, Save, UserRound } from "@lucide/vue";
 import { ElButton, ElButtonGroup, ElDatePicker, ElInput, ElOption, ElSelect } from "element-plus";
 import {
   asinWatchLevelLabels,
@@ -11,9 +11,11 @@ import {
   type InsightEventStatus,
   type InsightReviewResult
 } from "@amazon-monitor/shared";
+import { buildReviewPresetOptions } from "../../utils/actionCenterReviewPresets";
 
 const props = defineProps<{
   event: InsightEvent;
+  currentDate: string;
   watchState: AsinWatchState | null;
 }>();
 
@@ -24,6 +26,7 @@ const emit = defineEmits<{
   (event: "watch", id: string): void;
   (event: "watch-state", insight: InsightEvent, level: AsinWatchLevel): void;
   (event: "review", id: string, result: InsightReviewResult, note?: string | null): void;
+  (event: "convert-to-task", insight: InsightEvent): void;
 }>();
 
 const noteDraft = ref("");
@@ -44,6 +47,7 @@ const reviewOptions: Array<{ value: InsightReviewResult; label: string }> = revi
   label: insightReviewResultLabels[value]
 }));
 const watchOptions = (Object.entries(asinWatchLevelLabels) as Array<[AsinWatchLevel, string]>).map(([value, label]) => ({ value, label }));
+const reviewPresetOptions = computed(() => buildReviewPresetOptions(props.currentDate || props.event.eventDate, props.event));
 
 watch(
   () => [props.event.id, props.watchState?.watchLevel] as const,
@@ -83,6 +87,11 @@ function scheduleReview(): void {
   emit("status", props.event.id, "REVIEW_PENDING", reviewDateDraft.value);
 }
 
+function schedulePresetReview(date: string): void {
+  reviewDateDraft.value = date;
+  emit("status", props.event.id, "REVIEW_PENDING", date);
+}
+
 function updateWatchLevel(value: unknown): void {
   watchLevelDraft.value = watchLevelValue(value);
   emit("watch-state", props.event, watchLevelDraft.value);
@@ -99,6 +108,16 @@ function updateWatchLevel(value: unknown): void {
       <ElButton size="small" plain @click="emit('watch', event.id)">
         <Eye :size="14" />
         <span>观察</span>
+      </ElButton>
+      <ElButton
+        v-if="event.status !== 'CONVERTED_TO_TASK'"
+        size="small"
+        type="primary"
+        plain
+        @click="emit('convert-to-task', event)"
+      >
+        <ClipboardList :size="14" />
+        <span>转化为任务</span>
       </ElButton>
     </div>
 
@@ -156,6 +175,19 @@ function updateWatchLevel(value: unknown): void {
         </ElButton>
       </div>
     </label>
+
+    <div v-if="reviewPresetOptions.length" class="review-preset-row">
+      <ElButton
+        v-for="option in reviewPresetOptions"
+        :key="option.key"
+        size="small"
+        plain
+        @click="schedulePresetReview(option.date)"
+      >
+        <CalendarClock :size="14" />
+        <span>{{ option.label }} · {{ option.date.slice(5) }}</span>
+      </ElButton>
+    </div>
 
     <label>
       <span>备注</span>
@@ -233,6 +265,12 @@ label {
   display: grid;
   gap: 8px;
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.review-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .action-panel :deep(.el-input__wrapper),

@@ -1,0 +1,14 @@
+[package]
+name = "amazon-monitor"
+version = "0.4.0"
+description = "Amazon keyword competitor price and ranking monitor"
+authors = ["Amazon Monitor Team"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# cookie 0.18.1 still calls the one-argument time parser API.
+time = "=0.3.41"

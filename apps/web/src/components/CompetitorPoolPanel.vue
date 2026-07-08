@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CompetitorFolder, CompetitorPoolItem } from "@amazon-monitor/shared";
+import type { AsinWatchLevel, AsinWatchState, CompetitorFolder, CompetitorPoolItem } from "@amazon-monitor/shared";
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "../constants/competitors";
 import CompetitorPoolFilters from "./CompetitorPoolFilters.vue";
 import CompetitorPoolTable from "./CompetitorPoolTable.vue";
@@ -11,6 +11,8 @@ interface Props {
   competitorQuery: string;
   competitorSourceFilter: CompetitorSourceFilter;
   competitorTierFilter: CompetitorTierFilter;
+  watchStates: AsinWatchState[];
+  watchStateUpdatingAsin: string | null;
   selectedCompetitorKeywordId: number | null;
   selectedCompetitor: CompetitorPoolItem | null;
 }
@@ -22,6 +24,7 @@ interface Emits {
   (e: "select-competitor-folder", keywordId: number | null): void;
   (e: "open-competitor-drawer", item: CompetitorPoolItem): void;
   (e: "toggle-key-competitor", item: CompetitorPoolItem): void;
+  (e: "set-watch-state", item: CompetitorPoolItem, level: AsinWatchLevel): void;
   (e: "open-product-activity-calendar", item: CompetitorPoolItem): void;
   (e: "open-amazon", item: CompetitorPoolItem): void;
 }
@@ -49,8 +52,11 @@ const emit = defineEmits<Emits>();
     <CompetitorPoolTable
       :visible-competitors="visibleCompetitors"
       :selected-competitor="selectedCompetitor"
+      :watch-states="watchStates"
+      :watch-state-updating-asin="watchStateUpdatingAsin"
       @open-competitor-drawer="emit('open-competitor-drawer', $event)"
       @toggle-key-competitor="emit('toggle-key-competitor', $event)"
+      @set-watch-state="(item, level) => emit('set-watch-state', item, level)"
       @open-product-activity-calendar="emit('open-product-activity-calendar', $event)"
       @open-amazon="emit('open-amazon', $event)"
     />

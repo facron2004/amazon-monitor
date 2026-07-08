@@ -61,7 +61,7 @@ function startCron() {
 
 export function startServer(silent = false) {
   startCron();
-  if (process.env.RUN_WORKER !== "false") {
+  if (process.env.RUN_WORKER === "true") {
     startWorker(store).catch((err) => {
       console.error("[Worker] Failed to start background worker thread:", err);
     });

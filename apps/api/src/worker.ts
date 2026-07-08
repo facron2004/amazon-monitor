@@ -8,6 +8,7 @@ import { loadEnv } from "./notifier.js";
 loadEnv();
 
 import type { CollectTaskLog } from "@amazon-monitor/shared";
+import { intEnv } from "./amazon/config.js";
 import { runCategoryCollectionForMonitor } from "./category-pipeline.js";
 import { formatDuration, ts } from "./log.js";
 import { runCollectionForKeyword } from "./pipeline.js";
@@ -38,14 +39,17 @@ const defaultDbPath = (() => {
 })();
 
 const dbPath = process.env.DB_PATH ?? defaultDbPath;
-const maxRetries = Number(process.env.AMAZON_COLLECT_MAX_RETRIES ?? 3);
-const pollIntervalMs = Number(process.env.AMAZON_COLLECT_POLL_INTERVAL_MS ?? 2000);
-const workerConcurrency = Math.max(1, Number(process.env.AMAZON_WORKER_CONCURRENCY ?? 2));
-const jobTimeoutMs = Math.max(0, Number(process.env.AMAZON_WORKER_JOB_TIMEOUT_MS ?? 10 * 60 * 1000));
-const heartbeatIntervalMs = Math.max(1000, Number(process.env.AMAZON_WORKER_HEARTBEAT_MS ?? 5000));
+const maxRetries = intEnv("AMAZON_COLLECT_MAX_RETRIES", 3, 0, 10);
+const pollIntervalMs = intEnv("AMAZON_COLLECT_POLL_INTERVAL_MS", 2000, 100, 60000);
+const workerConcurrency = intEnv("AMAZON_WORKER_CONCURRENCY", 2, 1, 10);
+const jobTimeoutMs = intEnv("AMAZON_WORKER_JOB_TIMEOUT_MS", 10 * 60 * 1000, 0, 60 * 60 * 1000);
+const heartbeatIntervalMs = intEnv("AMAZON_WORKER_HEARTBEAT_MS", 5000, 1000, 60000);
 const verboseLog = process.env.AMAZON_WORKER_VERBOSE_LOG !== "false";
 
 let running = true;
+
+type CollectJobRef = { taskType: "keyword" | "category"; targetId: number; date: string };
+type CollectJobRunner = (store: any, job: CollectJobRef, options?: { signal?: AbortSignal }) => Promise<CollectTaskLog>;
 
 export async function startWorker(storeInstance?: any) {
   const store = storeInstance ?? openAppStore(dbPath);
@@ -153,20 +157,34 @@ export async function startWorker(storeInstance?: any) {
  * signal.aborted and shut down cleanly — preventing zombie writes after
  * the job has been marked failed.
  */
-async function runJobWithTimeout(store: any, job: { taskType: "keyword" | "category"; targetId: number; date: string }, timeoutMs: number): Promise<CollectTaskLog> {
+export async function runJobWithTimeout(
+  store: any,
+  job: CollectJobRef,
+  timeoutMs: number,
+  runner: CollectJobRunner = runCollectJob
+): Promise<CollectTaskLog> {
   if (timeoutMs <= 0) {
-    return runCollectJob(store, job);
+    return runner(store, job);
   }
 
   const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort();
+      reject(new DOMException(`Collect job timed out after ${formatDuration(timeoutMs)}`, "AbortError"));
+    }, timeoutMs);
+  });
 
   try {
-    return await runCollectJob(store, job, { signal: controller.signal });
+    return await Promise.race([
+      runner(store, job, { signal: controller.signal }),
+      timeoutPromise
+    ]);
   } finally {
-    clearTimeout(timeoutHandle);
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
   }
 }
 

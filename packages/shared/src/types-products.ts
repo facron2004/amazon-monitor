@@ -167,3 +167,149 @@ export interface DecorateBestsellerInput {
   snapshotDate: string;
   products: BestSellerProductInput[];
 }
+
+export const ownedProductStatuses = ["active", "paused", "archived"] as const;
+export type OwnedProductStatus = (typeof ownedProductStatuses)[number];
+
+export const productSyncStatuses = ["pending", "success", "partial", "failed", "manual"] as const;
+export type ProductSyncStatus = (typeof productSyncStatuses)[number];
+
+export interface ProductDataFreshness {
+  dataSource: string;
+  lastSyncedAt: string | null;
+  syncStatus: ProductSyncStatus;
+  syncError: string | null;
+}
+
+export interface OwnedProduct extends ProductDataFreshness {
+  id: number;
+  orgId: number;
+  marketplace: string;
+  sku: string;
+  asin: string;
+  brand: string | null;
+  title: string;
+  imageUrl: string | null;
+  category: string | null;
+  ownerId: number | null;
+  status: OwnedProductStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OwnedProductDailyMetric extends ProductDataFreshness {
+  id: number;
+  productId: number;
+  date: string;
+  sessions: NullableNumber;
+  pageViews: NullableNumber;
+  orders: NullableNumber;
+  unitsSold: NullableNumber;
+  salesAmount: NullableNumber;
+  buyBoxPercentage: NullableNumber;
+  conversionRate: NullableNumber;
+  rating: NullableNumber;
+  reviewCount: NullableNumber;
+  bsrRank: NullableNumber;
+  inventoryAvailable: NullableNumber;
+  inventoryDays: NullableNumber;
+  adSpend: NullableNumber;
+  adSales: NullableNumber;
+  acos: NullableNumber;
+  tacos: NullableNumber;
+  grossMargin: NullableNumber;
+  keywordRank: NullableNumber;
+  createdAt: string;
+}
+
+export type ProductScoreLevel = "low" | "medium" | "high";
+
+export interface ProductScoreDimension {
+  key: string;
+  label: string;
+  score: number;
+  weight: number;
+  reason: string;
+}
+
+export interface ProductScore {
+  productId: number;
+  sku: string;
+  asin: string;
+  date: string | null;
+  score: number;
+  level: ProductScoreLevel;
+  dimensions: ProductScoreDimension[];
+  reasons: string[];
+  freshness: ProductDataFreshness;
+}
+
+export interface OwnedProductListItem extends OwnedProduct {
+  latestMetric: OwnedProductDailyMetric | null;
+  riskScore: ProductScore;
+  opportunityScore: ProductScore;
+}
+
+export interface OwnedProductDetail extends OwnedProductListItem {
+  metrics: OwnedProductDailyMetric[];
+}
+
+export interface CreateOwnedProductInput {
+  orgId: number;
+  marketplace: string;
+  sku: string;
+  asin: string;
+  brand?: string | null;
+  title: string;
+  imageUrl?: string | null;
+  category?: string | null;
+  ownerId?: number | null;
+  status?: OwnedProductStatus;
+  dataSource?: string;
+  lastSyncedAt?: string | null;
+  syncStatus?: ProductSyncStatus;
+  syncError?: string | null;
+}
+
+export interface UpdateOwnedProductInput {
+  marketplace?: string;
+  sku?: string;
+  asin?: string;
+  brand?: string | null;
+  title?: string;
+  imageUrl?: string | null;
+  category?: string | null;
+  ownerId?: number | null;
+  status?: OwnedProductStatus;
+  dataSource?: string;
+  lastSyncedAt?: string | null;
+  syncStatus?: ProductSyncStatus;
+  syncError?: string | null;
+}
+
+export interface UpsertOwnedProductDailyMetricInput {
+  productId: number;
+  date: string;
+  sessions?: NullableNumber;
+  pageViews?: NullableNumber;
+  orders?: NullableNumber;
+  unitsSold?: NullableNumber;
+  salesAmount?: NullableNumber;
+  buyBoxPercentage?: NullableNumber;
+  conversionRate?: NullableNumber;
+  rating?: NullableNumber;
+  reviewCount?: NullableNumber;
+  bsrRank?: NullableNumber;
+  inventoryAvailable?: NullableNumber;
+  inventoryDays?: NullableNumber;
+  adSpend?: NullableNumber;
+  adSales?: NullableNumber;
+  acos?: NullableNumber;
+  tacos?: NullableNumber;
+  grossMargin?: NullableNumber;
+  keywordRank?: NullableNumber;
+  dataSource?: string;
+  lastSyncedAt?: string | null;
+  syncStatus?: ProductSyncStatus;
+  syncError?: string | null;
+}

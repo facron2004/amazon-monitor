@@ -1,29 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { strategyTagLabels } from "@amazon-monitor/shared";
+import { attributionTagLabels, insightEventTypeLabels, insightReviewResultLabels, strategyTagLabels } from "@amazon-monitor/shared";
 import {
+  attributionChartNameToTag,
   chartBucketNameFromOffset,
   chartBucketNameFromVerticalOffset,
-  isDueReviewCadenceChartName,
+  eventTypeChartNameToType,
+  evidenceMovementChartNameToFilter,
   pieChartNameFromOffset,
   priorityChartNameToLevel,
+  reviewCadenceChartNameToFilter,
+  reviewOutcomeChartNameToResult,
+  scoreDriverChartNameToFilter,
+  stackedScoreChartNameFromOffset,
   strategyChartNameToTag,
   workflowChartNameToColumn
 } from "./actionCenterChartInteractions";
 
 describe("action center chart interactions", () => {
   it("maps workflow chart buckets to Action Center columns", () => {
+    expect(workflowChartNameToColumn("待处理")).toBe("todo");
+    expect(workflowChartNameToColumn("处理中")).toBe("mid");
+    expect(workflowChartNameToColumn("已关闭")).toBe("closed");
     expect(workflowChartNameToColumn("Todo")).toBe("todo");
-    expect(workflowChartNameToColumn("In progress")).toBe("mid");
-    expect(workflowChartNameToColumn("Closed")).toBe("closed");
     expect(workflowChartNameToColumn("Other")).toBeNull();
     expect(workflowChartNameToColumn(undefined)).toBeNull();
   });
 
-  it("only treats overdue and today cadence buckets as due-review filters", () => {
-    expect(isDueReviewCadenceChartName("Overdue")).toBe(true);
-    expect(isDueReviewCadenceChartName("Today")).toBe(true);
-    expect(isDueReviewCadenceChartName("Upcoming")).toBe(false);
-    expect(isDueReviewCadenceChartName(undefined)).toBe(false);
+  it("maps review cadence chart labels to cadence filters", () => {
+    expect(reviewCadenceChartNameToFilter("已逾期")).toBe("overdue");
+    expect(reviewCadenceChartNameToFilter("今日到期")).toBe("today");
+    expect(reviewCadenceChartNameToFilter("待到期")).toBe("upcoming");
+    expect(reviewCadenceChartNameToFilter("Other")).toBeNull();
+    expect(reviewCadenceChartNameToFilter(undefined)).toBeNull();
   });
 
   it("maps priority chart labels to event levels", () => {
@@ -37,8 +45,46 @@ describe("action center chart interactions", () => {
   it("maps strategy chart labels back to strategy tags", () => {
     expect(strategyChartNameToTag(strategyTagLabels.HIGH_THREAT_CORE)).toBe("HIGH_THREAT_CORE");
     expect(strategyChartNameToTag(strategyTagLabels.COUPON_DEPENDENT)).toBe("COUPON_DEPENDENT");
-    expect(strategyChartNameToTag("No strategy tags")).toBeNull();
+    expect(strategyChartNameToTag("暂无策略标签")).toBeNull();
     expect(strategyChartNameToTag(undefined)).toBeNull();
+  });
+
+  it("maps evidence driver chart labels back to attribution tags", () => {
+    expect(attributionChartNameToTag(attributionTagLabels.PRICE_DRIVEN)).toBe("PRICE_DRIVEN");
+    expect(attributionChartNameToTag(attributionTagLabels.COUPON_DRIVEN)).toBe("COUPON_DRIVEN");
+    expect(attributionChartNameToTag("暂无归因驱动")).toBeNull();
+    expect(attributionChartNameToTag(undefined)).toBeNull();
+  });
+
+  it("maps event type chart labels back to event type filters", () => {
+    expect(eventTypeChartNameToType(insightEventTypeLabels.CORE_COMPETITOR_RISK)).toBe("CORE_COMPETITOR_RISK");
+    expect(eventTypeChartNameToType(insightEventTypeLabels.COUPON_ADDED)).toBe("COUPON_ADDED");
+    expect(eventTypeChartNameToType("暂无事件类型")).toBeNull();
+    expect(eventTypeChartNameToType(undefined)).toBeNull();
+  });
+
+  it("maps evidence movement chart labels back to movement filters", () => {
+    expect(evidenceMovementChartNameToFilter("BSR 上升")).toBe("rankGain");
+    expect(evidenceMovementChartNameToFilter("价格下探")).toBe("priceCut");
+    expect(evidenceMovementChartNameToFilter("Review 增长")).toBe("reviewGrowth");
+    expect(evidenceMovementChartNameToFilter("暂无证据变化")).toBeNull();
+    expect(evidenceMovementChartNameToFilter(undefined)).toBeNull();
+  });
+
+  it("maps score mix chart labels back to score driver filters", () => {
+    expect(scoreDriverChartNameToFilter("排名动能")).toBe("rankingScore");
+    expect(scoreDriverChartNameToFilter("商品机会")).toBe("productScore");
+    expect(scoreDriverChartNameToFilter("活动/价格")).toBe("promoScore");
+    expect(scoreDriverChartNameToFilter("品牌矩阵")).toBe("brandScore");
+    expect(scoreDriverChartNameToFilter("核心风险")).toBe("riskScore");
+    expect(scoreDriverChartNameToFilter("Other")).toBeNull();
+  });
+
+  it("maps review outcome chart labels back to review results", () => {
+    expect(reviewOutcomeChartNameToResult(insightReviewResultLabels.CONFIRMED)).toBe("CONFIRMED");
+    expect(reviewOutcomeChartNameToResult(insightReviewResultLabels.REVERTED)).toBe("REVERTED");
+    expect(reviewOutcomeChartNameToResult("暂无复盘结果")).toBeNull();
+    expect(reviewOutcomeChartNameToResult(undefined)).toBeNull();
   });
 
   it("maps chart pointer offsets to category buckets", () => {
@@ -62,6 +108,25 @@ describe("action center chart interactions", () => {
     expect(chartBucketNameFromVerticalOffset(180, 210, buckets)).toBe("Bottom");
     expect(chartBucketNameFromVerticalOffset(193, 210, buckets)).toBeNull();
     expect(chartBucketNameFromVerticalOffset(30, 36, buckets)).toBeNull();
+  });
+
+  it("maps score composition pointer offsets to stacked score buckets", () => {
+    const data = [
+      { name: "Ranking", value: 30 },
+      { name: "Product", value: 20 },
+      { name: "Promo", value: 10 },
+      { name: "Brand", value: 5 },
+      { name: "Risk", value: 5 }
+    ];
+
+    expect(stackedScoreChartNameFromOffset(71, 487, data)).toBeNull();
+    expect(stackedScoreChartNameFromOffset(80, 487, data)).toBe("Ranking");
+    expect(stackedScoreChartNameFromOffset(300, 487, data)).toBe("Product");
+    expect(stackedScoreChartNameFromOffset(390, 487, data)).toBe("Promo");
+    expect(stackedScoreChartNameFromOffset(455, 487, data)).toBe("Risk");
+    expect(stackedScoreChartNameFromOffset(470, 487, data)).toBeNull();
+    expect(stackedScoreChartNameFromOffset(80, 90, data)).toBeNull();
+    expect(stackedScoreChartNameFromOffset(80, 487, [{ name: "Ranking", value: 0 }])).toBeNull();
   });
 
   it("maps pie pointer offsets to weighted buckets", () => {

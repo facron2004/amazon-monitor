@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { UserRound, UsersRound } from "@lucide/vue";
-import { ElButton, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag } from "element-plus";
+import { ElButton, ElEmpty, ElProgress, ElStatistic, ElTable, ElTableColumn, ElTag } from "element-plus";
 import type { InsightEvent } from "@amazon-monitor/shared";
 import {
+  buildOwnershipLoadSummary,
   getOwnershipLoadRows,
   type OwnershipLoadRow
 } from "../../utils/actionCenterOwnership";
@@ -17,10 +18,8 @@ const emit = defineEmits<{
 }>();
 
 const rows = computed(() => getOwnershipLoadRows(props.events));
+const summary = computed(() => buildOwnershipLoadSummary(props.events));
 const maxScore = computed(() => Math.max(1, ...rows.value.map((row) => row.totalScore)));
-const openCount = computed(() => rows.value.reduce((sum, row) => sum + row.eventCount, 0));
-const unassignedCount = computed(() => rows.value.find((row) => row.assignee === null)?.eventCount ?? 0);
-const p0Count = computed(() => rows.value.reduce((sum, row) => sum + row.p0Count, 0));
 
 function scorePercent(value: number): number {
   return Math.round((value / maxScore.value) * 100);
@@ -43,63 +42,100 @@ function isOwnershipLoadRow(row: unknown): row is OwnershipLoadRow {
       <div class="ownership-title">
         <UsersRound :size="16" />
         <div>
-          <span>Ownership load</span>
-          <strong>Open action distribution</strong>
+          <span>负责人负载</span>
+          <strong>打开动作分布</strong>
         </div>
       </div>
-      <div class="ownership-summary">
-        <span><strong>{{ openCount }}</strong> open</span>
-        <span><strong>{{ unassignedCount }}</strong> unassigned</span>
-        <span><strong>{{ p0Count }}</strong> P0</span>
-      </div>
+      <ElTag :type="summary.loadTone" effect="light" round>{{ summary.loadLabel }}</ElTag>
     </header>
 
-    <ElEmpty v-if="rows.length === 0" description="No open owner workload in this view." :image-size="64" />
-    <ElTable v-else :data="rows" row-key="label" size="small">
-      <ElTableColumn label="Owner" min-width="150">
-        <template #default="scope">
-          <div class="owner-cell">
-            <UserRound :size="14" />
-            <div>
-              <strong>{{ scope.row.label }}</strong>
-              <small>{{ scope.row.eventCount }} open events</small>
+    <ElEmpty v-if="rows.length === 0" description="当前视图暂无负责人负载" :image-size="64" />
+    <div v-else class="ownership-body">
+      <div class="ownership-metrics">
+        <ElStatistic title="打开动作" :value="summary.openCount" />
+        <section class="ownership-metric">
+          <span>负责人覆盖</span>
+          <strong>{{ summary.assignedPercent }}%</strong>
+          <ElProgress :percentage="summary.assignedPercent" :show-text="false" />
+        </section>
+        <section class="ownership-metric">
+          <span>未分配压力</span>
+          <strong>{{ summary.unassignedCount }}</strong>
+          <small>占打开队列 {{ summary.unassignedPercent }}%</small>
+        </section>
+        <section class="ownership-metric">
+          <span>P0 / 复盘队列</span>
+          <strong>{{ summary.p0Count }} / {{ summary.reviewPendingCount }}</strong>
+          <small>{{ summary.ownerCount }} 个负责人，最高 {{ summary.topOwnerLabel }} / {{ summary.topOwnerScore }}</small>
+        </section>
+      </div>
+
+      <ElTable :data="rows" row-key="label" size="small">
+        <ElTableColumn label="负责人" min-width="150">
+          <template #default="scope">
+            <div class="owner-cell">
+              <UserRound :size="14" />
+              <div>
+                <strong>{{ scope.row.label }}</strong>
+                <small>{{ scope.row.eventCount }} 条打开事件</small>
+              </div>
             </div>
-          </div>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="Load" min-width="170">
-        <template #default="scope">
-          <div class="load-cell">
-            <ElProgress :percentage="scorePercent(scope.row.totalScore)" :show-text="false" />
-            <strong>{{ scope.row.totalScore }}</strong>
-          </div>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="P0" width="70" align="center">
-        <template #default="scope">
-          <ElTag :type="scope.row.p0Count > 0 ? 'danger' : 'info'" effect="light" round>
-            {{ scope.row.p0Count }}
-          </ElTag>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="Review" width="88" align="center">
-        <template #default="scope">
-          <ElTag :type="scope.row.reviewPendingCount > 0 ? 'warning' : 'info'" effect="light" round>
-            {{ scope.row.reviewPendingCount }}
-          </ElTag>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="Top signal" min-width="220" show-overflow-tooltip>
-        <template #default="scope">
-          {{ scope.row.topEventTitle }}
-        </template>
-      </ElTableColumn>
-      <ElTableColumn width="92" align="right">
-        <template #default="scope">
-          <ElButton link type="primary" @click="focusRow(scope.row)">Focus</ElButton>
-        </template>
-      </ElTableColumn>
-    </ElTable>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="负载" min-width="170">
+          <template #default="scope">
+            <div class="load-cell">
+              <ElProgress :percentage="scorePercent(scope.row.totalScore)" :show-text="false" />
+              <strong>{{ scope.row.totalScore }}</strong>
+            </div>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="P0" width="70" align="center">
+          <template #default="scope">
+            <ElTag :type="scope.row.p0Count > 0 ? 'danger' : 'info'" effect="light" round>
+              {{ scope.row.p0Count }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="复盘" width="88" align="center">
+          <template #default="scope">
+            <ElTag :type="scope.row.reviewPendingCount > 0 ? 'warning' : 'info'" effect="light" round>
+              {{ scope.row.reviewPendingCount }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="最高信号" min-width="220" show-overflow-tooltip>
+          <template #default="scope">
+            {{ scope.row.topEventTitle }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn width="92" align="right">
+          <template #default="scope">
+            <ElButton link type="primary" @click="focusRow(scope.row)">聚焦</ElButton>
+          </template>
+        </ElTableColumn>
+      </ElTable>
+
+      <div class="ownership-mobile-list">
+        <button
+          v-for="row in rows"
+          :key="row.label"
+          type="button"
+          class="ownership-mobile-row"
+          @click="focusRow(row)"
+        >
+          <span class="ownership-mobile-head">
+            <strong>{{ row.label }}</strong>
+            <ElTag :type="row.p0Count > 0 ? 'danger' : 'info'" effect="light" round>{{ row.p0Count }} P0</ElTag>
+          </span>
+          <small>{{ row.eventCount }} 条打开事件 / {{ row.reviewPendingCount }} 个复盘 / {{ row.topEventTitle }}</small>
+          <span class="ownership-mobile-load">
+            <ElProgress :percentage="scorePercent(row.totalScore)" :show-text="false" />
+            <b>{{ row.totalScore }}</b>
+          </span>
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -144,25 +180,46 @@ function isOwnershipLoadRow(row: unknown): row is OwnershipLoadRow {
   margin-top: 2px;
 }
 
-.ownership-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
+.ownership-body {
+  display: grid;
+  gap: 12px;
 }
 
-.ownership-summary span {
+.ownership-metrics {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ownership-metrics :deep(.el-statistic),
+.ownership-metric {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 999px;
-  color: #64748b;
-  font-size: 12px;
-  padding: 5px 9px;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 9px 10px;
 }
 
-.ownership-summary strong {
+.ownership-metrics :deep(.el-statistic__head),
+.ownership-metric span,
+.ownership-metric small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.ownership-metrics :deep(.el-statistic__content),
+.ownership-metric strong {
   color: #0f172a;
-  font-variant-numeric: tabular-nums;
+  display: block;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 3px;
+}
+
+.ownership-metric {
+  display: grid;
+  gap: 5px;
 }
 
 .owner-cell,
@@ -212,14 +269,87 @@ function isOwnershipLoadRow(row: unknown): row is OwnershipLoadRow {
   border-radius: 8px;
 }
 
+.ownership-mobile-list {
+  display: none;
+}
+
+.ownership-mobile-row {
+  background: #ffffff;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  text-align: left;
+}
+
+.ownership-mobile-row:hover {
+  border-color: #93c5fd;
+}
+
+.ownership-mobile-head,
+.ownership-mobile-load {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.ownership-mobile-head strong {
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ownership-mobile-row small {
+  color: #64748b;
+  display: -webkit-box;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ownership-mobile-load {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ownership-mobile-load b {
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 760px) {
   .ownership-panel > header {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .ownership-summary {
-    justify-content: flex-start;
+  .ownership-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ownership-panel :deep(.el-table) {
+    display: none;
+  }
+
+  .ownership-mobile-list {
+    display: grid;
+    gap: 10px;
+  }
+}
+
+@media (max-width: 560px) {
+  .ownership-metrics {
+    grid-template-columns: 1fr;
   }
 }
 </style>

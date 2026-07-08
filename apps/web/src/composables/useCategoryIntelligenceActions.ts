@@ -24,6 +24,7 @@ interface UseCategoryIntelligenceActionsOptions {
   categoryReport: Ref<CategoryReportResponse | null>;
   setAction(message: string): void;
   setError(message: string): void;
+  refreshCollectionStatus(): Promise<void>;
 }
 
 export function useCategoryIntelligenceActions(options: UseCategoryIntelligenceActionsOptions) {
@@ -71,8 +72,10 @@ export function useCategoryIntelligenceActions(options: UseCategoryIntelligenceA
 
     try {
       const job = await categoryApi.collectCategory(id, { date: options.date.value });
+      await options.refreshCollectionStatus();
       await waitForCollectJobs([job], {
-        getJobStatus: (jobId) => collectApi.collectJob(jobId)
+        getJobStatus: (jobId) => collectApi.collectJob(jobId),
+        onPoll: options.refreshCollectionStatus
       });
       await options.store.loadCategories(options.date.value);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);

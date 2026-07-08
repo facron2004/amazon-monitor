@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { AlertTriangle, Eye, PackageSearch } from "@lucide/vue";
+import { ElButton, ElTag } from "element-plus";
 import {
   insightEventTypeLabels,
   type InsightEvent
@@ -38,8 +39,8 @@ const rankSummary = computed(() => {
   const current = representative.evidence.currentRank;
   if (previous === null && current === null) return "排名未采集";
   if (previous === null) return `新进 #${current}`;
-  if (current === null) return `原 #${previous}`;
-  return `#${previous} → #${current}`;
+  if (current === null) return `跌出 #${previous}`;
+  return `#${previous} -> #${current}`;
 });
 
 const watchLabel = computed(() => {
@@ -47,30 +48,48 @@ const watchLabel = computed(() => {
     case "CORE":
       return "核心竞品";
     case "NORMAL":
-      return "常规关注";
+      return "普通竞品";
     case "POTENTIAL":
-      return "观察池";
+      return "潜在竞品";
     case "IGNORED":
       return "已忽略";
     default:
       return null;
   }
 });
+
+function levelTagType(level: InsightEvent["eventLevel"]): "danger" | "warning" | "info" {
+  if (level === "P0") return "danger";
+  if (level === "P1") return "warning";
+  return "info";
+}
+
+function watchTagType(): "danger" | "warning" | "info" {
+  if (props.group.watchLevel === "CORE") return "danger";
+  if (props.group.watchLevel === "POTENTIAL") return "warning";
+  return "info";
+}
 </script>
 
 <template>
   <article :class="['asin-card', `level-${group.topLevel}`, { 'is-expanded': expanded, 'is-core': group.watchLevel === 'CORE' }]">
     <header class="asin-card-head" @click="emit('toggle-expand', group.asin)">
       <InsightScoreBadge :score="group.scoreTotal" :level="group.representative.scoreLevel" />
-      <img v-if="group.representative.evidence.imageUrl" :src="group.representative.evidence.imageUrl" :alt="group.representative.eventTitle" loading="lazy" decoding="async" />
+      <img
+        v-if="group.representative.evidence.imageUrl"
+        :src="group.representative.evidence.imageUrl"
+        :alt="group.representative.eventTitle"
+        loading="lazy"
+        decoding="async"
+      />
       <div v-else class="asin-card-fallback">ASIN</div>
       <div class="asin-card-meta">
         <div class="asin-card-topline">
-          <span :class="['level-pill', `level-pill-${group.topLevel}`]">{{ group.topLevel }}</span>
-          <span v-if="watchLabel" class="watch-pill">{{ watchLabel }}</span>
-          <span class="event-count">{{ eventCount }} 条事件</span>
+          <ElTag :type="levelTagType(group.topLevel)" effect="light" round>{{ group.topLevel }}</ElTag>
+          <ElTag v-if="watchLabel" :type="watchTagType()" effect="plain" round>{{ watchLabel }}</ElTag>
+          <ElTag effect="plain" round>{{ eventCount }} 条事件</ElTag>
         </div>
-        <h4>{{ group.representative.brand || "未知品牌" }} · {{ group.asin }}</h4>
+        <h4>{{ group.representative.brand || "未知品牌" }} / {{ group.asin }}</h4>
         <p>{{ rankSummary }}</p>
       </div>
       <div class="asin-card-side">
@@ -103,7 +122,7 @@ const watchLabel = computed(() => {
         <StrategyTags :tags="group.strategyTags" />
       </div>
 
-      <div class="suggested-block" v-if="group.representative.suggestedAction">
+      <div v-if="group.representative.suggestedAction" class="suggested-block">
         <p class="block-title">建议动作</p>
         <p class="suggested-text">{{ group.representative.suggestedAction }}</p>
       </div>
@@ -113,10 +132,10 @@ const watchLabel = computed(() => {
           <PackageSearch :size="14" />
           <span class="mini-title">{{ insightEventTypeLabels[event.eventType] }}</span>
           <span class="mini-score">{{ event.scoreTotal }} 分</span>
-          <button type="button" class="mini-open">
+          <ElButton type="primary" size="small" class="mini-open" @click.stop="emit('select', event)">
             <Eye :size="13" />
             <span>打开详情</span>
-          </button>
+          </ElButton>
         </li>
       </ul>
     </section>
@@ -127,7 +146,7 @@ const watchLabel = computed(() => {
 .asin-card {
   background: #ffffff;
   border: 1px solid #d9e2ec;
-  border-radius: 10px;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -183,41 +202,6 @@ const watchLabel = computed(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.level-pill,
-.watch-pill,
-.event-count {
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  padding: 4px 8px;
-}
-
-.level-pill-P0 {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.level-pill-P1 {
-  background: #ffedd5;
-  color: #9a3412;
-}
-
-.level-pill-P2 {
-  background: #e0f2fe;
-  color: #075985;
-}
-
-.watch-pill {
-  background: #f1f5f9;
-  color: #334155;
-}
-
-.event-count {
-  background: #ecfeff;
-  color: #155e75;
 }
 
 .asin-card-meta h4 {
@@ -356,18 +340,8 @@ const watchLabel = computed(() => {
 
 .mini-open {
   align-items: center;
-  background: #0f766e;
-  border: none;
-  border-radius: 6px;
-  color: #ffffff;
   display: inline-flex;
-  font-size: 11px;
   gap: 4px;
-  padding: 3px 8px;
-}
-
-.mini-open:hover {
-  background: #115e59;
 }
 
 @media (max-width: 760px) {

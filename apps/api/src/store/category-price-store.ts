@@ -3,7 +3,7 @@ import { trustedPreviousReviewCount } from "@amazon-monitor/shared";
 import { mapProductPriceHistory, type ProductPriceHistoryRow } from "./snapshot-mappers.js";
 import { sanitizeProductPriceHistory } from "./review-guards.js";
 import { isoDateOffset } from "./date-utils.js";
-import { buildWhere, clampLimit, clampOffset, whereEq, withTransaction } from "./sql-utils.js";
+import { buildWhere, clampLimit, clampOffset, whereEq, whereGte, whereLte, withTransaction } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
 type CategoryPriceStoreMethods = Pick<Store, "replaceProductPriceHistoryForDate" | "listProductPriceHistory">;
@@ -114,7 +114,10 @@ export function createCategoryPriceStore(
         whereEq("p.snapshot_date", filter.date),
         whereEq("p.category_id", filter.categoryId),
         whereEq("p.asin", filter.asin),
-        whereEq("p.marketplace", filter.marketplace)
+        whereEq("p.marketplace", filter.marketplace),
+        whereEq("p.brand", filter.brand),
+        whereGte("p.snapshot_date", filter.startDate),
+        whereLte("p.snapshot_date", filter.endDate)
       );
       // Default to 500 when no limit is requested — the three-way JOIN plus
       // computed-column ORDER BY is expensive, and unbounded returns on this

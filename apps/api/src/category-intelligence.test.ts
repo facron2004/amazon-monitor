@@ -195,6 +195,19 @@ describe("category competitor intelligence", () => {
         expect.objectContaining({ asin: "B0COOLICE1", insightType: "price_drop_rank_lift", previousDate: "2026-05-18" })
       ])
     );
+    const actionEvents = store.listInsightEvents({ date: "2026-05-19", categoryId: category.id, limit: 100 });
+    expect(actionEvents.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining(["NEW_TOP20_ENTRY", "PRICE_DROP", "COUPON_ADDED", "DEAL_ADDED"])
+    );
+    expect(actionEvents.find((event) => event.asin === "B0COOLICE1" && event.eventType === "COUPON_ADDED")).toMatchObject({
+      eventLevel: "P0",
+      scoreTotal: expect.any(Number),
+      reviewDueDate: expect.any(String),
+      evidence: {
+        sourceEventType: "coupon_start",
+        couponAfter: "Save $20 with coupon"
+      }
+    });
     expect(store.listCompetitors({ sourceType: "category" }).map((item) => [item.asin, item.latestCategoryRank, item.competitorTier])).toEqual(
       expect.arrayContaining([
         ["B0COOLICE1", 2, "core"],
@@ -393,6 +406,7 @@ describe("category competitor intelligence", () => {
     });
 
     await runCategoryCollectionForMonitor(store, category.id, "2026-05-20", { collector: successCollector });
+    const insightIdsBeforeFailure = store.listInsightEvents({ date: "2026-05-20", categoryId: category.id, limit: 100 }).map((event) => event.id);
     const failed = await runCategoryCollectionForMonitor(store, category.id, "2026-05-20", { collector: partialCollector });
 
     expect(failed.status).toBe("failed");
@@ -404,6 +418,7 @@ describe("category competitor intelligence", () => {
       "B0STRICT002"
     ]);
     expect(store.listBsrRankHistory({ date: "2026-05-20", sourceType: "category_bestseller", sourceId: category.id })).toHaveLength(2);
+    expect(store.listInsightEvents({ date: "2026-05-20", categoryId: category.id, limit: 100 }).map((event) => event.id)).toEqual(insightIdsBeforeFailure);
     expect(store.listBsrSnapshotQuality({ date: "2026-05-20", sourceType: "category_bestseller", sourceId: category.id })[0]).toMatchObject({
       expectedCount: 2,
       actualCount: 2,

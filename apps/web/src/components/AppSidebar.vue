@@ -21,11 +21,11 @@ const emit = defineEmits<{
 }>();
 
 const monitorTabs = computed(() =>
-  tabs.filter((tab) => ["overview", "categories", "keywords", "competitors"].includes(tab.key))
+  tabs.filter((tab) => ["overview", "categories", "keywords", "competitors", "products", "inventory", "profit", "listing-health", "ads", "review-voc"].includes(tab.key))
 );
 
 const followUpTabs = computed(() =>
-  tabs.filter((tab) => ["action-center", "alerts", "notifications", "reports", "logs"].includes(tab.key))
+  tabs.filter((tab) => ["action-center", "tasks", "sops", "alerts", "notifications", "reports", "logs"].includes(tab.key))
 );
 
 const sidebarState = computed(() => (props.loading ? "正在执行采集" : "看板已准备好复盘"));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inferStrategyTags } from "./strategy-tags.js";
+import { inferStrategyTags, strategyTagLabels } from "./strategy-tags.js";
 
 describe("inferStrategyTags", () => {
   it("derives only strategy tags supported by collected evidence", () => {
@@ -43,5 +43,18 @@ describe("inferStrategyTags", () => {
       isCoreCompetitor: false,
       reviewResult: "REVERTED"
     })).toEqual(["SHORT_SURGE_REVERSION"]);
+  });
+
+  it("keeps strategy tag labels readable for Action Center visualization", () => {
+    expect(strategyTagLabels).toEqual({
+      LOW_PRICE_RANKING: "低价冲榜型",
+      COUPON_DEPENDENT: "Coupon 依赖型",
+      DEAL_LIFT: "Deal 拉升型",
+      REVIEW_ACCELERATION: "Review 快增型",
+      NEW_PRODUCT_MATRIX: "新品矩阵型",
+      STABLE_HEAD: "稳定头部型",
+      SHORT_SURGE_REVERSION: "短期冲榜回落型",
+      HIGH_THREAT_CORE: "高威胁核心竞品"
+    });
   });
 });

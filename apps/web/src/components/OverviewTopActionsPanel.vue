@@ -10,6 +10,7 @@ import {
 } from "@lucide/vue";
 import {
   insightEventTypeLabels,
+  type AiDailyBriefResponse,
   type InsightEvent,
   type InsightEventType
 } from "@amazon-monitor/shared";
@@ -18,10 +19,13 @@ import InsightScoreBadge from "./action-center/InsightScoreBadge.vue";
 const props = defineProps<{
   events: InsightEvent[];
   loading: boolean;
+  dailyBrief: AiDailyBriefResponse | null;
+  dailyBriefLoading: boolean;
 }>();
 
 const emit = defineEmits<{
   (event: "open-asin", value: InsightEvent): void;
+  (event: "generate-daily-brief"): void;
 }>();
 
 const ICONS: Partial<Record<InsightEventType, typeof Flame>> = {
@@ -50,6 +54,9 @@ function describeEvent(event: InsightEvent): string {
   }
   return fragments.join(" · ");
 }
+const briefConfidence = computed(() => Math.round((props.dailyBrief?.output.confidence ?? 0) * 100));
+const briefEvidence = computed(() => props.dailyBrief?.output.evidence.slice(0, 3) ?? []);
+const briefActions = computed(() => props.dailyBrief?.output.recommended_actions.slice(0, 5) ?? []);
 </script>
 
 <template>
@@ -60,7 +67,34 @@ function describeEvent(event: InsightEvent): string {
         <span>今日必看</span>
         <h2>今日必须关注 {{ events.length }} 件事</h2>
       </div>
+      <button class="agent-button" type="button" :disabled="dailyBriefLoading" @click="emit('generate-daily-brief')">
+        <Sparkles :size="15" />
+        <span>{{ dailyBriefLoading ? "Agent running" : "Agent brief" }}</span>
+      </button>
     </header>
+
+    <section v-if="dailyBrief" class="agent-brief">
+      <div class="brief-main">
+        <div class="brief-kicker">
+          <span>Daily Operator Agent</span>
+          <strong>{{ briefConfidence }}%</strong>
+        </div>
+        <h3>{{ dailyBrief.output.summary }}</h3>
+        <p>{{ dailyBrief.output.impact }}</p>
+      </div>
+      <ul class="brief-evidence">
+        <li v-for="item in briefEvidence" :key="item">{{ item }}</li>
+      </ul>
+      <ol class="brief-actions">
+        <li v-for="action in briefActions" :key="`${action.priority}-${action.action}`">
+          <span :class="['level-pill', `level-pill-${action.priority}`]">{{ action.priority }}</span>
+          <div>
+            <strong>{{ action.action }}</strong>
+            <p>{{ action.reason }}</p>
+          </div>
+        </li>
+      </ol>
+    </section>
 
     <div v-if="loading" class="top-actions-loading">正在汇总今日关键事件...</div>
 
@@ -104,8 +138,9 @@ function describeEvent(event: InsightEvent): string {
 
 .top-actions-head {
   align-items: center;
-  display: flex;
+  display: grid;
   gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .top-actions-head svg {
@@ -123,6 +158,106 @@ function describeEvent(event: InsightEvent): string {
   font-size: 18px;
   line-height: 1.3;
   margin: 3px 0 0;
+}
+
+.agent-button {
+  align-items: center;
+  background: #0f766e;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 34px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.agent-button span {
+  color: #ffffff;
+  display: inline;
+  font-size: 12px;
+}
+
+.agent-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.agent-brief {
+  background: #f8fafc;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.brief-kicker {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.brief-kicker span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.brief-kicker strong {
+  color: #0f766e;
+  font-size: 12px;
+}
+
+.brief-main h3 {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.35;
+  margin: 6px 0 4px;
+}
+
+.brief-main p,
+.brief-actions p {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.brief-evidence,
+.brief-actions {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.brief-evidence {
+  color: #475569;
+  font-size: 12px;
+  list-style-position: inside;
+}
+
+.brief-actions {
+  list-style: none;
+}
+
+.brief-actions li {
+  align-items: flex-start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.brief-actions strong {
+  color: #0f172a;
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .top-actions-loading,
@@ -174,7 +309,7 @@ function describeEvent(event: InsightEvent): string {
 }
 
 .top-action-card.level-P1 {
-  border-left-color: #c2410c;
+  border-left-color: #be123c;
 }
 
 .top-action-card.level-P2 {
@@ -237,8 +372,8 @@ function describeEvent(event: InsightEvent): string {
 }
 
 .level-pill-P1 {
-  background: #ffedd5;
-  color: #9a3412;
+  background: #ffe4e6;
+  color: #be123c;
 }
 
 .level-pill-P2 {
@@ -266,6 +401,16 @@ function describeEvent(event: InsightEvent): string {
 }
 
 @media (max-width: 760px) {
+  .top-actions-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .agent-button {
+    grid-column: 1 / -1;
+    justify-content: center;
+    width: 100%;
+  }
+
   .top-action-card {
     grid-template-columns: 28px auto minmax(0, 1fr);
   }

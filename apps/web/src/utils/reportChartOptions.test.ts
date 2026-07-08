@@ -46,6 +46,8 @@ const report: PeriodInsightReportResponse = {
       suggestedAction: "Review"
     }
   ],
+  reviewDueEvents: [],
+  reviewedEvents: [],
   reviewOutcomes: [],
   markdown: "# Monthly Insight Report"
 };
@@ -60,10 +62,10 @@ describe("report chart options", () => {
   it("keeps overdue review count as context instead of double-counting donut slices", () => {
     const option = buildReviewLoopChartOption(report) as ChartOption;
 
-    expect(option.title?.subtext).toBe("due / 2 overdue");
+    expect(option.title?.subtext).toBe("待复盘 / 2 逾期");
     expect(option.series[0]?.data).toEqual([
-      { name: "Due backlog", value: 7 },
-      { name: "Reviewed", value: 18 }
+      { name: "待复盘队列", value: 7 },
+      { name: "已复盘", value: 18 }
     ]);
   });
 

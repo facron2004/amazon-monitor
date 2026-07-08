@@ -1,6 +1,6 @@
 {
   "name": "amazon-keyword-competitor-monitor",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Amazon 关键词竞品价格与排名监控系统",
   "author": "Amazon Monitor Team",
   "private": true,
@@ -19,8 +19,12 @@
     "dev": "npm run build:shared && npm-run-all --parallel dev:api dev:web",
     "dev:api": "npm --workspace @amazon-monitor/api run dev",
     "dev:web": "npm --workspace @amazon-monitor/web run dev",
+    "build:tauri:web": "npm run build:shared && cross-env VITE_API_BASE=http://127.0.0.1:4000/api npm --workspace @amazon-monitor/web run build",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "test": "npm run test:unit",
-    "test:unit": "npm --workspace @amazon-monitor/shared run test && npm --workspace @amazon-monitor/api run test:unit",
+    "test:unit": "npm --workspace @amazon-monitor/shared run test && npm --workspace @amazon-monitor/api run test:unit && npm --workspace @amazon-monitor/web run test",
+    "typecheck": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build",
     "test:browser": "npm --workspace @amazon-monitor/api run test:browser",
     "build": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build",
     "start": "node apps/api/dist/index.js",
@@ -31,6 +35,7 @@
     "worker": "cross-env ENABLE_CRON=false tsx apps/api/src/worker.ts"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^24.10.1",
     "cross-env": "^10.1.0",
     "npm-run-all": "^4.1.5",

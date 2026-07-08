@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SerpProductInput } from "@amazon-monitor/shared";
 import type { AmazonSearchCollector, CollectedSearchPage } from "./amazon-collector.js";
 import { createApiApp } from "./server.js";
@@ -88,6 +88,37 @@ describe("api routes", () => {
 
     await request(app).post("/api/demo/seed").expect(404);
   });
+
+  it("rejects keyword marketplaces outside the Amazon allowlist", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+
+    const response = await request(app)
+      .post("/api/keywords")
+      .send({ keyword: "cordless leaf blower", marketplace: "amazon.com.evil.test", crawlPages: 1 })
+      .expect(400);
+
+    expect(response.body.message).toContain("marketplace must be a supported Amazon marketplace");
+    expect(store.listKeywords()).toHaveLength(0);
+  });
+
+  it("reports unmarked async route failures as server errors", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    store.getKeywordDetail = (() => {
+      throw new Error("unexpected route failure");
+    }) as typeof store.getKeywordDetail;
+    const app = createApiApp(store);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await request(app).get("/api/keywords/1/detail").expect(500);
+
+    expect(response.body.message).toBe("unexpected route failure");
+    errorLog.mockRestore();
+  });
 });
 
 function binaryParser(response: NodeJS.ReadableStream, callback: (error: Error | null, body?: Buffer) => void): void {
@@ -133,7 +164,51 @@ describe("api authentication and docs", () => {
     const app = createApiApp(store);
 
     await request(app).get("/api-docs").expect(200);
-    await request(app).get("/api/openapi.json").expect(200);
+    const openapiResponse = await request(app).get("/api/openapi.json").expect(200);
+    const document = openapiResponse.body as OpenApiDocument;
+    const paths = Object.keys(document.paths);
+    expect(paths).toEqual(expect.arrayContaining([
+      "/activity-events",
+      "/bsr/history",
+      "/bsr/changes",
+      "/action-insights",
+      "/insight-events",
+      "/insight-events/trend",
+      "/insight-events/{id}/review",
+      "/asin-watch-states",
+      "/reports/insights/period"
+    ]));
+    expect(queryParameterNames(document, "/insight-events")).toEqual(expect.arrayContaining([
+      "date",
+      "reviewedOnDate",
+      "sortBy",
+      "reviewCadence",
+      "actionStage",
+      "scoreDriver",
+      "strategyTag"
+    ]));
+    expect(queryParameterNames(document, "/insight-events/review-due")).toEqual(expect.arrayContaining([
+      "date",
+      "sortBy",
+      "attributionTag",
+      "evidenceMovement",
+      "reviewCadence",
+      "actionStage",
+      "scoreDriver",
+      "strategyTag",
+      "coreOnly",
+      "newBreakoutOnly"
+    ]));
+    expect(queryParameterNames(document, "/insight-events/trend")).toEqual(expect.arrayContaining([
+      "reviewedOnDate",
+      "assignee",
+      "reviewCadence",
+      "actionStage",
+      "unassignedOnly",
+      "coreOnly",
+      "newBreakoutOnly",
+      "sortBy"
+    ]));
     await request(app).get("/api/health").expect(200);
 
     if (originalApiKey) {
@@ -175,6 +250,27 @@ describe("api authentication and docs", () => {
     }
   });
 });
+
+interface OpenApiParameter {
+  name: string;
+  in: string;
+}
+
+interface OpenApiPathItem {
+  get?: {
+    parameters?: OpenApiParameter[];
+  };
+}
+
+interface OpenApiDocument {
+  paths: Record<string, OpenApiPathItem>;
+}
+
+function queryParameterNames(document: OpenApiDocument, path: string): string[] {
+  return document.paths[path]?.get?.parameters
+    ?.filter((parameter) => parameter.in === "query")
+    .map((parameter) => parameter.name) ?? [];
+}
 
 describe("queue routing", () => {
   it("allows pushing, listing, and retrieving job status via API", async () => {

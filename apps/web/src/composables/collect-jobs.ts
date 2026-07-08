@@ -5,6 +5,7 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1_000;
 
 export interface WaitForCollectJobsOptions {
   getJobStatus(id: number): Promise<CollectJob | null>;
+  onPoll?(jobs: readonly CollectJob[]): Promise<void> | void;
   pollIntervalMs?: number;
   timeoutMs?: number;
   sleep?(ms: number): Promise<void>;
@@ -43,6 +44,8 @@ export async function waitForCollectJobs(
 
       pendingJobs.set(jobStatus.id, jobStatus);
     }
+
+    await options.onPoll?.(Array.from(pendingJobs.values()));
 
     if (pendingJobs.size === 0) {
       break;

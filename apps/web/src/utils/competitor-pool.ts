@@ -1,4 +1,4 @@
-import type { CompetitorPoolItem } from "@amazon-monitor/shared";
+import type { AsinWatchLevel, AsinWatchState, CompetitorPoolItem } from "@amazon-monitor/shared";
 import { validCouponText, validDealBadge } from "./formatters-promotions";
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "../constants/competitors";
 
@@ -7,10 +7,12 @@ export interface FilterVisibleCompetitorsOptions {
   competitorQuery: string;
   competitorSourceFilter: CompetitorSourceFilter;
   competitorTierFilter: CompetitorTierFilter;
+  watchStates?: AsinWatchState[];
 }
 
 export function filterVisibleCompetitors(options: FilterVisibleCompetitorsOptions): CompetitorPoolItem[] {
   const query = options.competitorQuery.trim().toLowerCase();
+  const watchByAsin = watchStateByAsin(options.watchStates ?? []);
 
   return options.competitors.filter((item) => {
     const matchesSource =
@@ -18,7 +20,7 @@ export function filterVisibleCompetitors(options: FilterVisibleCompetitorsOption
       item.sourceType === options.competitorSourceFilter ||
       (options.competitorSourceFilter === "category" && item.sourceType === "hybrid") ||
       (options.competitorSourceFilter === "keyword" && item.sourceType === "hybrid");
-    const matchesTier = options.competitorTierFilter === "all" || item.competitorTier === options.competitorTierFilter;
+    const matchesTier = matchesCompetitorTierFilter(item, options.competitorTierFilter, watchByAsin);
 
     if (!query) {
       return matchesSource && matchesTier;
@@ -96,9 +98,11 @@ export function buildCompetitorKpis(
     priceActive: null,
     key: null
   },
-  today: Date = new Date()
+  today: Date = new Date(),
+  watchStates: AsinWatchState[] = []
 ): CompetitorKpi[] {
-  const coreCount = competitors.filter((item) => item.competitorTier === "core").length;
+  const watchByAsin = watchStateByAsin(watchStates);
+  const coreCount = competitors.filter((item) => isEffectiveCoreCompetitor(item, watchByAsin)).length;
   const newCount = competitors.filter((item) => isNewEntry(item, today)).length;
   const priceActiveCount = competitors.filter((item) => hasPriceActivity(item)).length;
   const keyCount = competitors.filter((item) => item.isKeyCompetitor).length;
@@ -114,19 +118,21 @@ export function buildCompetitorKpis(
 
 export function buildCompetitorInsightSuggestion(
   competitors: CompetitorPoolItem[],
-  today: Date = new Date()
+  today: Date = new Date(),
+  watchStates: AsinWatchState[] = []
 ): CompetitorInsightSuggestion {
+  const watchByAsin = watchStateByAsin(watchStates);
   const priceActive = competitors.filter((item) => hasPriceActivity(item));
   const promoActive = competitors.filter((item) => Boolean(validCouponText(item.couponText)));
-  const coreItems = competitors.filter((item) => item.competitorTier === "core");
+  const coreItems = competitors.filter((item) => isEffectiveCoreCompetitor(item, watchByAsin));
 
-  // 头部建议:找出"价格活跃 + 核心分层"重合度最高的 tier
-  const priceActiveCore = priceActive.filter((item) => item.competitorTier === "core");
-  const headline = priceActiveCore.length > 0 ? "建议优先关注:价格波动 + 促销中 + 核心分层的竞品" : "建议优先关注:核心分层中带价格活动的竞品";
+  // 头部建议:找出"价格活跃 + 核心/观察分层"重合度最高的 ASIN
+  const priceActiveCore = priceActive.filter((item) => isEffectiveCoreCompetitor(item, watchByAsin));
+  const headline = priceActiveCore.length > 0 ? "建议优先关注:价格波动 + 促销中 + 核心竞品" : "建议优先关注:核心竞品中带价格活动的 ASIN";
   const body =
     priceActiveCore.length > 0
-      ? `已识别 ${priceActiveCore.length} 个核心竞品同时存在 Coupon/Deal 活动,值得 3-7 天内密切观察其排名变化。`
-      : "当前核心分层竞品暂未触发价格活动,可继续关注新进与上升队列。";
+      ? `已识别 ${priceActiveCore.length} 个核心竞品同时存在 Coupon/Deal 活动，值得 3-7 天内密切观察其排名变化。`
+      : "当前核心竞品暂未触发价格活动，可继续关注新进与上升队列。";
 
   return {
     headline,
@@ -136,7 +142,30 @@ export function buildCompetitorInsightSuggestion(
     stats: [
       { label: "价格活跃竞品", value: priceActive.length, tone: "price" },
       { label: "促销中竞品", value: promoActive.length, tone: "activity" },
-      { label: "核心分层竞品", value: coreItems.length, tone: "core" }
+      { label: "核心竞品", value: coreItems.length, tone: "core" }
     ]
   };
+}
+
+function watchStateByAsin(watchStates: AsinWatchState[]): Map<string, AsinWatchState> {
+  return new Map(watchStates.map((state) => [state.asin, state]));
+}
+
+function watchLevelFor(item: CompetitorPoolItem, watchByAsin: Map<string, AsinWatchState>): AsinWatchLevel {
+  return watchByAsin.get(item.asin)?.watchLevel ?? "NORMAL";
+}
+
+function isEffectiveCoreCompetitor(item: CompetitorPoolItem, watchByAsin: Map<string, AsinWatchState>): boolean {
+  return item.competitorTier === "core" || item.isKeyCompetitor || watchLevelFor(item, watchByAsin) === "CORE";
+}
+
+function matchesCompetitorTierFilter(
+  item: CompetitorPoolItem,
+  filter: CompetitorTierFilter,
+  watchByAsin: Map<string, AsinWatchState>
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "core") return isEffectiveCoreCompetitor(item, watchByAsin);
+  if (filter === "watch") return item.competitorTier === "watch" || watchLevelFor(item, watchByAsin) !== "NORMAL";
+  return item.competitorTier === filter;
 }

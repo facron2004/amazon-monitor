@@ -41,6 +41,8 @@ describe("insight event store", () => {
     expect(store.updateInsightEventAssignee(event.id, " ")).toMatchObject({ assignee: null });
 
     expect(store.updateInsightEventNote(event.id, "跟进竞品价格")).toMatchObject({ userNote: "跟进竞品价格" });
+    expect(store.updateInsightEventNote(event.id, "补充复盘观察")).toMatchObject({ userNote: "补充复盘观察" });
+    expect(store.listInsightEventNotes(event.id).map((note) => note.note)).toEqual(["补充复盘观察", "跟进竞品价格"]);
 
     // 用户把事件标成 WATCHING 后,自动复盘队列不应再把它捞回——
     // 否则 markInsightEventReviewed 会把 WATCHING 强制刷成 REVIEW_PENDING/REVIEWED,
@@ -106,8 +108,154 @@ describe("insight event store", () => {
     // 用户清空了输入框,前端传 ""——不应该覆盖已有备注,也不应该写一条空 history
     store.updateInsightEventNote(event.id, "   ");
     expect(store.getInsightEvent(event.id)).toMatchObject({ userNote: "原始备注" });
-    const notes = db.prepare("SELECT * FROM insight_event_notes WHERE event_id = ?").all(event.id);
-    expect(notes).toHaveLength(1);
+    expect(store.listInsightEventNotes(event.id)).toHaveLength(1);
+  });
+
+  it("can merge events reviewed on the requested date into the daily workbench query", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const base = sampleInsightEvent();
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-22|category:1|asin:B0TODAY001|RANK_SURGE",
+      eventDate: "2026-06-22",
+      asin: "B0TODAY001",
+      eventType: "RANK_SURGE",
+      eventTitle: "Today signal",
+      reviewDueDate: null
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|category:1|asin:B0OLDREV01|PRICE_DROP",
+      eventDate: "2026-06-19",
+      asin: "B0OLDREV01",
+      eventType: "PRICE_DROP",
+      eventTitle: "Reviewed old signal",
+      status: "REVIEWED",
+      reviewDueDate: null,
+      reviewResult: "CONFIRMED",
+      updatedAt: "2026-06-22T09:00:00.000Z"
+    });
+
+    expect(store.listInsightEvents({ date: "2026-06-22" }).map((event) => event.asin)).toEqual(["B0TODAY001"]);
+    expect(store.listInsightEvents({ date: "2026-06-22", reviewResult: "CONFIRMED" })).toEqual([]);
+    expect(store.listInsightEvents({ date: "2026-06-22", reviewedOnDate: true }).map((event) => event.asin)).toEqual([
+      "B0TODAY001",
+      "B0OLDREV01"
+    ]);
+    expect(store.listInsightEvents({ date: "2026-06-22", reviewedOnDate: true, reviewResult: "CONFIRMED" }).map((event) => event.asin)).toEqual([
+      "B0OLDREV01"
+    ]);
+  });
+
+  it("filters insight events by chart drilldown fields", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const base = sampleInsightEvent();
+
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0PRICE|PRICE_DROP",
+      asin: "B0PRICE",
+      eventType: "PRICE_DROP",
+      attributionTags: ["PRICE_DRIVEN"],
+      evidence: { ...base.evidence, strategyTags: ["LOW_PRICE_RANKING"], currentRank: 18 }
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0COUPON|COUPON_ADDED",
+      asin: "B0COUPON",
+      eventType: "COUPON_ADDED",
+      attributionTags: ["COUPON_DRIVEN"],
+      evidence: { ...base.evidence, strategyTags: [], currentRank: 42 },
+      status: "REVIEWED",
+      reviewResult: "CONFIRMED"
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0WATCH|RANK_SURGE",
+      asin: "B0WATCH",
+      eventType: "RANK_SURGE",
+      eventLevel: "P1",
+      attributionTags: ["ORGANIC_STRENGTH"],
+      evidence: { ...base.evidence, strategyTags: [], isCoreCompetitor: false }
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0NEWB|NEW_PRODUCT_BREAKOUT",
+      asin: "B0NEWB",
+      eventType: "NEW_PRODUCT_BREAKOUT",
+      attributionTags: ["NEW_PRODUCT_PUSH"],
+      evidence: { ...base.evidence, strategyTags: ["NEW_PRODUCT_MATRIX"], brandNewEntryCount: 2 }
+    });
+    store.upsertAsinWatchState({
+      asin: "B0WATCH",
+      watchLevel: "CORE",
+      watchReason: "manual core watch",
+      firstWatchDate: "2026-06-19",
+      lastEventDate: "2026-06-19",
+      note: null
+    });
+
+    expect(store.listInsightEvents({ date: "2026-06-19", attributionTag: "PRICE_DRIVEN" }).map((event) => event.asin)).toEqual(["B0PRICE"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", strategyTag: "COUPON_DEPENDENT" }).map((event) => event.asin)).toEqual(["B0COUPON"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", reviewResult: "CONFIRMED" }).map((event) => event.asin)).toEqual(["B0COUPON"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", coreOnly: true }).map((event) => event.asin)).toEqual(["B0WATCH"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", newBreakoutOnly: true }).map((event) => event.asin)).toEqual(["B0NEWB"]);
+  });
+
+  it("sorts insight events before pagination for Action Center workbench ranking", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const base = sampleInsightEvent();
+
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0SCORE|RANK_SURGE",
+      asin: "B0SCORE",
+      eventLevel: "P2",
+      scoreTotal: 99,
+      evidence: { ...base.evidence, rankChange: 5, reviewCountChange: 3 },
+      createdAt: "2026-06-19T01:00:00.000Z"
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0LEVEL|RANK_SURGE",
+      asin: "B0LEVEL",
+      eventLevel: "P0",
+      scoreTotal: 40,
+      evidence: { ...base.evidence, rankChange: 10, reviewCountChange: 4 },
+      createdAt: "2026-06-19T02:00:00.000Z"
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0RANK|RANK_SURGE",
+      asin: "B0RANK",
+      eventLevel: "P1",
+      scoreTotal: 60,
+      evidence: { ...base.evidence, rankChange: 120, reviewCountChange: 5 },
+      createdAt: "2026-06-19T03:00:00.000Z"
+    });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|cat1|asin:B0REVIEW|REVIEW_SPIKE",
+      asin: "B0REVIEW",
+      eventLevel: "P1",
+      eventType: "REVIEW_SPIKE",
+      scoreTotal: 70,
+      evidence: { ...base.evidence, rankChange: 15, reviewCountChange: 88 },
+      createdAt: "2026-06-19T04:00:00.000Z"
+    });
+
+    expect(store.listInsightEvents({ date: "2026-06-19", sortBy: "score", limit: 1 }).map((event) => event.asin)).toEqual(["B0SCORE"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", sortBy: "level", limit: 1 }).map((event) => event.asin)).toEqual(["B0LEVEL"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", sortBy: "rankChange", limit: 1 }).map((event) => event.asin)).toEqual(["B0RANK"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", sortBy: "reviewChange", limit: 1 }).map((event) => event.asin)).toEqual(["B0REVIEW"]);
+    expect(store.listInsightEvents({ date: "2026-06-19", sortBy: "createdAt", limit: 1 }).map((event) => event.asin)).toEqual(["B0REVIEW"]);
+    expect(store.listReviewDueEvents("2026-06-22", { sortBy: "rankChange", limit: 1 }).map((event) => event.asin)).toEqual(["B0RANK"]);
   });
 
   it("filters and paginates due review events as a first-class queue", () => {

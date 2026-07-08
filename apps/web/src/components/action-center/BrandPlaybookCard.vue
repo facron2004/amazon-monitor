@@ -1,6 +1,13 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { BarChart3, Layers3, PackageSearch, Percent, TrendingUp } from "@lucide/vue";
+import { ElProgress, ElTag } from "element-plus";
 import type { BrandPlaybookProfile } from "@amazon-monitor/shared";
+import {
+  getBrandPlaybookActivityMix,
+  getBrandPlaybookTactics,
+  type BrandPlaybookTacticTone
+} from "../../utils/actionCenterBrandPlaybook";
 
 const props = defineProps<{
   profile: BrandPlaybookProfile | null;
@@ -18,6 +25,20 @@ function formatNumber(value: number | null): string {
 function formatPercent(value: number | null): string {
   return value === null ? "-" : `${Math.round(value * 1000) / 10}%`;
 }
+
+const tactics = computed(() => props.profile ? getBrandPlaybookTactics(props.profile) : []);
+const activityMix = computed(() => props.profile ? getBrandPlaybookActivityMix(props.profile) : []);
+
+function tagType(tone: BrandPlaybookTacticTone): "success" | "warning" | "danger" | "info" {
+  return tone;
+}
+
+function progressStatus(tone: BrandPlaybookTacticTone): "success" | "warning" | "exception" | undefined {
+  if (tone === "success") return "success";
+  if (tone === "warning") return "warning";
+  if (tone === "danger") return "exception";
+  return undefined;
+}
 </script>
 
 <template>
@@ -25,13 +46,13 @@ function formatPercent(value: number | null): string {
     <header>
       <Layers3 :size="16" />
       <div>
-        <h3>品牌 Playbook</h3>
-        <small v-if="props.profile">{{ props.profile.windowDays }}d · {{ props.profile.observedDays }} 个证据日</small>
+        <h3>品牌打法档案</h3>
+        <small v-if="props.profile">{{ props.profile.windowDays }} 天窗口 / {{ props.profile.observedDays }} 个证据日</small>
       </div>
     </header>
 
-    <p v-if="props.loading" class="muted">画像加载中...</p>
-    <p v-else-if="!props.profile" class="muted">暂无可用品牌画像证据</p>
+    <p v-if="props.loading" class="muted">档案加载中...</p>
+    <p v-else-if="!props.profile" class="muted">暂无可用品牌打法证据</p>
     <template v-else>
       <div class="playbook-grid">
         <span>
@@ -56,23 +77,58 @@ function formatPercent(value: number | null): string {
         </span>
       </div>
 
+      <div class="activity-mix">
+        <div class="activity-mix-head">
+          <strong>动作结构</strong>
+          <small>{{ props.profile.activityFrequency.totalEvents }} 条证据事件</small>
+        </div>
+        <div v-if="activityMix.length" class="activity-stack" aria-label="品牌打法动作结构">
+          <span
+            v-for="row in activityMix"
+            :key="row.key"
+            :style="{ width: `${row.percent}%`, backgroundColor: row.color }"
+            :title="`${row.label}: ${row.value} (${row.percent}%)`"
+          ></span>
+        </div>
+        <p v-else class="activity-empty">当前窗口暂无动作结构证据。</p>
+        <div v-if="activityMix.length" class="activity-legend">
+          <span v-for="row in activityMix" :key="row.key">
+            <i :style="{ backgroundColor: row.color }"></i>
+            <em>{{ row.label }}</em>
+            <strong>{{ row.value }}</strong>
+            <small>{{ row.percent }}%</small>
+          </span>
+        </div>
+      </div>
+
+      <div class="playbook-tactics">
+        <article v-for="tactic in tactics" :key="tactic.key" class="playbook-tactic">
+          <span class="playbook-tactic-head">
+            <ElTag :type="tagType(tactic.tone)" effect="light" round>{{ tactic.label }}</ElTag>
+            <strong>{{ tactic.title }}</strong>
+          </span>
+          <small>{{ tactic.detail }}</small>
+          <ElProgress :percentage="tactic.strength" :show-text="false" :status="progressStatus(tactic.tone)" />
+        </article>
+      </div>
+
       <dl class="playbook-facts">
         <div>
           <dt>新品节奏</dt>
-          <dd>{{ props.profile.newProductLaunchFrequency.newEntryCount }} 个新进入 · {{ props.profile.newProductLaunchFrequency.newEntryDays }} 天</dd>
+          <dd>{{ props.profile.newProductLaunchFrequency.newEntryCount }} 个新进 ASIN / {{ props.profile.newProductLaunchFrequency.newEntryDays }} 天</dd>
         </div>
         <div>
           <dt>冲榜周期</dt>
-          <dd>{{ props.profile.surgeCycle.surgeDays }} 天上攻 · {{ props.profile.surgeCycle.dropDays }} 天回落</dd>
+          <dd>{{ props.profile.surgeCycle.surgeDays }} 天上攻 / {{ props.profile.surgeCycle.dropDays }} 天回落</dd>
         </div>
         <div>
           <dt>活动结构</dt>
-          <dd>Coupon {{ props.profile.activityFrequency.couponEventCount }} · Deal {{ props.profile.activityFrequency.dealEventCount }} · Review {{ props.profile.activityFrequency.reviewGrowthCount }}</dd>
+          <dd>Coupon {{ props.profile.activityFrequency.couponEventCount }} / Deal {{ props.profile.activityFrequency.dealEventCount }} / Review {{ props.profile.activityFrequency.reviewGrowthCount }}</dd>
         </div>
       </dl>
 
       <div v-if="props.profile.historicalStrongAsins.length" class="strong-asins">
-        <small>历史强 ASIN</small>
+        <small>历史强势 ASIN</small>
         <a
           v-for="item in props.profile.historicalStrongAsins"
           :key="item.asin"
@@ -82,7 +138,7 @@ function formatPercent(value: number | null): string {
         >
           <span>{{ item.asin }}</span>
           <strong>#{{ item.bestRank ?? "-" }}</strong>
-          <em>{{ item.daysInTop20 }}d Top20</em>
+          <em>{{ item.daysInTop20 }} 天 Top20</em>
         </a>
       </div>
     </template>
@@ -141,9 +197,127 @@ function formatPercent(value: number | null): string {
 
 .playbook-grid strong,
 .playbook-facts dd,
+.playbook-tactic strong,
 .strong-asins strong {
   color: #0f172a;
   font-weight: 700;
+}
+
+.playbook-tactics {
+  display: grid;
+  gap: 8px;
+}
+
+.activity-mix {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.activity-mix-head {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.activity-mix-head strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.activity-stack {
+  background: #e2e8f0;
+  border-radius: 999px;
+  display: flex;
+  height: 12px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.activity-stack span {
+  flex: 0 0 auto;
+  min-width: 4px;
+}
+
+.activity-empty {
+  color: #64748b;
+  font-size: 12px;
+  margin: 0;
+}
+
+.activity-legend {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.activity-legend span {
+  align-items: center;
+  color: #475569;
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  min-width: 0;
+}
+
+.activity-legend i {
+  border-radius: 999px;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+}
+
+.activity-legend em {
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-legend strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.playbook-tactic {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.playbook-tactic-head {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.playbook-tactic-head strong {
+  line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.playbook-tactic small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.playbook-tactic :deep(.el-progress-bar__outer) {
+  background-color: #e2e8f0;
 }
 
 .playbook-facts {
@@ -183,5 +357,11 @@ function formatPercent(value: number | null): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .activity-legend {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

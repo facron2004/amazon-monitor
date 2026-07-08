@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import type { CategoryMonitor } from "@amazon-monitor/shared";
 import { useCategoryDailyBriefing, type LaneEvent } from "../composables/useCategoryDailyBriefing";
@@ -10,6 +10,7 @@ import CategoryHeader from "./categories/CategoryHeader.vue";
 import CategoryInsightStrip from "./categories/CategoryInsightStrip.vue";
 import CategoryKpiCards from "./categories/CategoryKpiCards.vue";
 import CategoryLanePanel from "./categories/CategoryLanePanel.vue";
+import ProductDetailDrawer from "./categories/ProductDetailDrawer.vue";
 
 interface Props {
   date: string;
@@ -29,6 +30,7 @@ const store = useCategoryStore();
 const { categories, selectedCategoryId } = storeToRefs(store);
 
 const categoryDataIsFallback = computed(() => store.categoryDataDate !== props.date);
+const selectedAsin = ref<string | null>(null);
 const selectedCategoryName = computed(
   () => categories.value.find((item) => item.id === selectedCategoryId.value)?.name ?? ""
 );
@@ -84,6 +86,10 @@ function handleToggleCategory(category: CategoryMonitor): void {
 
 function handleCreateCategory(): void {
   emit("create-category");
+}
+
+function handleSelectAsin(asin: string): void {
+  selectedAsin.value = asin;
 }
 
 function handleInsightJump(payload: { brand: string | null }): void {
@@ -173,7 +179,7 @@ function handleLaneSelect(eventKey: string): void {
       @jump-to-board="handleInsightJump"
     />
 
-    <CategoryBoardPanel />
+    <CategoryBoardPanel @select-asin="handleSelectAsin" />
 
     <CategoryDailyBriefingDrawer
       v-model:drawer="drawer"
@@ -181,6 +187,11 @@ function handleLaneSelect(eventKey: string): void {
       :format-price-delta="formatPriceDelta"
       :brand-judgement="brandJudgement"
       :open-external="openExternal"
+    />
+
+    <ProductDetailDrawer
+      :asin="selectedAsin"
+      @close="selectedAsin = null"
     />
   </section>
 </template>

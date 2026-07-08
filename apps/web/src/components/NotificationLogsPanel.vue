@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { NotificationSendLog } from "@amazon-monitor/shared";
 import { statusText } from "../utils/formatters";
+import { formatLocalDateTime, formatWebTimezoneLabel } from "../utils/formatters-time";
 
 interface Props {
   notificationLogs: NotificationSendLog[];
@@ -29,10 +30,10 @@ defineProps<Props>();
         </thead>
         <tbody>
           <tr v-for="log in notificationLogs" :key="log.id">
-            <td>{{ log.sentAt.slice(0, 19).replace("T", " ") }}</td>
+            <td>{{ formatLocalDateTime(log.sentAt) }}</td>
             <td>{{ log.scheduleName }}</td>
             <td>{{ log.channel === "email" ? "邮箱" : "飞书" }}</td>
-            <td>{{ log.reportDate }}</td>
+            <td>{{ formatWebTimezoneLabel(log.reportDate) }}</td>
             <td>{{ statusText(log.status) }}</td>
             <td>{{ log.message || log.errorMessage || "-" }}</td>
           </tr>

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { buildNotificationExcelAttachment } from "../excel-report.js";
+import { appendDailyInsightReportMarkdown, collectDailyInsightReportData } from "../reports/insight-report.js";
 import { summarizePeriodInsightReport } from "../reports/period-insight-ai-summary.js";
 import { buildPeriodInsightReport } from "../reports/period-insight-report.js";
 import type { Store } from "../store.js";
@@ -28,10 +29,11 @@ export function registerReportRoutes(app: Express, store: Store): void {
   app.get("/api/reports/daily", (request, response) => {
     const date = getDate(request);
     const keyword = optionalString(request.query.keyword);
+    const markdown = store.getDailyReport(date, keyword);
     response.json({
       date,
       keyword: keyword ?? null,
-      markdown: store.getDailyReport(date, keyword)
+      markdown: keyword ? markdown : appendDailyInsightReportMarkdown(markdown, collectDailyInsightReportData(store, date))
     });
   });
 

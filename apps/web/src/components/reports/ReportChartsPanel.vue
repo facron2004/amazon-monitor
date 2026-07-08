@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { BarChart3, Donut, Radar } from "@lucide/vue";
-import { ElCard, ElEmpty, ElRow, ElCol } from "element-plus";
+import { ElCard, ElCol, ElEmpty, ElRow } from "element-plus";
 import type { PeriodInsightReportResponse } from "../../api-types";
 import { buildBrandPressureChartOption, buildReviewLoopChartOption, buildSignalMixChartOption } from "../../utils/reportChartOptions";
-import type { ChartInstance } from "../../utils/echartsRuntime";
-
-type ReportChartsRuntime = typeof import("../../utils/echartsRuntime");
+import { useEchartsCharts } from "../../composables/useEchartsCharts";
 
 const props = defineProps<{
   report: PeriodInsightReportResponse | null;
@@ -16,12 +14,7 @@ const props = defineProps<{
 const signalChartEl = ref<HTMLDivElement | null>(null);
 const reviewChartEl = ref<HTMLDivElement | null>(null);
 const brandChartEl = ref<HTMLDivElement | null>(null);
-
-let runtimeReady: Promise<ReportChartsRuntime> | null = null;
-let signalChart: ChartInstance | null = null;
-let reviewChart: ChartInstance | null = null;
-let brandChart: ChartInstance | null = null;
-let resizeObserver: ResizeObserver | null = null;
+const { renderChartSpecs } = useEchartsCharts();
 
 watch(
   () => props.report,
@@ -32,66 +25,17 @@ watch(
 );
 
 async function renderCharts(): Promise<void> {
-  await nextTick();
-  if (!props.report) {
-    disposeCharts();
-    return;
-  }
-
-  const runtime = await loadRuntime();
-  if (!props.report) return;
-
-  signalChart = renderChart(runtime, signalChart, signalChartEl.value, buildSignalMixChartOption(props.report));
-  reviewChart = renderChart(runtime, reviewChart, reviewChartEl.value, buildReviewLoopChartOption(props.report));
-  brandChart = renderChart(runtime, brandChart, brandChartEl.value, buildBrandPressureChartOption(props.report));
-  bindResizeObserver();
+  await renderChartSpecs(
+    () => props.report
+      ? [
+          { key: "signal", element: signalChartEl.value, option: buildSignalMixChartOption(props.report) },
+          { key: "review", element: reviewChartEl.value, option: buildReviewLoopChartOption(props.report) },
+          { key: "brand", element: brandChartEl.value, option: buildBrandPressureChartOption(props.report) }
+        ]
+      : [],
+    () => props.report !== null
+  );
 }
-
-function renderChart(
-  runtime: ReportChartsRuntime,
-  current: ChartInstance | null,
-  element: HTMLDivElement | null,
-  option: unknown
-): ChartInstance | null {
-  if (!element) return current;
-  const chart = current ?? runtime.initChart(element);
-  chart.setOption(option, true);
-  chart.resize();
-  return chart;
-}
-
-function bindResizeObserver(): void {
-  if (resizeObserver) return;
-  const elements = [signalChartEl.value, reviewChartEl.value, brandChartEl.value].filter((element): element is HTMLDivElement => Boolean(element));
-  if (elements.length === 0) return;
-
-  resizeObserver = new ResizeObserver(() => {
-    signalChart?.resize();
-    reviewChart?.resize();
-    brandChart?.resize();
-  });
-  for (const element of elements) {
-    resizeObserver.observe(element);
-  }
-}
-
-function disposeCharts(): void {
-  resizeObserver?.disconnect();
-  resizeObserver = null;
-  signalChart?.dispose();
-  reviewChart?.dispose();
-  brandChart?.dispose();
-  signalChart = null;
-  reviewChart = null;
-  brandChart = null;
-}
-
-function loadRuntime(): Promise<ReportChartsRuntime> {
-  runtimeReady ??= import("../../utils/echartsRuntime");
-  return runtimeReady;
-}
-
-onBeforeUnmount(disposeCharts);
 </script>
 
 <template>
@@ -99,17 +43,17 @@ onBeforeUnmount(disposeCharts);
     <template #header>
       <div class="chart-panel-title">
         <BarChart3 :size="16" />
-        <span>{{ reportLabel }} chart board</span>
+        <span>{{ reportLabel }}图表看板</span>
       </div>
     </template>
 
-    <ElEmpty v-if="!report" description="No report data available for charts." :image-size="76" />
+    <ElEmpty v-if="!report" description="暂无图表报告数据。" :image-size="76" />
     <ElRow v-else :gutter="12" class="chart-grid">
       <ElCol :xs="24" :lg="14">
         <section class="chart-card">
           <div class="chart-title">
             <Radar :size="15" />
-            <span>Signal mix</span>
+            <span>信号分布</span>
           </div>
           <div ref="signalChartEl" class="report-chart" data-chart="signal-mix"></div>
         </section>
@@ -118,7 +62,7 @@ onBeforeUnmount(disposeCharts);
         <section class="chart-card">
           <div class="chart-title">
             <Donut :size="15" />
-            <span>Review loop</span>
+            <span>复盘闭环</span>
           </div>
           <div ref="reviewChartEl" class="report-chart" data-chart="review-loop"></div>
         </section>
@@ -127,7 +71,7 @@ onBeforeUnmount(disposeCharts);
         <section class="chart-card chart-card-wide">
           <div class="chart-title">
             <BarChart3 :size="15" />
-            <span>Brand pressure</span>
+            <span>品牌压力</span>
           </div>
           <div ref="brandChartEl" class="report-chart" data-chart="brand-pressure"></div>
         </section>

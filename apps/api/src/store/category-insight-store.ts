@@ -8,7 +8,7 @@ import {
   type CategorySignalRow
 } from "./snapshot-mappers.js";
 import { shouldExposeActivityEvent } from "./review-guards.js";
-import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, withTransaction } from "./sql-utils.js";
+import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, withTransaction } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
 type CategoryInsightStoreMethods = Pick<
@@ -62,12 +62,21 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
     },
 
     listBrandMatrix(filter = {}) {
-      const { sql: where, params } = buildWhere(whereEq("snapshot_date", filter.date), whereEq("category_id", filter.categoryId));
+      const { sql: where, params } = buildWhere(
+        whereEq("snapshot_date", filter.date),
+        whereEq("category_id", filter.categoryId),
+        whereEq("brand", filter.brand),
+        whereGte("snapshot_date", filter.startDate),
+        whereLte("snapshot_date", filter.endDate)
+      );
+      const clamped = clampLimit(filter.limit);
+      const limitSuffix = clamped > 0 ? `LIMIT ${clamped}` : "";
       return (
         db
           .prepare(
             `SELECT * FROM amazon_brand_matrix_snapshot ${where}
-             ORDER BY product_count_top20 DESC, product_count_top50 DESC, product_count_top100 DESC, COALESCE(best_rank, 9999) ASC`
+             ORDER BY product_count_top20 DESC, product_count_top50 DESC, product_count_top100 DESC, COALESCE(best_rank, 9999) ASC
+             ${limitSuffix}`
           )
           .all(...params) as unknown as BrandMatrixRow[]
       ).map(mapBrandMatrix);
@@ -206,7 +215,9 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
         whereEq("category_id", filter.categoryId),
         whereEq("asin", filter.asin),
         whereEq("brand", filter.brand),
-        whereEq("event_type", filter.eventType)
+        whereEq("event_type", filter.eventType),
+        whereGte("event_date", filter.startDate),
+        whereLte("event_date", filter.endDate)
       );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);

@@ -15,6 +15,21 @@ export interface OwnershipLoadRow {
   topEventTitle: string;
 }
 
+export interface OwnershipLoadSummary {
+  openCount: number;
+  assignedCount: number;
+  unassignedCount: number;
+  ownerCount: number;
+  p0Count: number;
+  reviewPendingCount: number;
+  assignedPercent: number;
+  unassignedPercent: number;
+  topOwnerLabel: string;
+  topOwnerScore: number;
+  loadLabel: string;
+  loadTone: "success" | "warning" | "danger" | "info";
+}
+
 const ownershipStatuses = new Set<InsightEventStatus>(["TODO", "WATCHING", "REVIEW_PENDING"]);
 const levelWeight: Record<InsightEventLevel, number> = { P0: 3, P1: 2, P2: 1 };
 
@@ -71,6 +86,31 @@ export function getOwnershipLoadRows(events: InsightEvent[], limit = 6): Ownersh
     }));
 }
 
+export function buildOwnershipLoadSummary(events: InsightEvent[]): OwnershipLoadSummary {
+  const rows = getOwnershipLoadRows(events, Number.MAX_SAFE_INTEGER);
+  const openCount = rows.reduce((sum, row) => sum + row.eventCount, 0);
+  const unassignedCount = rows.find((row) => row.assignee === null)?.eventCount ?? 0;
+  const assignedCount = openCount - unassignedCount;
+  const p0Count = rows.reduce((sum, row) => sum + row.p0Count, 0);
+  const reviewPendingCount = rows.reduce((sum, row) => sum + row.reviewPendingCount, 0);
+  const topOwner = rows[0] ?? null;
+
+  return {
+    openCount,
+    assignedCount,
+    unassignedCount,
+    ownerCount: rows.filter((row) => row.assignee !== null).length,
+    p0Count,
+    reviewPendingCount,
+    assignedPercent: percent(assignedCount, openCount),
+    unassignedPercent: percent(unassignedCount, openCount),
+    topOwnerLabel: topOwner?.label ?? "-",
+    topOwnerScore: topOwner?.totalScore ?? 0,
+    loadLabel: getLoadLabel(openCount, unassignedCount, p0Count, reviewPendingCount),
+    loadTone: getLoadTone(openCount, unassignedCount, p0Count, reviewPendingCount)
+  };
+}
+
 function normalizeAssignee(assignee: string | null): string | null {
   const trimmed = assignee?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : null;
@@ -91,4 +131,34 @@ function ownershipRowComparator(left: OwnershipLoadRow, right: OwnershipLoadRow)
     || right.eventCount - left.eventCount
     || left.label.localeCompare(right.label)
   );
+}
+
+function percent(part: number, total: number): number {
+  if (total === 0) return 0;
+  return Math.round((part / total) * 100);
+}
+
+function getLoadLabel(
+  openCount: number,
+  unassignedCount: number,
+  p0Count: number,
+  reviewPendingCount: number
+): string {
+  if (openCount === 0) return "No open load";
+  if (unassignedCount > 0) return `${unassignedCount} unassigned`;
+  if (p0Count > 0) return `${p0Count} P0 assigned`;
+  if (reviewPendingCount > 0) return `${reviewPendingCount} in review`;
+  return "Covered";
+}
+
+function getLoadTone(
+  openCount: number,
+  unassignedCount: number,
+  p0Count: number,
+  reviewPendingCount: number
+): OwnershipLoadSummary["loadTone"] {
+  if (openCount === 0) return "info";
+  if (unassignedCount > 0) return "danger";
+  if (p0Count > 0 || reviewPendingCount > 0) return "warning";
+  return "success";
 }

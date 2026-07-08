@@ -5,7 +5,7 @@ import { categoryCompetitorReasons, categoryCompetitorTier } from "./competitor-
 import { serpKeywordCountsByAsinMarket } from "./keyword-snapshot-store.js";
 import { mapBestsellerSnapshot, type BestsellerSnapshotRow } from "./snapshot-mappers.js";
 import { sanitizeBestsellerSnapshotRows } from "./review-guards.js";
-import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, withTransaction } from "./sql-utils.js";
+import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, withTransaction } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
 type CategorySnapshotStoreMethods = Pick<
@@ -87,7 +87,14 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
     },
 
     listCategorySnapshots(filter = {}) {
-      const { sql: where, params } = buildWhere(whereEq("snapshot_date", filter.date), whereEq("category_id", filter.categoryId), whereEq("asin", filter.asin));
+      const { sql: where, params } = buildWhere(
+        whereEq("snapshot_date", filter.date),
+        whereEq("category_id", filter.categoryId),
+        whereEq("asin", filter.asin),
+        whereEq("brand", filter.brand),
+        whereGte("snapshot_date", filter.startDate),
+        whereLte("snapshot_date", filter.endDate)
+      );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
       const pagination = clamped > 0

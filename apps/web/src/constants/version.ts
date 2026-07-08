@@ -5,4 +5,4 @@ import packageInfo from "../../../../package.json" with { type: "json" };
 
 export const APP_VERSION: string = packageInfo.version;
 export const APP_NAME: string = packageInfo.name;
-export const VERSION_RELEASE_DATE = "2026-06-30";
+export const VERSION_RELEASE_DATE = "2026-07-08";

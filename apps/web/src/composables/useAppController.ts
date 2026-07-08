@@ -36,7 +36,15 @@ export function useAppController() {
   const categoriesLoading = ref(false);
   const keywordsLoading = ref(false);
   const competitorsLoading = ref(false);
+  const productsLoading = ref(false);
+  const inventoryLoading = ref(false);
+  const profitLoading = ref(false);
+  const listingHealthLoading = ref(false);
+  const adsLoading = ref(false);
+  const reviewVocLoading = ref(false);
   const actionCenterLoading = ref(false);
+  const tasksLoading = ref(false);
+  const sopsLoading = ref(false);
   const alertsLoading = ref(false);
   const reportsLoading = ref(false);
   const notificationsLoading = ref(false);
@@ -51,7 +59,15 @@ export function useAppController() {
     categories: categoriesLoading,
     keywords: keywordsLoading,
     competitors: competitorsLoading,
+    products: productsLoading,
+    inventory: inventoryLoading,
+    profit: profitLoading,
+    "listing-health": listingHealthLoading,
+    ads: adsLoading,
+    "review-voc": reviewVocLoading,
     "action-center": actionCenterLoading,
+    tasks: tasksLoading,
+    sops: sopsLoading,
     alerts: alertsLoading,
     reports: reportsLoading,
     notifications: notificationsLoading,
@@ -60,7 +76,7 @@ export function useAppController() {
 
   const loading = computed(() =>
     overviewLoading.value || categoriesLoading.value || keywordsLoading.value ||
-    competitorsLoading.value || actionCenterLoading.value || alertsLoading.value || reportsLoading.value ||
+    competitorsLoading.value || productsLoading.value || inventoryLoading.value || profitLoading.value || listingHealthLoading.value || adsLoading.value || reviewVocLoading.value || actionCenterLoading.value || alertsLoading.value || reportsLoading.value ||
     notificationsLoading.value || logsLoading.value || collecting.value
   );
 
@@ -73,6 +89,7 @@ export function useAppController() {
 
   const categoryStore = useCategoryStore();
   const insightEventsStore = useInsightEventsStore();
+  const insightEventRefs = storeToRefs(insightEventsStore);
   const { categories: categoryMonitors, selectedCategoryId } = storeToRefs(categoryStore);
 
   const category = useCategoryIntelligence({
@@ -80,7 +97,8 @@ export function useAppController() {
     collecting,
     categoryReport: dashboard.categoryReport,
     setAction,
-    setError
+    setError,
+    refreshCollectionStatus
   });
 
   const competitors = useCompetitors({ date, setError });
@@ -92,7 +110,8 @@ export function useAppController() {
     setError,
     renderKeywordChart,
     loadCurrentView,
-    collectAllCategories: () => categoryApi.collectAllCategories({ date: date.value })
+    collectAllCategories: () => categoryApi.collectAllCategories({ date: date.value }),
+    refreshCollectionStatus
   });
 
   const notifications = useNotifications({ date, clearMessages, setAction, setError });
@@ -107,12 +126,44 @@ export function useAppController() {
     categories: category.loadCategories,
     keywords: keywords.loadKeywords,
     competitors: competitors.loadCompetitors,
+    products: async () => {
+      const { useProductStore } = await import("../stores/products.js");
+      await useProductStore().fetchProducts(date.value);
+    },
+    inventory: async () => {
+      const { useInventoryStore } = await import("../stores/inventory.js");
+      await useInventoryStore().fetchPlans(date.value);
+    },
+    profit: async () => {
+      const { useProfitStore } = await import("../stores/profit.js");
+      await useProfitStore().fetchPlans(date.value);
+    },
+    "listing-health": async () => {
+      const { useListingHealthStore } = await import("../stores/listingHealth.js");
+      await useListingHealthStore().fetchItems(date.value);
+    },
+    ads: async () => {
+      const { useAdsStore } = await import("../stores/ads.js");
+      await useAdsStore().fetchSummary(date.value);
+    },
+    "review-voc": async () => {
+      const { useReviewVocStore } = await import("../stores/reviewVoc.js");
+      await useReviewVocStore().fetchSummaries(date.value);
+    },
     "action-center": async (signal?: AbortSignal) => {
       await Promise.all([
         insightEventsStore.loadEvents(date.value, signal),
         insightEventsStore.loadReviewDueEvents(date.value, signal),
         insightEventsStore.loadWatchStates(signal)
       ]);
+    },
+    tasks: async () => {
+      const { useTaskStore } = await import("../stores/tasks.js");
+      await useTaskStore().fetchTasks();
+    },
+    sops: async () => {
+      const { useSopStore } = await import("../stores/sops.js");
+      await useSopStore().fetchSops();
     },
     alerts: dashboard.loadAlerts,
     reports: dashboard.loadReport,
@@ -154,7 +205,12 @@ export function useAppController() {
     errorMessage.value = "";
 
     try {
-      await loadAppView(activeTab.value, appViewLoaders, date.value, force, controller.signal);
+      await Promise.all([
+        loadAppView(activeTab.value, appViewLoaders, date.value, force, controller.signal),
+        loadFreshness(),
+        loadQueueStats(),
+        loadWorkerStatus()
+      ]);
     } catch (error) {
       // Swallow AbortError — the next load supersedes this one intentionally.
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -171,8 +227,18 @@ export function useAppController() {
    * Used by Overview's "今日必看" panel.
    */
   async function openActionCenterForEvent(event: InsightEvent) {
+    insightEventsStore.$patch({ selectedEvent: null });
     activeTab.value = "action-center";
     await insightEventsStore.loadEventDetail(event.id);
+  }
+
+  async function generateDailyBrief() {
+    try {
+      await insightEventsStore.generateDailyBrief(date.value);
+      setAction("AI Agent brief generated.");
+    } catch (error) {
+      setError(toErrorMessage(error));
+    }
   }
 
   async function setReportPeriod(period: InsightReportPeriod) {
@@ -232,6 +298,10 @@ export function useAppController() {
     }
   }
 
+  async function refreshCollectionStatus() {
+    await Promise.all([loadQueueStats(), loadWorkerStatus()]);
+  }
+
   function toggleSidebar() {
     sidebarOpen.value = !sidebarOpen.value;
   }
@@ -254,7 +324,7 @@ export function useAppController() {
     }
   }
 
-  const { showAuthModal, passwordInput, authError, handleUnauthorized, handleAuthSubmit } = useAuthGuard(loadCurrentView);
+  const { showAuthModal, mode, usernameInput, passwordInput, authError, handleUnauthorized, handleAuthSubmit, switchMode } = useAuthGuard(loadCurrentView);
 
   useAppViewEffects({
     activeTab,
@@ -298,8 +368,11 @@ export function useAppController() {
     activeTabLabel,
     ...dashboard,
     setReportPeriod,
-    topSummary: storeToRefs(insightEventsStore).topSummary,
-    topSummaryLoading: storeToRefs(insightEventsStore).topSummaryLoading,
+    topSummary: insightEventRefs.topSummary,
+    topSummaryLoading: insightEventRefs.topSummaryLoading,
+    dailyBrief: insightEventRefs.dailyBrief,
+    dailyBriefLoading: insightEventRefs.dailyBriefLoading,
+    generateDailyBrief,
     openActionCenterForEvent,
     categories: categoryMonitors,
     loadCategories: category.loadCategories,
@@ -316,8 +389,11 @@ export function useAppController() {
     handleOverviewSelectKeyword,
     handleKeywordChartReady,
     showAuthModal,
+    mode,
+    usernameInput,
     passwordInput,
     authError,
-    handleAuthSubmit
+    handleAuthSubmit,
+    switchMode
   };
 }

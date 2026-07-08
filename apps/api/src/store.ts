@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { createAdsStore } from "./store/ads-store.js";
+import { createAiRunStore } from "./store/ai-run-store.js";
 import { mapCompetitor, type CompetitorRow } from "./store/competitor-mappers.js";
 import { openDatabase } from "./store/db.js";
 import { createBsrStore } from "./store/bsr-store.js";
@@ -6,13 +8,21 @@ import { createCategoryInsightStore } from "./store/category-insight-store.js";
 import { createCategoryPriceStore } from "./store/category-price-store.js";
 import { createCategorySnapshotStore } from "./store/category-snapshot-store.js";
 import { createDashboardStore } from "./store/dashboard-store.js";
+import { createIdentityStore } from "./store/identity-store.js";
+import { createInventoryStore } from "./store/inventory-store.js";
 import { createKeywordSnapshotStore } from "./store/keyword-snapshot-store.js";
 import { createInsightEventStore } from "./store/insight-event-store.js";
+import { createListingHealthStore } from "./store/listing-health-store.js";
 import { createMonitorStore } from "./store/monitor-store.js";
 import { createNotificationStore } from "./store/notification-store.js";
 import { createOperationalStore } from "./store/operational-store.js";
 import { createProductActivityStore } from "./store/product-activity-store.js";
+import { createProductStore } from "./store/product-store.js";
+import { createProfitStore } from "./store/profit-store.js";
 import { createQueueStore } from "./store/queue-store.js";
+import { createReviewVocStore } from "./store/review-voc-store.js";
+import { createSopStore } from "./store/sop-store.js";
+import { createTaskStore } from "./store/task-store.js";
 import { createWorkerStore } from "./store/worker-store.js";
 import { nowIso, withTransaction } from "./store/sql-utils.js";
 import type { KeywordInput, Store } from "./store/types.js";
@@ -42,12 +52,37 @@ export function createStore(db: DatabaseSync): Store {
     ...createCategoryPriceStore(db, categorySnapshotStore),
     ...createCategoryInsightStore(db),
     ...createProductActivityStore(db),
+    ...createProductStore(db),
+    ...createAiRunStore(db),
+    ...createListingHealthStore(db),
+    ...createAdsStore(db),
+    ...createReviewVocStore(db),
+    ...createInventoryStore(db),
+    ...createProfitStore(db),
     ...createQueueStore(db),
     ...createWorkerStore(db),
+    ...createTaskStore(db),
+    ...createSopStore(db),
+    ...createIdentityStore(db),
 
     reset() {
       withTransaction(db, () => {
         db.exec(`
+          DELETE FROM sessions;
+          DELETE FROM ai_runs;
+          DELETE FROM ad_daily_metrics;
+          DELETE FROM own_product_reviews;
+          DELETE FROM product_inventory_settings;
+          DELETE FROM product_profit_settings;
+          DELETE FROM own_product_listing_snapshots;
+          DELETE FROM own_product_daily_metrics;
+          DELETE FROM own_products;
+          DELETE FROM users;
+          DELETE FROM organizations;
+          DELETE FROM insight_event_tasks;
+          DELETE FROM task_notes;
+          DELETE FROM tasks;
+          DELETE FROM sops;
           DELETE FROM amazon_worker_heartbeat;
           DELETE FROM amazon_collect_job_queue;
           DELETE FROM asin_watch_states;

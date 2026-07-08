@@ -3,14 +3,21 @@ import type {
   InsightEventLevel,
   InsightEventStatus
 } from "@amazon-monitor/shared";
+import {
+  isReviewCadenceBucketMatch,
+  type ReviewCadenceBucketKey
+} from "@amazon-monitor/shared";
 
-export type ReviewCadenceBucketKey = "overdue" | "today" | "upcoming";
+export { isReviewCadenceBucketMatch };
+export type { ReviewCadenceBucketKey };
 
 export interface ReviewCadenceBucket {
   key: ReviewCadenceBucketKey;
   label: string;
   count: number;
   p0Count: number;
+  p1Count: number;
+  p2Count: number;
   totalScore: number;
 }
 
@@ -21,22 +28,45 @@ export interface ReviewCadenceRow {
 }
 
 export interface ReviewCadenceSummary {
+  health: ReviewCadenceHealthSummary;
   buckets: ReviewCadenceBucket[];
   rows: ReviewCadenceRow[];
+}
+
+export interface ReviewCadenceHealthSummary {
+  totalCount: number;
+  dueNowCount: number;
+  overdueCount: number;
+  todayCount: number;
+  upcomingCount: number;
+  p0DueCount: number;
+  totalScore: number;
+  dueNowPercent: number;
+  nextDueLabel: string;
+  healthLabel: string;
+  healthTone: "danger" | "warning" | "success" | "info";
 }
 
 const reviewCadenceStatuses = new Set<InsightEventStatus>(["TODO", "REVIEW_PENDING"]);
 const levelWeight: Record<InsightEventLevel, number> = { P0: 3, P1: 2, P2: 1 };
 const bucketLabels: Record<ReviewCadenceBucketKey, string> = {
-  overdue: "Overdue",
-  today: "Today",
-  upcoming: "Upcoming"
+  overdue: "已逾期",
+  today: "今日到期",
+  upcoming: "待到期"
 };
 const bucketOrder: Record<ReviewCadenceBucketKey, number> = {
   overdue: 0,
   today: 1,
   upcoming: 2
 };
+
+export const reviewCadenceBucketLabels = bucketLabels;
+
+export const reviewCadenceBucketOptions: Array<{ value: ReviewCadenceBucketKey; label: string }> = [
+  { value: "overdue", label: bucketLabels.overdue },
+  { value: "today", label: bucketLabels.today },
+  { value: "upcoming", label: bucketLabels.upcoming }
+];
 
 export function buildReviewCadenceSummary(
   visibleEvents: InsightEvent[],
@@ -50,6 +80,7 @@ export function buildReviewCadenceSummary(
     .sort(reviewCadenceRowComparator);
 
   return {
+    health: buildReviewCadenceHealth(rows),
     buckets: buildReviewCadenceBuckets(rows),
     rows: rows.slice(0, 8)
   };
@@ -93,9 +124,34 @@ function buildReviewCadenceBuckets(rows: ReviewCadenceRow[]): ReviewCadenceBucke
       label: bucketLabels[key],
       count: bucketRows.length,
       p0Count: bucketRows.filter((row) => row.event.eventLevel === "P0").length,
+      p1Count: bucketRows.filter((row) => row.event.eventLevel === "P1").length,
+      p2Count: bucketRows.filter((row) => row.event.eventLevel === "P2").length,
       totalScore: bucketRows.reduce((sum, row) => sum + row.event.scoreTotal, 0)
     };
   });
+}
+
+function buildReviewCadenceHealth(rows: ReviewCadenceRow[]): ReviewCadenceHealthSummary {
+  const overdueCount = rows.filter((row) => row.bucket === "overdue").length;
+  const todayCount = rows.filter((row) => row.bucket === "today").length;
+  const upcomingCount = rows.filter((row) => row.bucket === "upcoming").length;
+  const dueNowCount = overdueCount + todayCount;
+  const p0DueCount = rows.filter((row) => row.event.eventLevel === "P0" && (row.bucket === "overdue" || row.bucket === "today")).length;
+  const nextUpcoming = rows.find((row) => row.bucket === "upcoming");
+
+  return {
+    totalCount: rows.length,
+    dueNowCount,
+    overdueCount,
+    todayCount,
+    upcomingCount,
+    p0DueCount,
+    totalScore: rows.reduce((sum, row) => sum + row.event.scoreTotal, 0),
+    dueNowPercent: percent(dueNowCount, rows.length),
+    nextDueLabel: nextUpcoming?.event.reviewDueDate?.slice(5) ?? "-",
+    healthLabel: getCadenceHealthLabel(overdueCount, todayCount, upcomingCount),
+    healthTone: getCadenceHealthTone(overdueCount, todayCount, p0DueCount, upcomingCount)
+  };
 }
 
 function reviewCadenceRowComparator(left: ReviewCadenceRow, right: ReviewCadenceRow): number {
@@ -130,4 +186,28 @@ function dateToUtcTime(date: string): number | null {
   }
   const [, year, month, day] = match;
   return Date.UTC(Number(year), Number(month) - 1, Number(day));
+}
+
+function percent(part: number, total: number): number {
+  if (total === 0) return 0;
+  return Math.round((part / total) * 100);
+}
+
+function getCadenceHealthLabel(overdueCount: number, todayCount: number, upcomingCount: number): string {
+  if (overdueCount > 0) return `${overdueCount} 个逾期`;
+  if (todayCount > 0) return `${todayCount} 个今日到期`;
+  if (upcomingCount > 0) return "已排期";
+  return "无复盘队列";
+}
+
+function getCadenceHealthTone(
+  overdueCount: number,
+  todayCount: number,
+  p0DueCount: number,
+  upcomingCount: number
+): ReviewCadenceHealthSummary["healthTone"] {
+  if (overdueCount > 0) return "danger";
+  if (todayCount > 0 || p0DueCount > 0) return "warning";
+  if (upcomingCount > 0) return "success";
+  return "info";
 }

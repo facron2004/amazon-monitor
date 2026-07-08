@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { InsightEventInput, InsightEvidence } from "@amazon-monitor/shared";
+import { attributionTagLabels, type InsightEventInput, type InsightEvidence } from "@amazon-monitor/shared";
 import { createApiApp } from "../server.js";
 import { createStore, initSchema } from "../store.js";
 
@@ -46,6 +46,7 @@ describe("report routes", () => {
       eventType: "CORE_COMPETITOR_RISK",
       scoreTotal: 96,
       scoreLevel: "S",
+      attributionTags: [],
       reviewDueDate: "2026-06-28",
       evidence: { isCoreCompetitor: true, currentRank: 12, strategyTags: ["HIGH_THREAT_CORE"] }
     }));
@@ -120,8 +121,29 @@ describe("report routes", () => {
     });
     expect(weekly.body.topEvents[0]).toMatchObject({ asin: "B0ACME0001", scoreTotal: 96 });
     expect(weekly.body.topBrands[0]).toMatchObject({ brand: "Acme", eventCount: 2, topScore: 96 });
+    expect(weekly.body.reviewDueEvents).toHaveLength(3);
+    expect(weekly.body.reviewDueEvents.map((event: { asin: string }) => event.asin)).toEqual(expect.arrayContaining([
+      "B0BETA0002",
+      "B0OLD00004",
+      "B0PRE00005"
+    ]));
+    expect(weekly.body.reviewedEvents).toHaveLength(1);
+    expect(weekly.body.reviewedEvents[0]).toMatchObject({
+      asin: "B0ACME0003",
+      reviewResult: "CONFIRMED",
+      userNote: "Price stayed low after 3-day review."
+    });
     expect(weekly.body.markdown).toContain("Weekly Insight Report (2026-06-19 to 2026-06-25)");
+    expect(weekly.body.markdown).toContain("## Weekly Brand Tactic Summary");
+    expect(weekly.body.markdown).toContain("## Weekly New-Product Breakout Summary");
+    expect(weekly.body.markdown).toContain("## Weekly Price War Summary");
+    expect(weekly.body.markdown).toContain("## Weekly Core Competitor Threat Summary");
+    expect(weekly.body.markdown).toContain("## Category Structure Signals");
     expect(weekly.body.markdown).toContain("B0OLD00004");
+    expect(weekly.body.markdown).toContain("B0BETA0002");
+    expect(weekly.body.markdown).toContain("B0ACME0003");
+    expect(weekly.body.markdown).toContain("B0ACME0001");
+    expect(weekly.body.markdown).toContain(attributionTagLabels.NO_CLEAR_DRIVER);
     expect(weekly.body.markdown).toContain("Overdue review backlog: 3");
     expect(weekly.body.markdown).toContain("B0PRE00005");
 
@@ -130,8 +152,36 @@ describe("report routes", () => {
       .expect(200);
     expect(monthly.body).toMatchObject({ period: "monthly", startDate: "2026-05-27", days: 30 });
     expect(monthly.body.summary.totalEvents).toBe(4);
+    expect(monthly.body.markdown).toContain("## Monthly Brand Tactic Summary");
+    expect(monthly.body.markdown).toContain("## Monthly Category Structure Change Summary");
 
     await request(app).get("/api/reports/insights/period?endDate=2026-06-25&period=quarterly").expect(400);
+  });
+
+  it("adds Action Center insight sections to the default daily report API", async () => {
+    const { app, store } = createReportTestApp([
+      eventFixture({
+        id: "2026-06-25|category:1|asin:B0TEST0001|RANK_SURGE",
+        eventDate: "2026-06-25",
+        asin: "B0TEST0001",
+        brand: "Acme",
+        scoreTotal: 90,
+        scoreLevel: "S",
+        reviewDueDate: "2026-06-28",
+        evidence: { currentRank: 12, previousRank: 30, rankChange: 18 }
+      })
+    ]);
+    store.saveDailyReport("2026-06-25", "ice maker", "# Keyword Daily Report");
+
+    const response = await request(app).get("/api/reports/daily?date=2026-06-25").expect(200);
+
+    expect(response.body.markdown).toContain("# Keyword Daily Report");
+    expect(response.body.markdown).toContain("Action Center");
+    expect(response.body.markdown).toContain("B0TEST0001");
+    expect(response.body.markdown).toContain("RANK_SURGE");
+
+    const keywordScoped = await request(app).get("/api/reports/daily?date=2026-06-25&keyword=ice%20maker").expect(200);
+    expect(keywordScoped.body.markdown).toBe("# Keyword Daily Report");
   });
 
   it("returns disabled AI summary metadata when LLM settings are missing", async () => {

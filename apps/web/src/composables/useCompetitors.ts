@@ -1,4 +1,4 @@
-import type { CompetitorPoolItem } from "@amazon-monitor/shared";
+import type { AsinWatchLevel, CompetitorPoolItem } from "@amazon-monitor/shared";
 import { storeToRefs } from "pinia";
 import type { Ref } from "vue";
 import { useCompetitorStore } from "../stores/competitor";
@@ -17,6 +17,8 @@ export function useCompetitors(options: UseCompetitorsOptions) {
     competitorQuery,
     competitorSourceFilter,
     competitorTierFilter,
+    watchStates,
+    watchStateUpdatingAsin,
     selectedCompetitorKeywordId,
     productActivityCalendar,
     visibleCompetitors,
@@ -27,6 +29,7 @@ export function useCompetitors(options: UseCompetitorsOptions) {
 
   const loadCompetitors = () => store.loadCompetitors();
   const toggleKeyCompetitor = (item: CompetitorPoolItem) => store.toggleKeyCompetitor(item, options.setError);
+  const setWatchState = (item: CompetitorPoolItem, level: AsinWatchLevel) => store.setWatchState(item, level, options.setError);
   const selectCompetitorFolder = (keywordId: number | null) => store.selectCompetitorFolder(keywordId);
   const openCompetitorDrawer = (item: CompetitorPoolItem) => store.openCompetitorDrawer(item);
   const closeCompetitorDrawer = () => store.closeCompetitorDrawer();
@@ -39,6 +42,8 @@ export function useCompetitors(options: UseCompetitorsOptions) {
     competitorQuery,
     competitorSourceFilter,
     competitorTierFilter,
+    watchStates,
+    watchStateUpdatingAsin,
     selectedCompetitorKeywordId,
     productActivityCalendar,
     visibleCompetitors,
@@ -47,6 +52,7 @@ export function useCompetitors(options: UseCompetitorsOptions) {
     competitorInsightSuggestion,
     loadCompetitors,
     toggleKeyCompetitor,
+    setWatchState,
     selectCompetitorFolder,
     openCompetitorDrawer,
     closeCompetitorDrawer,

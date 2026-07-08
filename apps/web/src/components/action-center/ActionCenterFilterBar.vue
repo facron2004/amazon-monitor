@@ -7,10 +7,18 @@ import {
   insightEventStatusLabels,
   insightEventTypes,
   insightEventTypeLabels,
+  insightReviewResultLabels,
+  insightReviewResults,
+  attributionTagLabels,
+  attributionTags,
   strategyTagLabels,
   strategyTags
 } from "@amazon-monitor/shared";
 import type { InsightEventFilters } from "../../stores/insightEvents";
+import { actionEvidenceMovementFilterOptions } from "../../utils/actionCenterEvidenceDeltas";
+import { reviewCadenceBucketOptions } from "../../utils/actionCenterReviewCadence";
+import { actionScoreDriverOptions } from "../../utils/actionCenterScoreBreakdown";
+import { actionSignalFlowStageOptions } from "../../utils/actionCenterSignalFlow";
 
 const props = defineProps<{
   filters: InsightEventFilters;
@@ -75,12 +83,60 @@ function checkedValue(value: unknown): boolean {
         <ElOption v-for="type in insightEventTypes" :key="type" :label="insightEventTypeLabels[type]" :value="type" />
       </ElSelect>
       <ElSelect
+        :model-value="filters.reviewResult"
+        placeholder="复盘结果"
+        clearable
+        @update:model-value="updateFilter('reviewResult', stringValue($event) as InsightEventFilters['reviewResult'])"
+      >
+        <ElOption v-for="result in insightReviewResults" :key="result" :label="insightReviewResultLabels[result]" :value="result" />
+      </ElSelect>
+      <ElSelect
         :model-value="filters.strategyTag"
-        placeholder="Strategy tag"
+        placeholder="策略标签"
         clearable
         @update:model-value="updateFilter('strategyTag', stringValue($event) as InsightEventFilters['strategyTag'])"
       >
         <ElOption v-for="tag in strategyTags" :key="tag" :label="strategyTagLabels[tag]" :value="tag" />
+      </ElSelect>
+      <ElSelect
+        :model-value="filters.attributionTag"
+        placeholder="归因驱动"
+        clearable
+        @update:model-value="updateFilter('attributionTag', stringValue($event) as InsightEventFilters['attributionTag'])"
+      >
+        <ElOption v-for="tag in attributionTags" :key="tag" :label="attributionTagLabels[tag]" :value="tag" />
+      </ElSelect>
+      <ElSelect
+        :model-value="filters.evidenceMovement"
+        placeholder="证据变化"
+        clearable
+        @update:model-value="updateFilter('evidenceMovement', stringValue($event) as InsightEventFilters['evidenceMovement'])"
+      >
+        <ElOption v-for="option in actionEvidenceMovementFilterOptions" :key="option.value" :label="option.label" :value="option.value" />
+      </ElSelect>
+      <ElSelect
+        :model-value="filters.reviewCadence"
+        placeholder="复盘窗口"
+        clearable
+        @update:model-value="updateFilter('reviewCadence', stringValue($event) as InsightEventFilters['reviewCadence'])"
+      >
+        <ElOption v-for="option in reviewCadenceBucketOptions" :key="option.value" :label="option.label" :value="option.value" />
+      </ElSelect>
+      <ElSelect
+        :model-value="filters.actionStage"
+        placeholder="行动阶段"
+        clearable
+        @update:model-value="updateFilter('actionStage', stringValue($event) as InsightEventFilters['actionStage'])"
+      >
+        <ElOption v-for="option in actionSignalFlowStageOptions" :key="option.value" :label="option.label" :value="option.value" />
+      </ElSelect>
+      <ElSelect
+        :model-value="filters.scoreDriver"
+        placeholder="评分驱动"
+        clearable
+        @update:model-value="updateFilter('scoreDriver', stringValue($event) as InsightEventFilters['scoreDriver'])"
+      >
+        <ElOption v-for="option in actionScoreDriverOptions" :key="option.value" :label="option.label" :value="option.value" />
       </ElSelect>
       <ElSelect
         :model-value="filters.sortBy"

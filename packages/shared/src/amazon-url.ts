@@ -15,12 +15,45 @@ const ALLOWED_AMAZON_HOSTS = new Set([
   "www.amazon.co.jp",
 ]);
 
+const MARKETPLACE_HOST_BY_CODE: Record<string, string> = {
+  US: "www.amazon.com",
+  UK: "www.amazon.co.uk",
+  GB: "www.amazon.co.uk",
+  DE: "www.amazon.de",
+  JP: "www.amazon.co.jp"
+};
+
 /**
  * Check whether a hostname is an allowed Amazon domain.
  * Used for SSRF prevention — only known Amazon hosts are permitted.
  */
 export function isAllowedAmazonHost(hostname: string): boolean {
   return ALLOWED_AMAZON_HOSTS.has(hostname.toLowerCase());
+}
+
+export function normalizeAmazonMarketplaceHost(marketplace: string): string {
+  const trimmed = marketplace.trim();
+  const codeHost = MARKETPLACE_HOST_BY_CODE[trimmed.toUpperCase()];
+  if (codeHost) {
+    return codeHost;
+  }
+
+  const host = trimmed.replace(/^https?:\/\//i, "").replace(/[/?#].*$/, "");
+  const normalizedHost = host.toLowerCase().startsWith("amazon.") ? `www.${host}` : host;
+  const lowerHost = normalizedHost.toLowerCase();
+  if (!isAllowedAmazonHost(lowerHost)) {
+    throw Object.assign(new Error("marketplace must be a supported Amazon marketplace"), { statusCode: 400 });
+  }
+  return lowerHost;
+}
+
+export function isAllowedAmazonMarketplace(marketplace: string): boolean {
+  try {
+    normalizeAmazonMarketplaceHost(marketplace);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

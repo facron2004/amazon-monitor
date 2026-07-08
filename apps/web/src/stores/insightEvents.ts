@@ -1,32 +1,60 @@
 import { defineStore } from "pinia";
 import {
   inferInsightEventStrategyTags,
+  isActionStageMatch,
+  type ActionStageFilter,
+  type AiDailyBriefResponse,
+  type AttributionTag,
   type StrategyTag
 } from "@amazon-monitor/shared";
 import type {
   AsinWatchLevel,
   AsinWatchState,
   BrandPlaybookProfile,
-  AttributionTag,
+  BsrRankHistory,
   InsightEvent,
   InsightEventLevel,
+  InsightEventNote,
+  InsightEventSortKey,
   InsightEventStatus,
   InsightEventType,
+  InsightEventTrendPoint,
   InsightReviewResult,
   ProductPriceHistory
 } from "@amazon-monitor/shared";
-import { insightEventApi, type InsightEventQuery } from "../api-insight-events";
+import { insightEventApi, type InsightEventQuery, type InsightEventTrendQuery } from "../api-insight-events";
+import { aiApi } from "../api-ai";
+import {
+  isActionEvidenceMovementMatch,
+  type ActionEvidenceMovementFilter
+} from "../utils/actionCenterEvidenceDeltas";
+import {
+  isReviewCadenceBucketMatch,
+  type ReviewCadenceBucketKey
+} from "../utils/actionCenterReviewCadence";
+import {
+  isActionScoreDriverMatch,
+  type ActionScoreDriverFilter
+} from "../utils/actionCenterScoreBreakdown";
 
-export type InsightEventSort = "score" | "level" | "rankChange" | "reviewChange" | "createdAt";
+export type InsightEventSort = InsightEventSortKey;
+export type ActionCenterColumnKey = "todo" | "mid" | "closed";
+export type ActionWorkView = "columns" | "cases";
 
 export interface InsightEventFilters {
   date: string;
   status: InsightEventStatus | "";
   level: InsightEventLevel | "";
   eventType: InsightEventType | "";
+  reviewResult: InsightReviewResult | "";
   brand: string;
   asin: string;
   assignee: string;
+  attributionTag: AttributionTag | "";
+  evidenceMovement: ActionEvidenceMovementFilter | "";
+  reviewCadence: ReviewCadenceBucketKey | "";
+  actionStage: ActionStageFilter | "";
+  scoreDriver: ActionScoreDriverFilter | "";
   strategyTag: StrategyTag | "";
   unassignedOnly: boolean;
   sortBy: InsightEventSort;
@@ -39,26 +67,42 @@ export const useInsightEventsStore = defineStore("insightEvents", {
   state: () => ({
     events: [] as InsightEvent[],
     topSummary: [] as InsightEvent[],
+    dailyBrief: null as AiDailyBriefResponse | null,
     selectedEvent: null as InsightEvent | null,
+    activeColumn: null as ActionCenterColumnKey | null,
+    drawerOpen: false,
+    workView: "columns" as ActionWorkView,
     reviewDueEvents: [] as InsightEvent[],
+    trend: [] as InsightEventTrendPoint[],
     brandPlaybook: null as BrandPlaybookProfile | null,
+    selectedEventNotes: [] as InsightEventNote[],
+    selectedBsrHistory: [] as BsrRankHistory[],
     selectedPriceHistory: [] as ProductPriceHistory[],
     watchStates: [] as AsinWatchState[],
     loading: false,
     generating: false,
     reviewing: false,
     brandPlaybookLoading: false,
+    eventNotesLoading: false,
+    bsrHistoryLoading: false,
     priceHistoryLoading: false,
     topSummaryLoading: false,
+    dailyBriefLoading: false,
     error: "",
     filters: {
       date: "",
       status: "",
       level: "",
       eventType: "",
+      reviewResult: "",
       brand: "",
       asin: "",
       assignee: "",
+      attributionTag: "",
+      evidenceMovement: "",
+      reviewCadence: "",
+      actionStage: "",
+      scoreDriver: "",
       strategyTag: "",
       unassignedOnly: false,
       sortBy: "score",
@@ -89,9 +133,9 @@ export const useInsightEventsStore = defineStore("insightEvents", {
         this.filters.date = date;
       }
       await this.withLoading(async () => {
-        const events = this.filters.reviewDueOnly
-          ? await insightEventApi.fetchReviewDueEvents(this.filters.date, buildReviewDueQuery(this.filters), { signal })
-          : await insightEventApi.fetchInsightEvents(buildQuery(this.filters), { signal });
+        const events = shouldFetchReviewDueEvents(this.filters)
+          ? await insightEventApi.fetchReviewDueEvents(this.filters.date, buildInsightEventReviewDueQuery(this.filters), { signal })
+          : await insightEventApi.fetchInsightEvents(buildInsightEventListQuery(this.filters), { signal });
         if (signal?.aborted) return;
         this.events = events;
         if (this.selectedEvent) {
@@ -116,12 +160,45 @@ export const useInsightEventsStore = defineStore("insightEvents", {
         }
       }
     },
+    async generateDailyBrief(date: string) {
+      this.dailyBriefLoading = true;
+      this.error = "";
+      try {
+        const result = await aiApi.generateDailyBrief(date);
+        this.dailyBrief = result;
+        this.topSummary = result.topEvents;
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        this.dailyBriefLoading = false;
+      }
+    },
     async loadEventDetail(id: string) {
       this.selectedEvent = await insightEventApi.fetchInsightEvent(id);
       await Promise.all([
+        this.loadEventNotes(id),
         this.loadBrandPlaybookForEvent(this.selectedEvent),
+        this.loadBsrHistoryForEvent(this.selectedEvent),
         this.loadPriceHistoryForEvent(this.selectedEvent)
       ]);
+    },
+    async loadEventNotes(id: string, signal?: AbortSignal) {
+      this.selectedEventNotes = [];
+      this.eventNotesLoading = true;
+      try {
+        const notes = await insightEventApi.fetchInsightEventNotes(id, { signal });
+        if (signal?.aborted) return;
+        this.selectedEventNotes = notes;
+      } catch (error) {
+        if (signal?.aborted) return;
+        this.selectedEventNotes = [];
+        this.error = error instanceof Error ? error.message : String(error);
+      } finally {
+        if (!signal?.aborted) {
+          this.eventNotesLoading = false;
+        }
+      }
     },
     async loadBrandPlaybookForEvent(event: InsightEvent | null, signal?: AbortSignal) {
       this.brandPlaybook = null;
@@ -145,6 +222,31 @@ export const useInsightEventsStore = defineStore("insightEvents", {
       } finally {
         if (!signal?.aborted) {
           this.brandPlaybookLoading = false;
+        }
+      }
+    },
+    async loadBsrHistoryForEvent(event: InsightEvent | null, signal?: AbortSignal) {
+      this.selectedBsrHistory = [];
+      if (!event?.asin || event.categoryId === null) {
+        return;
+      }
+      this.bsrHistoryLoading = true;
+      try {
+        const rows = await insightEventApi.fetchBsrRankHistory({
+          sourceType: "category_bestseller",
+          sourceId: event.categoryId,
+          asin: event.asin,
+          limit: 30
+        }, { signal });
+        if (signal?.aborted) return;
+        this.selectedBsrHistory = rows;
+      } catch (error) {
+        if (signal?.aborted) return;
+        this.selectedBsrHistory = [];
+        this.error = error instanceof Error ? error.message : String(error);
+      } finally {
+        if (!signal?.aborted) {
+          this.bsrHistoryLoading = false;
         }
       }
     },
@@ -178,9 +280,23 @@ export const useInsightEventsStore = defineStore("insightEvents", {
         this.reviewDueEvents = [];
         return;
       }
-      const result = await insightEventApi.fetchReviewDueEvents(targetDate, {}, { signal });
+      const result = await insightEventApi.fetchReviewDueEvents(
+        targetDate,
+        buildInsightEventReviewDueQuery({ ...this.filters, date: targetDate }),
+        { signal }
+      );
       if (signal?.aborted) return;
       this.reviewDueEvents = result;
+    },
+    async loadTrend(date?: string, signal?: AbortSignal) {
+      const targetDate = date ?? this.filters.date;
+      if (!targetDate) {
+        this.trend = [];
+        return;
+      }
+      const result = await insightEventApi.fetchInsightEventTrend(buildTrendQuery(this.filters, targetDate), { signal });
+      if (signal?.aborted) return;
+      this.trend = result;
     },
     async loadWatchStates(signal?: AbortSignal) {
       const result = await insightEventApi.fetchAsinWatchStates({ signal });
@@ -211,6 +327,9 @@ export const useInsightEventsStore = defineStore("insightEvents", {
     async setNote(id: string, note: string) {
       const event = await insightEventApi.updateInsightEventNote(id, note);
       this.replaceEvent(event);
+      if (this.selectedEvent?.id === id) {
+        await this.loadEventNotes(id);
+      }
     },
     async setAssignee(id: string, assignee: string | null) {
       const event = await insightEventApi.updateInsightEventAssignee(id, { assignee });
@@ -242,9 +361,12 @@ export const useInsightEventsStore = defineStore("insightEvents", {
         this.watchStates.push(updated);
       }
     },
-    async reviewEvent(id: string, result: InsightReviewResult, note?: string | null) {
-      const event = await insightEventApi.reviewInsightEvent(id, { result, note });
+    async reviewEvent(id: string, result: InsightReviewResult, note?: string | null, date?: string) {
+      const event = await insightEventApi.reviewInsightEvent(id, { date, result, note });
       this.replaceEvent(event);
+      if (this.selectedEvent?.id === id) {
+        await this.loadEventNotes(id);
+      }
       await this.loadReviewDueEvents(this.filters.date);
     },
     async evaluateReviewDueEvents(date?: string) {
@@ -307,15 +429,25 @@ export function filterAndSortEvents(events: InsightEvent[], watchStates: AsinWat
     .filter((event) => !filters.status || event.status === filters.status)
     .filter((event) => !filters.level || event.eventLevel === filters.level)
     .filter((event) => !filters.eventType || event.eventType === filters.eventType)
+    .filter((event) => !filters.reviewResult || event.reviewResult === filters.reviewResult)
     .filter((event) => !brand || event.brand === brand)
     .filter((event) => !asin || event.asin === asin)
     .filter((event) => !filters.unassignedOnly || event.assignee === null)
     .filter((event) => !assignee || event.assignee === assignee)
+    .filter((event) => !filters.attributionTag || event.attributionTags.includes(filters.attributionTag))
+    .filter((event) => !filters.evidenceMovement || isActionEvidenceMovementMatch(event, filters.evidenceMovement))
+    .filter((event) => !filters.reviewCadence || isReviewCadenceBucketMatch(event, filters.reviewCadence, filters.date))
+    .filter((event) => !filters.actionStage || isActionStageMatch(event, filters.actionStage, filters.date))
+    .filter((event) => !filters.scoreDriver || isActionScoreDriverMatch(event, filters.scoreDriver))
     .filter((event) => !filters.strategyTag || inferInsightEventStrategyTags(event).includes(filters.strategyTag))
     .filter((event) => !filters.coreOnly || event.evidence.isCoreCompetitor === true || (event.asin !== null && coreAsins.has(event.asin)))
     .filter((event) => !filters.newBreakoutOnly || event.eventType === "NEW_PRODUCT_BREAKOUT")
-    .filter((event) => !filters.reviewDueOnly || isReviewDue(event, filters.date))
+    .filter((event) => filters.reviewCadence ? true : !filters.reviewDueOnly || isReviewDue(event, filters.date))
     .sort(eventComparator(filters.sortBy));
+}
+
+function shouldFetchReviewDueEvents(filters: InsightEventFilters): boolean {
+  return filters.reviewDueOnly || filters.reviewCadence === "overdue" || filters.reviewCadence === "today";
 }
 
 function isReviewDue(event: InsightEvent, date: string): boolean {
@@ -410,29 +542,74 @@ function eventComparator(sortBy: InsightEventSort): (left: InsightEvent, right: 
   };
 }
 
-function buildQuery(filters: InsightEventFilters): InsightEventQuery {
+export function buildInsightEventListQuery(filters: InsightEventFilters): InsightEventQuery {
   return {
     date: filters.date,
+    reviewedOnDate: true,
     status: filters.status,
     level: filters.level,
     eventType: filters.eventType,
+    reviewResult: filters.reviewResult,
     brand: filters.brand,
     asin: filters.asin,
     assignee: filters.unassignedOnly ? "" : filters.assignee,
+    attributionTag: filters.attributionTag,
+    evidenceMovement: filters.evidenceMovement,
+    reviewCadence: filters.reviewCadence,
+    actionStage: filters.actionStage,
+    scoreDriver: filters.scoreDriver,
+    strategyTag: filters.strategyTag,
+    sortBy: filters.sortBy,
     unassignedOnly: filters.unassignedOnly ? true : undefined,
+    coreOnly: filters.coreOnly ? true : undefined,
+    newBreakoutOnly: filters.newBreakoutOnly ? true : undefined,
     limit: 100
   };
 }
 
-function buildReviewDueQuery(filters: InsightEventFilters): Omit<InsightEventQuery, "date"> {
+export function buildInsightEventReviewDueQuery(filters: InsightEventFilters): Omit<InsightEventQuery, "date"> {
   return {
     status: filters.status,
     level: filters.level,
     eventType: filters.eventType,
+    reviewResult: filters.reviewResult,
     brand: filters.brand,
     asin: filters.asin,
     assignee: filters.unassignedOnly ? "" : filters.assignee,
+    attributionTag: filters.attributionTag,
+    evidenceMovement: filters.evidenceMovement,
+    reviewCadence: filters.reviewCadence,
+    actionStage: filters.actionStage,
+    scoreDriver: filters.scoreDriver,
+    strategyTag: filters.strategyTag,
+    sortBy: filters.sortBy,
     unassignedOnly: filters.unassignedOnly ? true : undefined,
+    coreOnly: filters.coreOnly ? true : undefined,
+    newBreakoutOnly: filters.newBreakoutOnly ? true : undefined,
     limit: 100
+  };
+}
+
+function buildTrendQuery(filters: InsightEventFilters, endDate: string): InsightEventTrendQuery {
+  return {
+    endDate,
+    days: 7,
+    reviewedOnDate: true,
+    status: filters.status,
+    level: filters.level,
+    eventType: filters.eventType,
+    reviewResult: filters.reviewResult,
+    brand: filters.brand,
+    asin: filters.asin,
+    assignee: filters.unassignedOnly ? "" : filters.assignee,
+    attributionTag: filters.attributionTag,
+    evidenceMovement: filters.evidenceMovement,
+    reviewCadence: filters.reviewCadence,
+    actionStage: filters.actionStage,
+    scoreDriver: filters.scoreDriver,
+    strategyTag: filters.strategyTag,
+    unassignedOnly: filters.unassignedOnly ? true : undefined,
+    coreOnly: filters.coreOnly ? true : undefined,
+    newBreakoutOnly: filters.newBreakoutOnly ? true : undefined
   };
 }

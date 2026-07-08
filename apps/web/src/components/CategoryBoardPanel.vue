@@ -7,6 +7,10 @@ import { useCategoryStore } from "../stores/category";
 import { openCategoryProductByAsin } from "../utils/open-category-product";
 import { formatCount, formatMoney, iceTypeLabel, imgFallback, promoText } from "../utils/formatters";
 
+const emit = defineEmits<{
+  selectAsin: [asin: string];
+}>();
+
 const store = useCategoryStore();
 const {
   categoryDataDate,
@@ -86,6 +90,10 @@ function handleRefresh(): void {
   store.setBsrTablePage(1);
 }
 
+function handleSelectRow(item: { asin: string }): void {
+  emit("selectAsin", item.asin);
+}
+
 function handleOpenProduct(asin: string): void {
   openCategoryProductByAsin(asin, selectedCategoryId.value);
 }
@@ -147,7 +155,7 @@ function handleOpenProduct(asin: string): void {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in paged.rows" :key="item.asin">
+          <tr v-for="item in paged.rows" :key="item.asin" style="cursor: pointer" @click="handleSelectRow(item)">
             <td><strong>#{{ item.rank }}</strong></td>
             <td class="product-cell">
               <div class="product-cell-content">
@@ -166,7 +174,7 @@ function handleOpenProduct(asin: string): void {
             <td class="rating-col">{{ item.rating || "-" }}</td>
             <td class="review-col">{{ formatCount(item.reviewCount) }}</td>
             <td class="link-col">
-              <button class="icon-button" title="打开 Amazon" type="button" @click="handleOpenProduct(item.asin)">
+              <button class="icon-button" title="打开 Amazon" type="button" @click.stop="handleOpenProduct(item.asin)">
                 <ExternalLink :size="17" />
               </button>
             </td>

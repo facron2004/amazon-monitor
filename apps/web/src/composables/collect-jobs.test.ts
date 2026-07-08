@@ -61,4 +61,30 @@ describe("waitForCollectJobs", () => {
       })
     ).rejects.toThrow("page.goto: net::ERR_NETWORK_ACCESS_DENIED");
   });
+
+  it("notifies after each queue status poll", async () => {
+    const processingJob = buildJob({ status: "processing", startedAt: "2026-06-13T09:27:06.613Z" });
+    const getJobStatus = vi
+      .fn<(_: number) => Promise<CollectJob | null>>()
+      .mockResolvedValueOnce(processingJob)
+      .mockResolvedValueOnce(
+        buildJob({
+          status: "completed",
+          startedAt: "2026-06-13T09:27:06.613Z",
+          completedAt: "2026-06-13T09:29:06.613Z"
+        })
+      );
+    const onPoll = vi.fn<(_: readonly CollectJob[]) => Promise<void>>(async () => undefined);
+
+    await waitForCollectJobs([buildJob()], {
+      getJobStatus,
+      onPoll,
+      sleep: async () => undefined,
+      timeoutMs: 10_000
+    });
+
+    expect(onPoll).toHaveBeenCalledTimes(2);
+    expect(onPoll.mock.calls[0][0]).toEqual([processingJob]);
+    expect(onPoll.mock.calls[1][0]).toEqual([]);
+  });
 });

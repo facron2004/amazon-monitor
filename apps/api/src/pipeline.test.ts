@@ -113,6 +113,33 @@ describe("collection pipeline", () => {
     expect(store.listSnapshots({ date: "2026-05-17" })).toHaveLength(0);
     expect(store.listTaskLogs()[0].status).toBe("failed");
   });
+
+  it("passes abort signals to the collector and skips failure writes after abort", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const keyword = store.createKeyword({
+      keyword: "cordless leaf blower",
+      marketplace: "amazon.com",
+      crawlPages: 1,
+      status: "enabled"
+    });
+    const controller = new AbortController();
+    const collector: AmazonSearchCollector = {
+      async collect(_keyword, _date, options) {
+        expect(options?.signal).toBe(controller.signal);
+        controller.abort();
+        throw new Error("browser closed after abort");
+      }
+    };
+
+    await expect(
+      runCollectionForKeyword(store, keyword.id, "2026-05-17", { collector, signal: controller.signal })
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(store.listTaskLogs()).toHaveLength(0);
+    expect(store.listSnapshots({ date: "2026-05-17" })).toHaveLength(0);
+  });
 });
 
 function product(asin: string, title: string, currentPrice: number, couponText: string | null, isSponsored: boolean): SerpProductInput {

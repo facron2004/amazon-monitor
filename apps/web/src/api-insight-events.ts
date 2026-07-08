@@ -1,26 +1,48 @@
 import type {
   AsinWatchLevel,
   AsinWatchState,
+  ActionEvidenceMovementFilter,
+  ActionScoreDriverFilter,
+  ActionStageFilter,
+  AttributionTag,
   BrandPlaybookProfile,
+  BsrRankHistory,
+  BsrSourceType,
   InsightEvent,
   InsightEventLevel,
+  InsightEventNote,
   InsightEventStatus,
+  InsightEventSortKey,
   InsightEventType,
+  InsightEventTrendPoint,
   InsightReviewResult,
-  ProductPriceHistory
+  ProductPriceHistory,
+  ReviewCadenceBucketKey,
+  StrategyTag
 } from "@amazon-monitor/shared";
 import { request, withSignal, type RequestOptions } from "./api-base";
 
 export interface InsightEventQuery {
   date?: string;
+  reviewedOnDate?: boolean;
   status?: InsightEventStatus | "";
   level?: InsightEventLevel | "";
   eventType?: InsightEventType | "";
+  reviewResult?: InsightReviewResult | "";
   categoryId?: number | null;
   brand?: string;
   asin?: string;
   assignee?: string;
+  attributionTag?: AttributionTag | "";
+  evidenceMovement?: ActionEvidenceMovementFilter | "";
+  reviewCadence?: ReviewCadenceBucketKey | "";
+  actionStage?: ActionStageFilter | "";
+  scoreDriver?: ActionScoreDriverFilter | "";
+  strategyTag?: StrategyTag | "";
+  sortBy?: InsightEventSortKey;
   unassignedOnly?: boolean;
+  coreOnly?: boolean;
+  newBreakoutOnly?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -41,6 +63,7 @@ export interface WatchInsightEventPayload {
 }
 
 export interface ReviewInsightEventPayload {
+  date?: string;
   result: InsightReviewResult;
   note?: string | null;
 }
@@ -66,6 +89,22 @@ export interface ProductPriceHistoryQuery {
   offset?: number;
 }
 
+export interface BsrRankHistoryQuery {
+  date?: string;
+  sourceType?: BsrSourceType;
+  sourceId?: number | null;
+  category?: string;
+  asin?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface InsightEventTrendQuery extends Omit<InsightEventQuery, "date" | "limit" | "offset"> {
+  date?: string;
+  endDate?: string;
+  days?: number;
+}
+
 export interface AsinWatchStatePayload {
   watchLevel: AsinWatchLevel;
   watchReason?: string | null;
@@ -79,6 +118,8 @@ export const insightEventApi = {
     request<InsightEvent[]>(`/insight-events?${buildInsightEventQuery(params).toString()}`, withSignal(options.signal)),
   fetchInsightEvent: (id: string, options: { signal?: AbortSignal } = {}) =>
     request<InsightEvent>(`/insight-events/${encodeURIComponent(id)}`, withSignal(options.signal)),
+  fetchInsightEventNotes: (id: string, options: { signal?: AbortSignal } = {}) =>
+    request<InsightEventNote[]>(`/insight-events/${encodeURIComponent(id)}/notes`, withSignal(options.signal)),
   updateInsightEventStatus: (id: string, payload: InsightEventStatusPayload) =>
     request<InsightEvent>(`/insight-events/${encodeURIComponent(id)}/status`, {
       method: "PATCH",
@@ -106,6 +147,8 @@ export const insightEventApi = {
     }),
   fetchReviewDueEvents: (date: string, params: Omit<InsightEventQuery, "date"> = {}, options: { signal?: AbortSignal } = {}) =>
     request<InsightEvent[]>(`/insight-events/review-due?${buildInsightEventQuery({ ...params, date }).toString()}`, withSignal(options.signal)),
+  fetchInsightEventTrend: (params: InsightEventTrendQuery, options: { signal?: AbortSignal } = {}) =>
+    request<InsightEventTrendPoint[]>(`/insight-events/trend?${buildInsightEventTrendQuery(params).toString()}`, withSignal(options.signal)),
   evaluateReviewDueEvents: (date: string) =>
     request<InsightEvent[]>(`/insight-events/review-due/evaluate?date=${encodeURIComponent(date)}`, {
       method: "POST",
@@ -125,6 +168,8 @@ export const insightEventApi = {
     request<BrandPlaybookProfile>(`/brand-playbooks?${buildBrandPlaybookQuery(params).toString()}`, withSignal(options.signal)),
   fetchProductPriceHistory: (params: ProductPriceHistoryQuery, options: { signal?: AbortSignal } = {}) =>
     request<ProductPriceHistory[]>(`/product-price-history?${buildProductPriceHistoryQuery(params).toString()}`, withSignal(options.signal)),
+  fetchBsrRankHistory: (params: BsrRankHistoryQuery, options: { signal?: AbortSignal } = {}) =>
+    request<BsrRankHistory[]>(`/bsr/history?${buildBsrRankHistoryQuery(params).toString()}`, withSignal(options.signal)),
   fetchAsinWatchStates: (options: { signal?: AbortSignal } = {}) =>
     request<AsinWatchState[]>("/asin-watch-states", withSignal(options.signal)),
   updateAsinWatchState: (asin: string, payload: AsinWatchStatePayload) =>
@@ -154,19 +199,69 @@ function buildProductPriceHistoryQuery(params: ProductPriceHistoryQuery): URLSea
   return query;
 }
 
+function buildBsrRankHistoryQuery(params: BsrRankHistoryQuery): URLSearchParams {
+  const query = new URLSearchParams();
+  setOptional(query, "date", params.date);
+  setOptional(query, "sourceType", params.sourceType);
+  setOptional(query, "sourceId", params.sourceId);
+  setOptional(query, "category", params.category?.trim());
+  setOptional(query, "asin", params.asin?.trim());
+  setOptional(query, "limit", params.limit);
+  setOptional(query, "offset", params.offset);
+  return query;
+}
+
 function buildInsightEventQuery(params: InsightEventQuery): URLSearchParams {
   const query = new URLSearchParams();
   setOptional(query, "date", params.date);
+  setOptional(query, "reviewedOnDate", params.reviewedOnDate ? "true" : undefined);
   setOptional(query, "status", params.status);
   setOptional(query, "level", params.level);
   setOptional(query, "eventType", params.eventType);
+  setOptional(query, "reviewResult", params.reviewResult);
   setOptional(query, "categoryId", params.categoryId);
   setOptional(query, "brand", params.brand?.trim());
   setOptional(query, "asin", params.asin?.trim());
   setOptional(query, "assignee", params.assignee?.trim());
+  setOptional(query, "attributionTag", params.attributionTag);
+  setOptional(query, "evidenceMovement", params.evidenceMovement);
+  setOptional(query, "reviewCadence", params.reviewCadence);
+  setOptional(query, "actionStage", params.actionStage);
+  setOptional(query, "scoreDriver", params.scoreDriver);
+  setOptional(query, "strategyTag", params.strategyTag);
+  setOptional(query, "sortBy", params.sortBy);
   setOptional(query, "unassignedOnly", params.unassignedOnly ? "true" : undefined);
+  setOptional(query, "coreOnly", params.coreOnly ? "true" : undefined);
+  setOptional(query, "newBreakoutOnly", params.newBreakoutOnly ? "true" : undefined);
   setOptional(query, "limit", params.limit);
   setOptional(query, "offset", params.offset);
+  return query;
+}
+
+function buildInsightEventTrendQuery(params: InsightEventTrendQuery): URLSearchParams {
+  const query = new URLSearchParams();
+  setOptional(query, "date", params.date);
+  setOptional(query, "endDate", params.endDate);
+  setOptional(query, "days", params.days);
+  setOptional(query, "reviewedOnDate", params.reviewedOnDate ? "true" : undefined);
+  setOptional(query, "status", params.status);
+  setOptional(query, "level", params.level);
+  setOptional(query, "eventType", params.eventType);
+  setOptional(query, "reviewResult", params.reviewResult);
+  setOptional(query, "categoryId", params.categoryId);
+  setOptional(query, "brand", params.brand?.trim());
+  setOptional(query, "asin", params.asin?.trim());
+  setOptional(query, "assignee", params.assignee?.trim());
+  setOptional(query, "attributionTag", params.attributionTag);
+  setOptional(query, "evidenceMovement", params.evidenceMovement);
+  setOptional(query, "reviewCadence", params.reviewCadence);
+  setOptional(query, "actionStage", params.actionStage);
+  setOptional(query, "scoreDriver", params.scoreDriver);
+  setOptional(query, "strategyTag", params.strategyTag);
+  setOptional(query, "sortBy", params.sortBy);
+  setOptional(query, "unassignedOnly", params.unassignedOnly ? "true" : undefined);
+  setOptional(query, "coreOnly", params.coreOnly ? "true" : undefined);
+  setOptional(query, "newBreakoutOnly", params.newBreakoutOnly ? "true" : undefined);
   return query;
 }
 

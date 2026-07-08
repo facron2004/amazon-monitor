@@ -89,6 +89,25 @@ describe("insight event routes", () => {
       });
 
     await request(app)
+      .patch(`/api/insight-events/${encodeURIComponent(event.id)}/note`)
+      .send({ note: "复盘时检查 Top50 是否保持" })
+      .expect(200);
+
+    await request(app)
+      .get(`/api/insight-events/${encodeURIComponent(event.id)}/notes`)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { note: string }) => item.note)).toEqual([
+          "复盘时检查 Top50 是否保持",
+          "已记录价格变化"
+        ]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/missing-event/notes")
+      .expect(404);
+
+    await request(app)
       .post(`/api/insight-events/${encodeURIComponent(event.id)}/watch`)
       .send({ watchLevel: "POTENTIAL" })
       .expect(200)
@@ -126,11 +145,50 @@ describe("insight event routes", () => {
 
     await request(app)
       .post(`/api/insight-events/${encodeURIComponent(event.id)}/review`)
-      .send({ result: "CONFIRMED", note: "3 天后仍在 Top50" })
+      .send({ date: "2026-06-22", result: "CONFIRMED", note: "3 天后仍在 Top50" })
       .expect(200)
       .expect((response) => {
-        expect(response.body.reviewResult).toBe("CONFIRMED");
+        expect(response.body).toMatchObject({
+          status: "WATCHING",
+          reviewDueDate: "2026-06-26",
+          reviewResult: "CONFIRMED"
+        });
       });
+
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0OLDREV01|PRICE_DROP",
+      eventDate: "2026-06-19",
+      asin: "B0OLDREV01",
+      eventType: "PRICE_DROP",
+      eventTitle: "Reviewed old signal",
+      status: "REVIEWED",
+      reviewDueDate: null,
+      reviewResult: "CONFIRMED",
+      updatedAt: "2026-06-22T09:00:00.000Z"
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-22|category:1|asin:B0TODAY001|RANK_SURGE",
+      eventDate: "2026-06-22",
+      asin: "B0TODAY001",
+      eventType: "RANK_SURGE",
+      eventTitle: "Today signal",
+      reviewDueDate: null
+    });
+    await request(app)
+      .get("/api/insight-events?date=2026-06-22")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0TODAY001"]);
+      });
+    await request(app)
+      .get("/api/insight-events?date=2026-06-22&reviewedOnDate=true")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0TODAY001", "B0OLDREV01"]);
+      });
+    await request(app).get("/api/insight-events?date=2026-06-22&reviewedOnDate=maybe").expect(400);
 
     await request(app).post("/api/insight-events/generate?date=2026-06-19").send({ date: "2026-06-19" }).expect(201);
   });
@@ -208,8 +266,333 @@ describe("insight event routes", () => {
       });
 
     await request(app)
+      .get("/api/insight-events/review-due?date=2026-06-22&actionStage=reviewDue")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE002", "B0ROUTE001"]);
+      });
+
+    await request(app)
       .get("/api/insight-events/review-due?date=2026-06-22&unassignedOnly=maybe")
       .expect(400);
+  });
+
+  it("sorts insight event routes before applying limit", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const event = sampleRouteInsightEvent();
+
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0ROUTESCORE|RANK_SURGE",
+      asin: "B0ROUTESCORE",
+      scoreTotal: 99,
+      eventLevel: "P2",
+      evidence: { ...event.evidence, rankChange: 5, reviewCountChange: 4 }
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0ROUTERANK|RANK_SURGE",
+      asin: "B0ROUTERANK",
+      scoreTotal: 40,
+      eventLevel: "P1",
+      evidence: { ...event.evidence, rankChange: 120, reviewCountChange: 8 }
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-19|category:1|asin:B0ROUTEREVIEW|REVIEW_SPIKE",
+      asin: "B0ROUTEREVIEW",
+      eventType: "REVIEW_SPIKE",
+      scoreTotal: 50,
+      eventLevel: "P1",
+      evidence: { ...event.evidence, rankChange: 10, reviewCountChange: 80 }
+    });
+
+    await request(app)
+      .get("/api/insight-events?date=2026-06-19&sortBy=rankChange&limit=1")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTERANK"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/review-due?date=2026-06-22&sortBy=reviewChange&limit=1")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTEREVIEW"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events?date=2026-06-19&sortBy=not-real")
+      .expect(400);
+  });
+
+  it("returns a daily Action Center trend before the dynamic id route", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const event = sampleRouteInsightEvent();
+
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-20|category:1|asin:B0ROUTE001|NEW_TOP50_ENTRY",
+      eventDate: "2026-06-20",
+      status: "TODO",
+      eventLevel: "P0",
+      attributionTags: ["COUPON_DRIVEN"],
+      evidence: {
+        ...event.evidence,
+        previousRank: 50,
+        currentRank: 18,
+        rankChange: 32,
+        priceBefore: 129.99,
+        priceAfter: 99.99,
+        reviewCountBefore: 20,
+        reviewCountAfter: 45,
+        strategyTags: ["COUPON_DEPENDENT"]
+      },
+      reviewDueDate: "2026-06-21",
+      reviewResult: null
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-21|category:1|asin:B0ROUTE002|RANK_SURGE",
+      eventDate: "2026-06-21",
+      asin: "B0ROUTE002",
+      status: "REVIEWED",
+      eventLevel: "P1",
+      reviewDueDate: null,
+      reviewResult: "CONFIRMED"
+    });
+    store.upsertInsightEvent({
+      ...event,
+      id: "2026-06-22|category:1|asin:B0ROUTE003|PRICE_DROP",
+      eventDate: "2026-06-22",
+      asin: "B0ROUTE003",
+      status: "FOLLOWED",
+      eventLevel: "P2",
+      reviewDueDate: null,
+      reviewResult: "FAILED"
+    });
+
+    await request(app)
+      .get("/api/insight-events/trend?endDate=2026-06-22&days=3")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual([
+          {
+            date: "2026-06-20",
+            totalCount: 1,
+            openCount: 1,
+            closedCount: 0,
+            reviewDueCount: 0,
+            p0Count: 1,
+            reviewedCount: 0,
+            validatedCount: 0
+          },
+          {
+            date: "2026-06-21",
+            totalCount: 1,
+            openCount: 0,
+            closedCount: 1,
+            reviewDueCount: 1,
+            p0Count: 0,
+            reviewedCount: 1,
+            validatedCount: 1
+          },
+          {
+            date: "2026-06-22",
+            totalCount: 1,
+            openCount: 0,
+            closedCount: 1,
+            reviewDueCount: 1,
+            p0Count: 0,
+            reviewedCount: 1,
+            validatedCount: 0
+          }
+        ]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/trend?endDate=2026-06-22&days=3&level=P0")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual([
+          {
+            date: "2026-06-20",
+            totalCount: 1,
+            openCount: 1,
+            closedCount: 0,
+            reviewDueCount: 0,
+            p0Count: 1,
+            reviewedCount: 0,
+            validatedCount: 0
+          },
+          {
+            date: "2026-06-21",
+            totalCount: 0,
+            openCount: 0,
+            closedCount: 0,
+            reviewDueCount: 1,
+            p0Count: 0,
+            reviewedCount: 0,
+            validatedCount: 0
+          },
+          {
+            date: "2026-06-22",
+            totalCount: 0,
+            openCount: 0,
+            closedCount: 0,
+            reviewDueCount: 1,
+            p0Count: 0,
+            reviewedCount: 0,
+            validatedCount: 0
+          }
+        ]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/trend?endDate=2026-06-22&days=3&attributionTag=COUPON_DRIVEN&strategyTag=COUPON_DEPENDENT")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual([
+          {
+            date: "2026-06-20",
+            totalCount: 1,
+            openCount: 1,
+            closedCount: 0,
+            reviewDueCount: 0,
+            p0Count: 1,
+            reviewedCount: 0,
+            validatedCount: 0
+          },
+          {
+            date: "2026-06-21",
+            totalCount: 0,
+            openCount: 0,
+            closedCount: 0,
+            reviewDueCount: 1,
+            p0Count: 0,
+            reviewedCount: 0,
+            validatedCount: 0
+          },
+          {
+            date: "2026-06-22",
+            totalCount: 0,
+            openCount: 0,
+            closedCount: 0,
+            reviewDueCount: 1,
+            p0Count: 0,
+            reviewedCount: 0,
+            validatedCount: 0
+          }
+        ]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/trend?endDate=2026-06-22&days=3&evidenceMovement=rankGain&scoreDriver=rankingScore")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((point: { date: string; totalCount: number; reviewDueCount: number }) => [
+          point.date,
+          point.totalCount,
+          point.reviewDueCount
+        ])).toEqual([
+          ["2026-06-20", 1, 0],
+          ["2026-06-21", 0, 1],
+          ["2026-06-22", 0, 1]
+        ]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/trend?endDate=2026-06-22&days=3&reviewCadence=upcoming")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((point: { date: string; totalCount: number; reviewDueCount: number }) => [
+          point.date,
+          point.totalCount,
+          point.reviewDueCount
+        ])).toEqual([
+          ["2026-06-20", 1, 0],
+          ["2026-06-21", 0, 0],
+          ["2026-06-22", 0, 0]
+        ]);
+      });
+
+    await request(app)
+      .get("/api/insight-events?date=2026-06-20&evidenceMovement=priceCut&scoreDriver=rankingScore&reviewCadence=upcoming")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE001"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events?date=2026-06-20&actionStage=unassigned")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE001"]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/trend?endDate=2026-06-22&days=3&actionStage=closed")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((point: { date: string; totalCount: number; closedCount: number }) => [
+          point.date,
+          point.totalCount,
+          point.closedCount
+        ])).toEqual([
+          ["2026-06-20", 0, 0],
+          ["2026-06-21", 1, 1],
+          ["2026-06-22", 1, 1]
+        ]);
+      });
+
+    await request(app)
+      .get("/api/insight-events/trend?endDate=2026-06-22&days=3&reviewResult=FAILED")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual([
+          {
+            date: "2026-06-20",
+            totalCount: 0,
+            openCount: 0,
+            closedCount: 0,
+            reviewDueCount: 0,
+            p0Count: 0,
+            reviewedCount: 0,
+            validatedCount: 0
+          },
+          {
+            date: "2026-06-21",
+            totalCount: 0,
+            openCount: 0,
+            closedCount: 0,
+            reviewDueCount: 0,
+            p0Count: 0,
+            reviewedCount: 0,
+            validatedCount: 0
+          },
+          {
+            date: "2026-06-22",
+            totalCount: 1,
+            openCount: 0,
+            closedCount: 1,
+            reviewDueCount: 0,
+            p0Count: 0,
+            reviewedCount: 1,
+            validatedCount: 0
+          }
+        ]);
+      });
+
+    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&days=31").expect(400);
+    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&strategyTag=NOT_A_TAG").expect(400);
+    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&evidenceMovement=not-real").expect(400);
+    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&actionStage=not-real").expect(400);
   });
 });
 

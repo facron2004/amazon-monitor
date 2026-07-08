@@ -6,7 +6,10 @@ import type {
   InsightEventLevel,
   InsightEventStatus
 } from "@amazon-monitor/shared";
-import { getOwnershipLoadRows } from "./actionCenterOwnership";
+import {
+  buildOwnershipLoadSummary,
+  getOwnershipLoadRows
+} from "./actionCenterOwnership";
 
 type EventOverrides = Partial<Omit<InsightEvent, "attributionTags" | "evidence" | "eventLevel" | "status">> & {
   attributionTags?: AttributionTag[];
@@ -101,5 +104,51 @@ describe("action center ownership load", () => {
     ]);
 
     expect(rows.map((row) => row.label)).toEqual(["Unassigned", "Bob", "Alice"]);
+  });
+
+  it("summarizes owner coverage and unassigned pressure", () => {
+    const summary = buildOwnershipLoadSummary([
+      makeEvent({ id: "alice", assignee: "Alice", eventLevel: "P0", status: "REVIEW_PENDING", scoreTotal: 90 }),
+      makeEvent({ id: "bob", assignee: "Bob", eventLevel: "P1", status: "TODO", scoreTotal: 50 }),
+      makeEvent({ id: "blank", assignee: "  ", eventLevel: "P2", status: "WATCHING", scoreTotal: 40 }),
+      makeEvent({ id: "closed", assignee: null, status: "REVIEWED", scoreTotal: 100 })
+    ]);
+
+    expect(summary).toEqual({
+      openCount: 3,
+      assignedCount: 2,
+      unassignedCount: 1,
+      ownerCount: 2,
+      p0Count: 1,
+      reviewPendingCount: 1,
+      assignedPercent: 67,
+      unassignedPercent: 33,
+      topOwnerLabel: "Alice",
+      topOwnerScore: 90,
+      loadLabel: "1 unassigned",
+      loadTone: "danger"
+    });
+  });
+
+  it("distinguishes covered and empty ownership load", () => {
+    expect(buildOwnershipLoadSummary([
+      makeEvent({ id: "alice", assignee: "Alice", eventLevel: "P2", status: "TODO", scoreTotal: 40 })
+    ])).toMatchObject({
+      openCount: 1,
+      assignedPercent: 100,
+      unassignedPercent: 0,
+      loadLabel: "Covered",
+      loadTone: "success"
+    });
+
+    expect(buildOwnershipLoadSummary([
+      makeEvent({ id: "closed", assignee: null, status: "REVIEWED", scoreTotal: 100 })
+    ])).toMatchObject({
+      openCount: 0,
+      assignedPercent: 0,
+      topOwnerLabel: "-",
+      loadLabel: "No open load",
+      loadTone: "info"
+    });
   });
 });

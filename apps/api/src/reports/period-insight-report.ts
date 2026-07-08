@@ -1,5 +1,6 @@
 import type { InsightEvent, InsightReviewResult, StrategyTag } from "@amazon-monitor/shared";
 import {
+  attributionTagLabels,
   inferInsightEventStrategyTags,
   insightEventStatusLabels,
   insightReviewResultLabels,
@@ -41,6 +42,8 @@ export interface PeriodInsightReport {
   summary: PeriodInsightReportSummary;
   topEvents: InsightEvent[];
   topBrands: PeriodInsightReportBrand[];
+  reviewDueEvents: InsightEvent[];
+  reviewedEvents: InsightEvent[];
   reviewOutcomes: Array<{ result: InsightReviewResult; count: number }>;
   markdown: string;
 }
@@ -60,9 +63,11 @@ export function buildPeriodInsightReport(
   const insightEvents = uniqueById(dates.flatMap((date) => store.listInsightEvents({ date, limit: 1000 })));
   const candidates = uniqueById([...insightEvents, ...store.listInsightEvents({ limit: 1000 })]);
   const reviewDueEvents = store.listReviewDueEvents(input.endDate, { limit: 1000 });
-  const reviewedEvents = candidates.filter(
-    (event) => event.reviewResult !== null && event.updatedAt.slice(0, 10) >= startDate && event.updatedAt.slice(0, 10) <= input.endDate
-  );
+  const reviewedEvents = candidates
+    .filter(
+      (event) => event.reviewResult !== null && event.updatedAt.slice(0, 10) >= startDate && event.updatedAt.slice(0, 10) <= input.endDate
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.scoreTotal - left.scoreTotal);
   const summary = buildSummary(insightEvents, reviewDueEvents, reviewedEvents, input.endDate);
   const topEvents = [...insightEvents]
     .sort((left, right) => right.scoreTotal - left.scoreTotal || left.eventTitle.localeCompare(right.eventTitle))
@@ -77,12 +82,15 @@ export function buildPeriodInsightReport(
     summary,
     topEvents,
     topBrands,
+    reviewDueEvents: reviewDueEvents.slice(0, 20),
+    reviewedEvents: reviewedEvents.slice(0, 20),
     reviewOutcomes,
     markdown: buildMarkdown({
       period: input.period,
       startDate,
       endDate: input.endDate,
       summary,
+      insightEvents,
       topEvents,
       topBrands,
       reviewOutcomes,
@@ -160,14 +168,20 @@ function buildMarkdown(input: {
   startDate: string;
   endDate: string;
   summary: PeriodInsightReportSummary;
+  insightEvents: InsightEvent[];
   topEvents: InsightEvent[];
   topBrands: PeriodInsightReportBrand[];
   reviewOutcomes: Array<{ result: InsightReviewResult; count: number }>;
   reviewDueEvents: InsightEvent[];
   reviewedEvents: InsightEvent[];
 }): string {
+  const periodLabel = input.period === "weekly" ? "Weekly" : "Monthly";
+  const newBreakouts = selectNewBreakouts(input.insightEvents);
+  const priceWarEvents = selectPriceWarEvents(input.insightEvents);
+  const coreThreats = selectCoreThreatEvents(input.insightEvents);
+  const categoryStructures = buildCategoryStructureRows(input.insightEvents);
   return [
-    `# ${input.period === "weekly" ? "Weekly" : "Monthly"} Insight Report (${input.startDate} to ${input.endDate})`,
+    `# ${periodLabel} Insight Report (${input.startDate} to ${input.endDate})`,
     "",
     "## Summary",
     `- Total insight events: ${input.summary.totalEvents}`,
@@ -183,6 +197,21 @@ function buildMarkdown(input: {
     "## Brand Strategy Signals",
     ...formatBrandBullets(input.topBrands, "No brand-level evidence in this period."),
     "",
+    `## ${periodLabel} Brand Tactic Summary`,
+    ...formatBrandTacticBullets(input.topBrands, "No brand tactic evidence in this period."),
+    "",
+    `## ${periodLabel} New-Product Breakout Summary`,
+    ...formatEventBullets(newBreakouts, "No new-product breakout evidence in this period."),
+    "",
+    `## ${periodLabel} Price War Summary`,
+    ...formatEventBullets(priceWarEvents, "No price-war evidence in this period."),
+    "",
+    `## ${periodLabel} Core Competitor Threat Summary`,
+    ...formatEventBullets(coreThreats, "No core-competitor threat evidence in this period."),
+    "",
+    `## ${input.period === "monthly" ? "Monthly Category Structure Change Summary" : "Category Structure Signals"}`,
+    ...formatCategoryStructureBullets(categoryStructures, "No category-structure evidence in this period."),
+    "",
     "## Review Outcomes",
     ...formatReviewOutcomeBullets(input.reviewOutcomes),
     "",
@@ -192,6 +221,80 @@ function buildMarkdown(input: {
     "## Completed Reviews",
     ...formatReviewedBullets(input.reviewedEvents.slice(0, 10))
   ].join("\n");
+}
+
+function selectNewBreakouts(events: InsightEvent[]): InsightEvent[] {
+  return topEvidenceEvents(events.filter((event) => (
+    event.eventType === "NEW_PRODUCT_BREAKOUT"
+    || event.attributionTags.includes("NEW_PRODUCT_PUSH")
+    || inferInsightEventStrategyTags(event).includes("NEW_PRODUCT_MATRIX")
+  )));
+}
+
+function selectPriceWarEvents(events: InsightEvent[]): InsightEvent[] {
+  return topEvidenceEvents(events.filter((event) => (
+    event.eventType === "PRICE_DROP"
+    || event.eventType === "PRICE_NEW_LOW"
+    || event.attributionTags.includes("PRICE_DRIVEN")
+    || inferInsightEventStrategyTags(event).includes("LOW_PRICE_RANKING")
+  )));
+}
+
+function selectCoreThreatEvents(events: InsightEvent[]): InsightEvent[] {
+  return topEvidenceEvents(events.filter((event) => (
+    event.eventType === "CORE_COMPETITOR_RISK"
+    || inferInsightEventStrategyTags(event).includes("HIGH_THREAT_CORE")
+    || (event.evidence.isCoreCompetitor === true && (event.evidence.currentRank ?? Number.POSITIVE_INFINITY) <= 50)
+  )));
+}
+
+function topEvidenceEvents(events: InsightEvent[], limit = 5): InsightEvent[] {
+  return [...events]
+    .sort((left, right) => right.scoreTotal - left.scoreTotal || left.eventTitle.localeCompare(right.eventTitle))
+    .slice(0, limit);
+}
+
+interface CategoryStructureRow {
+  categoryName: string;
+  eventCount: number;
+  brandCount: number;
+  topBrand: string;
+  topBrandEventCount: number;
+  topScore: number;
+}
+
+function buildCategoryStructureRows(events: InsightEvent[]): CategoryStructureRow[] {
+  const byCategory = new Map<string, InsightEvent[]>();
+  for (const event of events) {
+    const categoryName = event.evidence.categoryName?.trim() || `Category ${event.categoryId ?? "unknown"}`;
+    const current = byCategory.get(categoryName);
+    if (current) {
+      current.push(event);
+    } else {
+      byCategory.set(categoryName, [event]);
+    }
+  }
+  return [...byCategory.entries()]
+    .map(([categoryName, categoryEvents]) => {
+      const brandCounts = new Map<string, number>();
+      for (const event of categoryEvents) {
+        const brand = event.brand?.trim();
+        if (brand) {
+          brandCounts.set(brand, (brandCounts.get(brand) ?? 0) + 1);
+        }
+      }
+      const topBrand = [...brandCounts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] ?? null;
+      return {
+        categoryName,
+        eventCount: categoryEvents.length,
+        brandCount: brandCounts.size,
+        topBrand: topBrand?.[0] ?? "No brand",
+        topBrandEventCount: topBrand?.[1] ?? 0,
+        topScore: Math.max(...categoryEvents.map((event) => event.scoreTotal), 0)
+      };
+    })
+    .sort((left, right) => right.eventCount - left.eventCount || right.topScore - left.topScore)
+    .slice(0, 6);
 }
 
 function formatEventBullets(events: InsightEvent[], emptyText: string): string[] {
@@ -218,6 +321,26 @@ function formatBrandBullets(brands: PeriodInsightReportBrand[], emptyText: strin
   });
 }
 
+function formatBrandTacticBullets(brands: PeriodInsightReportBrand[], emptyText: string): string[] {
+  if (brands.length === 0) {
+    return [`- ${emptyText}`];
+  }
+  return brands.slice(0, 6).map((brand, index) => {
+    const tags = brand.strategyTags.map((tag) => strategyTagLabels[tag]).join(", ") || "No strategy tags";
+    const coreText = brand.coreRiskCount > 0 ? `, core risks ${brand.coreRiskCount}` : "";
+    return `${index + 1}. ${brand.brand}: ${brand.eventCount} events${coreText}, tactic tags ${tags}. Representative: ${brand.representativeEventTitle || "No representative event"}.`;
+  });
+}
+
+function formatCategoryStructureBullets(rows: CategoryStructureRow[], emptyText: string): string[] {
+  if (rows.length === 0) {
+    return [`- ${emptyText}`];
+  }
+  return rows.map((row, index) => (
+    `${index + 1}. ${row.categoryName}: ${row.eventCount} events, ${row.brandCount} active brands, top brand ${row.topBrand} (${row.topBrandEventCount} events), top score ${row.topScore}.`
+  ));
+}
+
 function formatReviewOutcomeBullets(outcomes: Array<{ result: InsightReviewResult; count: number }>): string[] {
   if (outcomes.length === 0) {
     return ["- No completed reviews in this period."];
@@ -236,8 +359,13 @@ function formatReviewedBullets(events: InsightEvent[]): string[] {
 }
 
 function formatEventLine(event: InsightEvent): string {
-  const tags = event.attributionTags.join(" + ") || "NO_CLEAR_DRIVER";
+  const tags = formatAttributionTags(event.attributionTags, " + ");
   return `${formatTarget(event)} ${event.eventType}: score ${event.scoreTotal}, status ${insightEventStatusLabels[event.status]}${formatAssignee(event)}, attribution ${tags}. ${event.suggestedAction}`;
+}
+
+function formatAttributionTags(tags: InsightEvent["attributionTags"], separator: string): string {
+  const displayTags: InsightEvent["attributionTags"] = tags.length > 0 ? tags : ["NO_CLEAR_DRIVER"];
+  return displayTags.map((tag) => attributionTagLabels[tag]).join(separator);
 }
 
 function formatTarget(event: InsightEvent): string {

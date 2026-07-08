@@ -12,6 +12,8 @@ import {
   type SerpSnapshot
 } from "@amazon-monitor/shared";
 import { PlaywrightAmazonSearchCollector, runLimitedConcurrency, type AmazonSearchCollector } from "./amazon-collector.js";
+import { abortErrorIfSignaled, throwIfAborted } from "./amazon/abort.js";
+import { intEnv } from "./amazon/config.js";
 import { formatDuration, ts } from "./log.js";
 import type { Store } from "./store.js";
 
@@ -51,9 +53,10 @@ export async function runCollectionForKeyword(
   const collector = options.collector ?? defaultCollector;
 
   try {
-    if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    throwIfAborted(options.signal);
     console.log(`[${ts()}] [Pipeline] Collecting keyword="${keyword.keyword}" marketplace=${keyword.marketplace} pages=${keyword.crawlPages}...`);
-    const pages = await collector.collect(keyword, date);
+    const pages = await collector.collect(keyword, date, { signal: options.signal });
+    throwIfAborted(options.signal);
     const t1 = Date.now();
     console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing snapshots...`);
     const allSnapshots = pages.flatMap((page) =>
@@ -98,6 +101,7 @@ export async function runCollectionForKeyword(
 
     const t2 = Date.now();
     console.log(`[${ts()}] [Pipeline] Analysis done in ${formatDuration(t2 - t1)} — ${snapshots.length} snapshots, storing...`);
+    throwIfAborted(options.signal);
     store.runInTransaction(() => {
       store.deleteSnapshotsForKeywordDate(keyword.id, date);
       store.insertSnapshots(snapshots);
@@ -143,9 +147,9 @@ export async function runCollectionForKeyword(
     return log;
   } catch (error) {
     // Don't log aborted jobs as failures — the worker handles that
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw error;
-    }
+    const abortError = abortErrorIfSignaled(options.signal);
+    if (abortError) throw abortError;
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
     const totalMs = Date.now() - t0;
     console.error(`[${ts()}] [Pipeline] ✗ Keyword "${keyword.keyword}" FAILED after ${formatDuration(totalMs)}: ${error instanceof Error ? error.message : String(error)}`);
     const log = store.insertTaskLog({
@@ -196,7 +200,7 @@ function buildKeywordBsrRankHistory(keyword: KeywordMonitor, snapshots: SerpSnap
 }
 
 function keywordCollectionConcurrency(): number {
-  return Number(process.env.AMAZON_COLLECT_KEYWORD_CONCURRENCY ?? 2);
+  return intEnv("AMAZON_COLLECT_KEYWORD_CONCURRENCY", 2, 1, 10);
 }
 
 export { isoDate };

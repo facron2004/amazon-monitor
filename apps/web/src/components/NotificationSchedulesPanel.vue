@@ -3,6 +3,7 @@ import { Mail, MessageSquare, RefreshCw, Send, Trash2 } from "@lucide/vue";
 import type { NotificationSchedule } from "@amazon-monitor/shared";
 import type { NotificationForm } from "../types/notification";
 import { statusText } from "../utils/formatters";
+import { formatLocalDateTime, formatWebTimezoneLabel } from "../utils/formatters-time";
 
 interface Props {
   notificationSchedules: NotificationSchedule[];
@@ -68,11 +69,11 @@ const emit = defineEmits<Emits>();
               </span>
             </td>
             <td class="target-cell">{{ item.target }}</td>
-            <td>{{ item.sendTime }} {{ item.timezone }}</td>
+            <td>{{ item.sendTime }} {{ formatWebTimezoneLabel(item.timezone) }}</td>
             <td>{{ statusText(item.status) }}</td>
             <td>
               <strong>{{ item.lastStatus ? statusText(item.lastStatus) : "-" }}</strong>
-              <small>{{ item.lastSentAt || item.lastError || "" }}</small>
+              <small>{{ item.lastSentAt ? formatLocalDateTime(item.lastSentAt) : item.lastError || "" }}</small>
             </td>
             <td class="row-actions">
               <button title="立即发送" type="button" :disabled="sendingScheduleId === item.id" @click="emit('send-notification-now', item)">

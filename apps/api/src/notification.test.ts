@@ -106,6 +106,7 @@ describe("notification schedules", () => {
     );
     store.upsertInsightEvent(sampleNotificationInsight(category.id));
     store.upsertInsightEvent(sampleReviewedNotificationInsight(category.id));
+    store.upsertInsightEvent(sampleDueNotificationInsight(category.id));
     const sender = new RecordingNotificationSender();
     const app = createApiApp(store, { notificationSender: sender });
 
@@ -132,13 +133,21 @@ describe("notification schedules", () => {
     expect(send.body.status).toBe("success");
     expect(sender.sent).toHaveLength(1);
     expect(sender.sent[0].content).toContain("BSR Coupon / Deal");
+    expect(sender.sent[0].content).toContain("Action Center 概览");
     expect(sender.sent[0].content).toContain("今日必须看");
+    expect(sender.sent[0].content).toContain("负责人 Alice");
+    expect(sender.sent[0].content).toContain("复盘 05-22");
+    expect(sender.sent[0].content).toContain("证据：BSR #30 -> #12");
     expect(sender.sent[0].content).toContain("昨日判断复盘结果");
     expect(sender.sent[0].content).toContain("判断成立");
     expect(sender.sent[0].content).toContain("B0IMGTEST1");
     expect(sender.sent[0].content).toContain("Save $5 with coupon / Limited Time Deal");
     expect(sender.sent[0].htmlContent).toContain("Excel");
+    expect(sender.sent[0].htmlContent).toContain("Action Center 概览");
     expect(sender.sent[0].htmlContent).toContain("今日必须看");
+    expect(sender.sent[0].htmlContent).toContain("负责人 Alice");
+    expect(sender.sent[0].htmlContent).toContain("复盘 05-22");
+    expect(sender.sent[0].htmlContent).toContain("证据：BSR #30 -&gt; #12");
     expect(sender.sent[0].htmlContent).toContain("昨日判断复盘结果");
     expect(sender.sent[0].htmlContent).toContain("判断成立");
     expect(sender.sent[0].htmlContent).toContain("B0IMGTEST1");
@@ -160,13 +169,25 @@ describe("notification schedules", () => {
     expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet11.xml")).toContain("Unique Ranks");
     expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet13.xml")).toContain("Previous Date");
     expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet14.xml")).toContain("Current Top10 ASINs");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("Strategy Tags");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("Attribution Tags");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("Coupon 依赖型");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml")).toContain("B0IMGTEST1");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet17.xml")).toContain("Due Date");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet18.xml")).toContain("Representative Event");
-    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet18.xml")).toContain("Coupon 依赖型");
+    const actionChecklistSheet = readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet16.xml");
+    expect(actionChecklistSheet).toContain("Next Action");
+    expect(actionChecklistSheet).toContain("今日必须看");
+    expect(actionChecklistSheet).toContain("B0IMGTEST1");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet17.xml")).toContain("Strategy Tags");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet17.xml")).toContain("Attribution Tags");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet17.xml")).toContain("Coupon 依赖型");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet17.xml")).toContain("B0IMGTEST1");
+    const reviewQueueSheet = readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet18.xml");
+    expect(reviewQueueSheet).toContain("Due Date");
+    expect(reviewQueueSheet).toContain("Days Offset");
+    expect(reviewQueueSheet).toContain("Assignee");
+    expect(reviewQueueSheet).toContain("Alice");
+    const reviewOutcomesSheet = readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet19.xml");
+    expect(reviewOutcomesSheet).toContain("Review Note");
+    expect(reviewOutcomesSheet).toContain("判断成立");
+    expect(reviewOutcomesSheet).toContain("复盘后仍在 Top20");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet20.xml")).toContain("Representative Event");
+    expect(readZipText(attachment?.content ?? Buffer.alloc(0), "xl/worksheets/sheet20.xml")).toContain("Coupon 依赖型");
 
     const schedules = await request(app).get("/api/notifications/schedules").expect(200);
     expect(schedules.body[0]).toMatchObject({ lastStatus: "success", lastSentDate: "2026-05-19" });
@@ -277,6 +298,7 @@ function sampleNotificationInsight(categoryId: number): InsightEventInput {
     },
     suggestedAction: "加入观察并复盘 3 天排名维持情况。",
     status: "TODO",
+    assignee: "Alice",
     reviewDueDate: "2026-05-22",
     reviewResult: null,
     userNote: null
@@ -299,5 +321,22 @@ function sampleReviewedNotificationInsight(categoryId: number): InsightEventInpu
     userNote: "复盘后仍在 Top20",
     createdAt: "2026-05-16T09:00:00.000Z",
     updatedAt: "2026-05-19T09:00:00.000Z"
+  };
+}
+
+function sampleDueNotificationInsight(categoryId: number): InsightEventInput {
+  return {
+    ...sampleNotificationInsight(categoryId),
+    id: `2026-05-16|category:${categoryId}|asin:B0IMGTEST1|REVIEW_DUE`,
+    eventDate: "2026-05-16",
+    eventType: "RANK_SURGE",
+    eventLevel: "P0",
+    eventTitle: "【复盘到期】Acme B0IMGTEST1",
+    scoreTotal: 86,
+    scoreLevel: "S",
+    status: "REVIEW_PENDING",
+    reviewDueDate: "2026-05-19",
+    reviewResult: null,
+    userNote: "等待 3 天后验证排名是否维持"
   };
 }

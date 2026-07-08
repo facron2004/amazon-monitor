@@ -114,9 +114,9 @@ function tooltipFor(sev: Severity, item: CollectionFreshness | null): string {
 }
 
 .is-aging {
-  background: #fef3c7;
-  border-color: #fde68a;
-  color: #92400e;
+  background: #fefce8;
+  border-color: #fde047;
+  color: #713f12;
 }
 
 .is-stale,

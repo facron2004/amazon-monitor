@@ -89,9 +89,9 @@ const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
 
 .competitor-insight-light {
   align-items: center;
-  background: #fef3c7;
+  background: #dbeafe;
   border-radius: 999px;
-  color: #b45309;
+  color: #1d4ed8;
   display: inline-flex;
   height: 24px;
   justify-content: center;
@@ -99,14 +99,14 @@ const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
 }
 
 .competitor-insight-headline {
-  background: #fef3c7;
-  border: 1px solid #fde68a;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
   border-radius: 12px;
   padding: 10px 12px;
 }
 
 .competitor-insight-headline small {
-  color: #92400e;
+  color: #1d4ed8;
   display: block;
   font-size: 11.5px;
   font-weight: 700;
@@ -115,14 +115,14 @@ const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
 }
 
 .competitor-insight-headline p {
-  color: #92400e;
+  color: #1e40af;
   font-size: 13px;
   font-weight: 600;
   margin: 4px 0 0;
 }
 
 .competitor-insight-body {
-  color: #78350f !important;
+  color: #1e3a8a !important;
   font-size: 12px !important;
   font-weight: 400 !important;
   margin-top: 6px !important;
@@ -157,7 +157,7 @@ const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
 }
 
 .competitor-insight-stats li.is-price .competitor-insight-stat-icon { background: #fee2e2; color: #991b1b; }
-.competitor-insight-stats li.is-activity .competitor-insight-stat-icon { background: #ffedd5; color: #b45309; }
+.competitor-insight-stats li.is-activity .competitor-insight-stat-icon { background: #ccfbf1; color: #0f766e; }
 .competitor-insight-stats li.is-core .competitor-insight-stat-icon { background: #ede9fe; color: #6d28d9; }
 .competitor-insight-stats li.is-neutral .competitor-insight-stat-icon { background: #f1f5f9; color: #64748b; }
 

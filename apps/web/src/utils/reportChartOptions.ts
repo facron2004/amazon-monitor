@@ -24,7 +24,7 @@ const tooltip = {
 
 export function buildSignalMixChartOption(report: PeriodInsightReportResponse) {
   const summary = report.summary;
-  const categories = ["S level", "A level", "Core risk", "Breakout"];
+  const categories = ["S级", "A级", "核心风险", "新品突破"];
   const values = [summary.sLevelCount, summary.aLevelCount, summary.coreRiskCount, summary.newBreakoutCount];
 
   return {
@@ -50,7 +50,7 @@ export function buildSignalMixChartOption(report: PeriodInsightReportResponse) {
     },
     series: [
       {
-        name: "Signals",
+        name: "信号",
         type: "bar",
         data: values,
         barWidth: 24,
@@ -94,7 +94,7 @@ export function buildReviewLoopChartOption(report: PeriodInsightReportResponse) 
     },
     title: {
       text: String(due),
-      subtext: `due / ${overdue} overdue`,
+      subtext: `待复盘 / ${overdue} 逾期`,
       left: "center",
       top: "36%",
       textStyle: { color: "#0f172a", fontSize: 26, fontWeight: 800 },
@@ -110,8 +110,8 @@ export function buildReviewLoopChartOption(report: PeriodInsightReportResponse) 
         label: { show: false },
         emphasis: { label: { show: true, fontSize: 12, fontWeight: 700 } },
         data: [
-          { name: "Due backlog", value: due },
-          { name: "Reviewed", value: reviewed }
+          { name: "待复盘队列", value: due },
+          { name: "已复盘", value: reviewed }
         ]
       }
     ] satisfies ReportSeries[]
@@ -155,7 +155,7 @@ export function buildBrandPressureChartOption(report: PeriodInsightReportRespons
     },
     series: [
       {
-        name: "Events",
+        name: "事件",
         type: "bar",
         stack: "brand",
         data: brands.map((item) => item.eventCount),
@@ -163,7 +163,7 @@ export function buildBrandPressureChartOption(report: PeriodInsightReportRespons
         itemStyle: { borderRadius: [0, 6, 6, 0] }
       },
       {
-        name: "Core risks",
+        name: "核心风险",
         type: "bar",
         stack: "brand",
         data: brands.map((item) => item.coreRiskCount),

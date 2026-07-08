@@ -1,50 +1,89 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { Activity, DollarSign, Tag } from "@lucide/vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { Activity, DollarSign, MessageSquare, Tag } from "@lucide/vue";
+import { ElEmpty, ElSkeleton, ElStatistic, ElTag } from "element-plus";
 import type { ProductPriceHistory } from "@amazon-monitor/shared";
+import {
+  buildProductPriceTimelineChartOption,
+  getProductPriceTimelinePoints,
+  getProductPriceTimelineSummary
+} from "../../utils/actionCenterPriceTimeline";
+import type { ChartInstance } from "../../utils/echartsRuntime";
+
+type EchartsRuntime = typeof import("../../utils/echartsRuntime");
 
 const props = defineProps<{
   rows: ProductPriceHistory[];
   loading: boolean;
 }>();
 
-const descendingRows = computed(() => [...props.rows].sort((left, right) => right.snapshotDate.localeCompare(left.snapshotDate)));
-const latest = computed(() => descendingRows.value[0] ?? null);
-const recentRows = computed(() => descendingRows.value.slice(0, 8));
-const chartRows = computed(() => [...descendingRows.value].reverse().slice(-14));
-const maxChartPrice = computed(() => Math.max(...chartRows.value.map(effectivePrice).filter(isNumber), 0));
+const chartEl = ref<HTMLDivElement | null>(null);
+const summary = computed(() => getProductPriceTimelineSummary(props.rows));
+const recentRows = computed(() => getProductPriceTimelinePoints(props.rows).reverse().slice(0, 8));
+const priceDeltaValue = computed(() => Math.abs(summary.value?.effectivePriceDelta ?? 0));
 
-function effectivePrice(row: ProductPriceHistory): number | null {
-  return row.finalEstimatedPrice ?? row.currentPrice;
+let runtimeReady: Promise<EchartsRuntime> | null = null;
+let chart: ChartInstance | null = null;
+let resizeObserver: ResizeObserver | null = null;
+
+watch(
+  () => [props.rows, props.loading],
+  () => {
+    renderChart();
+  },
+  { immediate: true }
+);
+
+async function renderChart(): Promise<void> {
+  await nextTick();
+  if (props.loading || !summary.value || !chartEl.value) {
+    disposeChart();
+    return;
+  }
+  const runtime = await loadRuntime();
+  if (props.loading || !summary.value || !chartEl.value) return;
+  chart = chart ?? runtime.initChart(chartEl.value);
+  chart.setOption(buildProductPriceTimelineChartOption(props.rows), true);
+  chart.resize();
+  bindResizeObserver();
+}
+
+function loadRuntime(): Promise<EchartsRuntime> {
+  runtimeReady ??= import("../../utils/echartsRuntime");
+  return runtimeReady;
+}
+
+function bindResizeObserver(): void {
+  if (resizeObserver || !chartEl.value) return;
+  resizeObserver = new ResizeObserver(() => {
+    chart?.resize();
+  });
+  resizeObserver.observe(chartEl.value);
+}
+
+function disposeChart(): void {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  chart?.dispose();
+  chart = null;
 }
 
 function formatMoney(value: number | null | undefined): string {
   return value === null || value === undefined ? "-" : `$${value.toFixed(2)}`;
 }
 
+function formatSignedMoney(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "-";
+  return `${value > 0 ? "+" : ""}$${value.toFixed(2)}`;
+}
+
 function formatReview(value: number | null | undefined, change: number | null | undefined): string {
   const total = value === null || value === undefined ? "-" : String(value);
-  if (change === null || change === undefined || change === 0) {
-    return total;
-  }
+  if (change === null || change === undefined || change === 0) return total;
   return `${total} (${change > 0 ? "+" : ""}${change})`;
 }
 
-function promoText(row: ProductPriceHistory): string {
-  return row.couponText || row.dealBadge || "-";
-}
-
-function barStyle(row: ProductPriceHistory): { height: string } {
-  const price = effectivePrice(row);
-  if (!price || maxChartPrice.value <= 0) {
-    return { height: "10px" };
-  }
-  return { height: `${Math.max(10, Math.round((price / maxChartPrice.value) * 54))}px` };
-}
-
-function isNumber(value: number | null): value is number {
-  return value !== null && Number.isFinite(value);
-}
+onBeforeUnmount(disposeChart);
 </script>
 
 <template>
@@ -52,48 +91,51 @@ function isNumber(value: number | null): value is number {
     <header>
       <Activity :size="16" />
       <div>
-        <h3>ASIN 价格时间线</h3>
-        <small v-if="latest">{{ latest.snapshotDate }} · {{ rows.length }} 条记录</small>
+        <h3>ASIN price timeline</h3>
+        <small v-if="summary">{{ summary.pointCount }} price points / {{ summary.promoDayCount }} promo days</small>
       </div>
+      <ElTag v-if="summary" :type="summary.tone" effect="light" round>
+        {{ summary.label }}
+      </ElTag>
     </header>
 
-    <p v-if="loading" class="muted">时间线加载中...</p>
-    <p v-else-if="rows.length === 0" class="muted">暂无价格历史证据</p>
+    <ElSkeleton v-if="loading" animated :rows="3" />
+    <ElEmpty v-else-if="!summary" description="No price history evidence yet" :image-size="56" />
     <template v-else>
       <div class="timeline-kpis">
-        <span>
-          <DollarSign :size="14" />
-          <small>当前价</small>
-          <strong>{{ formatMoney(latest?.currentPrice) }}</strong>
-        </span>
-        <span>
-          <Tag :size="14" />
-          <small>到手价</small>
-          <strong>{{ formatMoney(latest ? effectivePrice(latest) : null) }}</strong>
-        </span>
-        <span>
-          <small>Review</small>
-          <strong>{{ formatReview(latest?.reviewCount, latest?.reviewCountChange) }}</strong>
-        </span>
+        <ElStatistic title="List price" :value="summary.latestCurrentPrice ?? 0" prefix="$" :precision="2" />
+        <ElStatistic title="Effective price" :value="summary.latestEffectivePrice ?? 0" prefix="$" :precision="2" />
+        <ElStatistic title="Price movement" :value="priceDeltaValue" prefix="$" :precision="2" />
+        <ElStatistic title="Reviews" :value="summary.latestReviewCount ?? 0" />
+        <ElStatistic title="Review delta" :value="summary.reviewDelta ?? 0" />
+        <ElStatistic title="Lowest effective" :value="summary.lowestEffectivePrice ?? 0" prefix="$" :precision="2" />
       </div>
 
-      <div class="price-bars" aria-label="price timeline">
-        <span
-          v-for="row in chartRows"
-          :key="`${row.snapshotDate}-${row.asin}`"
-          :style="barStyle(row)"
-          :title="`${row.snapshotDate}: ${formatMoney(effectivePrice(row))}`"
-        ></span>
-      </div>
+      <div ref="chartEl" class="price-chart" aria-label="price and review timeline chart"></div>
 
       <div class="timeline-rows">
-        <article v-for="row in recentRows" :key="`${row.snapshotDate}-${row.asin}`">
-          <time>{{ row.snapshotDate.slice(5) }}</time>
-          <strong>{{ formatMoney(effectivePrice(row)) }}</strong>
-          <small>{{ promoText(row) }}</small>
-          <em>{{ formatReview(row.reviewCount, row.reviewCountChange) }}</em>
+        <article v-for="row in recentRows" :key="`${row.date}-${row.effectivePrice ?? 'na'}`">
+          <time>{{ row.date.slice(5) }}</time>
+          <strong>{{ formatMoney(row.effectivePrice) }}</strong>
+          <span>
+            <DollarSign :size="13" />
+            {{ formatMoney(row.currentPrice) }}
+          </span>
+          <span>
+            <MessageSquare :size="13" />
+            {{ formatReview(row.reviewCount, row.reviewCountChange) }}
+          </span>
+          <em>
+            <Tag v-if="row.promoLabel" :size="13" />
+            {{ row.promoLabel || "No promo" }}
+          </em>
         </article>
       </div>
+
+      <p class="trend-note">
+        Effective price uses final estimated price when coupons are available; orange markers show Coupon or Deal days.
+        Latest effective price movement: {{ formatSignedMoney(summary.effectivePriceDelta) }}.
+      </p>
     </template>
   </section>
 </template>
@@ -101,14 +143,15 @@ function isNumber(value: number | null): value is number {
 <style scoped>
 .price-timeline-card {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .price-timeline-card > header {
   align-items: center;
   color: #0f172a;
-  display: flex;
+  display: grid;
   gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .price-timeline-card h3 {
@@ -117,14 +160,11 @@ function isNumber(value: number | null): value is number {
 }
 
 .price-timeline-card small,
-.muted,
-.timeline-rows em {
+.timeline-rows em,
+.timeline-rows span,
+.trend-note {
   color: #64748b;
   font-size: 12px;
-}
-
-.muted {
-  margin: 0;
 }
 
 .timeline-kpis {
@@ -133,43 +173,19 @@ function isNumber(value: number | null): value is number {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.timeline-kpis span {
+.timeline-kpis :deep(.el-statistic) {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  display: grid;
-  gap: 4px;
   min-width: 0;
   padding: 10px;
 }
 
-.timeline-kpis svg {
-  color: #0f766e;
-}
-
-.timeline-kpis strong,
-.timeline-rows strong {
-  color: #0f172a;
-  font-weight: 700;
-}
-
-.price-bars {
-  align-items: end;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+.price-chart {
+  border: 1px solid #dbe4ee;
   border-radius: 8px;
-  display: grid;
-  gap: 3px;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  height: 70px;
-  padding: 8px;
-}
-
-.price-bars span {
-  background: linear-gradient(180deg, #14b8a6, #0f766e);
-  border-radius: 4px 4px 2px 2px;
-  min-width: 4px;
+  height: 240px;
+  min-width: 0;
 }
 
 .timeline-rows {
@@ -184,8 +200,8 @@ function isNumber(value: number | null): value is number {
   border-radius: 8px;
   display: grid;
   gap: 8px;
-  grid-template-columns: 48px 70px minmax(0, 1fr) auto;
-  min-height: 36px;
+  grid-template-columns: 48px 72px 72px 88px minmax(0, 1fr);
+  min-height: 38px;
   padding: 7px 9px;
 }
 
@@ -194,9 +210,48 @@ function isNumber(value: number | null): value is number {
   font-size: 12px;
 }
 
-.timeline-rows small {
+.timeline-rows strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.timeline-rows span,
+.timeline-rows em {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.timeline-rows em {
+  font-style: normal;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.timeline-rows svg {
+  color: #0f766e;
+  flex: 0 0 auto;
+}
+
+.trend-note {
+  line-height: 1.6;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .timeline-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .timeline-rows article {
+    align-items: start;
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .timeline-rows article > *:not(time) {
+    grid-column: 2;
+  }
 }
 </style>
