@@ -21,10 +21,12 @@ type ProductStoreMethods = Pick<
   | "createProduct"
   | "updateProduct"
   | "getProduct"
+  | "getProductBySku"
   | "getProductDetail"
   | "listProducts"
   | "upsertProductDailyMetric"
   | "listProductDailyMetrics"
+  | "listOrganizationProductDailyMetrics"
   | "getProductRiskScore"
   | "getProductOpportunityScore"
 >;
@@ -32,6 +34,7 @@ type ProductStoreMethods = Pick<
 interface ProductRow {
   id: number;
   org_id: number;
+  store_id: number | null;
   marketplace: string;
   sku: string;
   asin: string;
@@ -99,6 +102,7 @@ function mapProduct(row: ProductRow): OwnedProduct {
   return {
     id: row.id,
     orgId: row.org_id,
+    storeId: row.store_id,
     marketplace: row.marketplace,
     sku: row.sku,
     asin: row.asin,
@@ -417,12 +421,13 @@ export function createProductStore(db: DatabaseSync): ProductStoreMethods {
       const result = db
         .prepare(
           `INSERT INTO own_products
-           (org_id, marketplace, sku, asin, brand, title, image_url, category, owner_id,
+           (org_id, store_id, marketplace, sku, asin, brand, title, image_url, category, owner_id,
             status, data_source, last_synced_at, sync_status, sync_error, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           input.orgId,
+          input.storeId ?? null,
           input.marketplace,
           input.sku,
           input.asin,
@@ -450,10 +455,11 @@ export function createProductStore(db: DatabaseSync): ProductStoreMethods {
       }
       db.prepare(
         `UPDATE own_products SET
-          marketplace = ?, sku = ?, asin = ?, brand = ?, title = ?, image_url = ?, category = ?,
+          store_id = ?, marketplace = ?, sku = ?, asin = ?, brand = ?, title = ?, image_url = ?, category = ?,
           owner_id = ?, status = ?, data_source = ?, last_synced_at = ?, sync_status = ?, sync_error = ?, updated_at = ?
          WHERE id = ?`
       ).run(
+        input.storeId !== undefined ? input.storeId : current.store_id,
         input.marketplace ?? current.marketplace,
         input.sku ?? current.sku,
         input.asin ?? current.asin,
@@ -479,6 +485,13 @@ export function createProductStore(db: DatabaseSync): ProductStoreMethods {
       return row ? mapProduct(row) : null;
     },
 
+    getProductBySku(orgId, marketplace, sku) {
+      const row = db.prepare(
+        "SELECT * FROM own_products WHERE org_id = ? AND marketplace = ? AND sku = ?"
+      ).get(orgId, marketplace, sku) as unknown as ProductRow | undefined;
+      return row ? mapProduct(row) : null;
+    },
+
     getProductDetail(id, date) {
       const product = this.getProduct(id);
       if (!product) return null;
@@ -497,6 +510,7 @@ export function createProductStore(db: DatabaseSync): ProductStoreMethods {
     listProducts(filter = {}) {
       const { sql, params } = buildWhere(
         whereEq("org_id", filter.orgId),
+        whereEq("store_id", filter.storeId),
         whereEq("status", filter.status),
         whereEq("marketplace", filter.marketplace),
         whereEq("brand", filter.brand),
@@ -577,6 +591,27 @@ export function createProductStore(db: DatabaseSync): ProductStoreMethods {
 
     listProductDailyMetrics(productId, filter = {}) {
       return metricRows(db, productId, filter);
+    },
+
+    listOrganizationProductDailyMetrics(orgId, filter = {}) {
+      const { sql, params } = buildWhere(
+        whereEq("p.org_id", orgId),
+        whereEq("p.status", "active"),
+        whereGte("m.metric_date", filter.startDate),
+        whereLte("m.metric_date", filter.endDate)
+      );
+      const limit = clampLimit(filter.limit ?? 1000);
+      const offset = clampOffset(filter.offset);
+      return (
+        db.prepare(
+          `SELECT m.*
+           FROM own_product_daily_metrics m
+           JOIN own_products p ON p.id = m.product_id
+           ${sql}
+           ORDER BY m.metric_date DESC, m.product_id ASC
+           LIMIT ? OFFSET ?`
+        ).all(...params, limit, offset) as unknown as ProductMetricRow[]
+      ).map(mapMetric);
     },
 
     getProductRiskScore(id, date) {

@@ -7,7 +7,9 @@ import type {
   InsightEvidence,
   InsightEventNote,
   InsightEventSortKey,
-  InsightScoreBreakdown
+  InsightScoreBreakdown,
+  TopInsightFilterOptions,
+  TopInsightFilters
 } from "@amazon-monitor/shared";
 import { parseJsonArray } from "./json-utils.js";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereLte, withTransaction, type WhereBuilder } from "./sql-utils.js";
@@ -17,6 +19,7 @@ type InsightEventStoreMethods = Pick<
   Store,
   | "listInsightEvents"
   | "listTopInsights"
+  | "listTopInsightFilterOptions"
   | "getInsightEvent"
   | "listInsightEventNotes"
   | "upsertInsightEvent"
@@ -33,6 +36,7 @@ type InsightEventStoreMethods = Pick<
 
 interface InsightEventRow {
   id: string;
+  org_id: number;
   event_date: string;
   asin: string | null;
   brand: string | null;
@@ -58,6 +62,7 @@ interface InsightEventRow {
 }
 
 interface AsinWatchStateRow {
+  org_id: number;
   asin: string;
   watch_level: AsinWatchState["watchLevel"];
   watch_reason: string | null;
@@ -74,6 +79,13 @@ interface InsightEventNoteRow {
   note: string;
   created_at: string;
   updated_at: string;
+}
+
+interface TopInsightFilterRow {
+  marketplace: string | null;
+  category_name: string | null;
+  brand: string | null;
+  assignee: string | null;
 }
 
 const emptyBreakdown: InsightScoreBreakdown = {
@@ -109,7 +121,8 @@ function whereCoreOnly(): WhereBuilder {
       json_extract(evidence_json, '$.isCoreCompetitor') = 1
       OR EXISTS (
         SELECT 1 FROM asin_watch_states aws
-        WHERE aws.asin = insight_events.asin
+        WHERE aws.org_id = insight_events.org_id
+          AND aws.asin = insight_events.asin
           AND aws.watch_level = 'CORE'
       )
     )`
@@ -178,6 +191,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
   return {
     listInsightEvents(params = {}) {
       const { sql: where, params: queryParams } = buildWhere(
+        whereEq("org_id", params.orgId),
         whereEventOrReviewedDate(params.date, params.reviewedOnDate),
         whereEq("status", params.status),
         whereEq("event_level", params.level),
@@ -210,20 +224,26 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       ).map(mapInsightEvent);
     },
 
-    getInsightEvent(id) {
-      const row = db.prepare("SELECT * FROM insight_events WHERE id = ?").get(id) as InsightEventRow | undefined;
-      return row ? mapInsightEvent(row) : null;
+    getInsightEvent(id, orgId) {
+      const row = orgId === undefined
+        ? db.prepare("SELECT * FROM insight_events WHERE id = ?").get(id)
+        : db.prepare("SELECT * FROM insight_events WHERE id = ? AND org_id = ?").get(id, orgId);
+      return row ? mapInsightEvent(row as unknown as InsightEventRow) : null;
     },
 
-    listInsightEventNotes(eventId) {
+    listInsightEventNotes(eventId, orgId) {
+      const organizationJoin = orgId === undefined
+        ? ""
+        : "INNER JOIN insight_events ie ON ie.id = notes.event_id AND ie.org_id = ?";
       return (
         db
           .prepare(
-            `SELECT * FROM insight_event_notes
-             WHERE event_id = ?
-             ORDER BY created_at DESC, rowid DESC`
+            `SELECT notes.* FROM insight_event_notes notes
+             ${organizationJoin}
+             WHERE notes.event_id = ?
+             ORDER BY notes.created_at DESC, notes.rowid DESC`
           )
-          .all(eventId) as unknown as InsightEventNoteRow[]
+          .all(...(orgId === undefined ? [eventId] : [orgId, eventId])) as unknown as InsightEventNoteRow[]
       ).map(mapInsightEventNote);
     },
 
@@ -233,29 +253,28 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
      * (the highest-scoring event wins when one ASIN has multiple triggers).
      *
      * Sorting precedence:
-     *   1. event_level weight (P0 > P1 > P2)
+     *   1. event_level weight (P0 > P1)
      *   2. isCoreCompetitor events get a +1 tier boost
      *   3. absolute rankChange (large movers first)
      *   4. eventType priority (COUPON_ADDED, PRICE_DROP, RANK_SURGE,
      *      NEW_PRODUCT_BREAKOUT, LOW_REVIEW_HIGH_RANK, CORE_COMPETITOR_RISK)
      *   5. score_total as final tiebreaker
      */
-    listTopInsights(date, limit = 5) {
+    listTopInsights(date, limit = 5, filters = {}, orgId) {
       const cap = clampLimit(limit);
+      const { sql: where, params } = buildTopInsightWhere(date, filters, orgId);
       const rows = db
         .prepare(
           `SELECT * FROM insight_events
-           WHERE event_date = ?
-            AND status IN ('TODO','WATCHING','REVIEW_PENDING','REVIEWED')
-            AND asin IS NOT NULL
+           ${where}
            ORDER BY
             CASE event_level WHEN 'P0' THEN 3 WHEN 'P1' THEN 2 ELSE 1 END DESC,
             score_total DESC,
             updated_at DESC,
             id ASC
-           ${cap > 0 ? `LIMIT ${cap * 4}` : ""}`
+           LIMIT ?`
         )
-        .all(date) as unknown as InsightEventRow[];
+        .all(...params, cap * 4) as unknown as InsightEventRow[];
       const mapped = rows.map(mapInsightEvent);
 
       const TYPE_PRIORITY: Partial<Record<InsightEvent["eventType"], number>> = {
@@ -297,17 +316,41 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       return result;
     },
 
+    listTopInsightFilterOptions(date, orgId) {
+      const { sql: where, params } = buildTopInsightWhere(date, {}, orgId);
+      const rows = db
+        .prepare(
+          `SELECT
+            json_extract(evidence_json, '$.marketplace') AS marketplace,
+            json_extract(evidence_json, '$.categoryName') AS category_name,
+            brand,
+            assignee
+           FROM insight_events
+           ${where}`
+        )
+        .all(...params) as unknown as TopInsightFilterRow[];
+      return {
+        marketplaces: uniqueSorted(rows.map((row) => row.marketplace)),
+        categoryNames: uniqueSorted(rows.map((row) => row.category_name)),
+        brands: uniqueSorted(rows.map((row) => row.brand)),
+        assignees: uniqueSorted(rows.map((row) => row.assignee))
+      };
+    },
+
     upsertInsightEvent(event) {
       const now = nowIso();
+      const orgId = event.orgId ?? 1;
+      const eventId = scopedInsightEventId(event.id, orgId);
       const createdAt = event.createdAt ?? now;
       const updatedAt = event.updatedAt ?? now;
       db.prepare(
         `INSERT INTO insight_events
-         (id, event_date, asin, brand, category_id, keyword_id, event_type, event_level, event_title,
+         (id, org_id, event_date, asin, brand, category_id, keyword_id, event_type, event_level, event_title,
           event_summary, attribution_tags_json, evidence_json, score_total, score_level, score_breakdown_json,
           suggested_action, status, assignee, review_due_date, review_result, user_note, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+          org_id = excluded.org_id,
           event_date = excluded.event_date,
           asin = excluded.asin,
           brand = excluded.brand,
@@ -327,7 +370,8 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
           review_due_date = COALESCE(insight_events.review_due_date, excluded.review_due_date),
           updated_at = excluded.updated_at`
       ).run(
-        event.id,
+        eventId,
+        orgId,
         event.eventDate,
         event.asin,
         event.brand,
@@ -351,34 +395,42 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         createdAt,
         updatedAt
       );
-      return this.getInsightEvent(event.id)!;
+      return this.getInsightEvent(eventId, orgId)!;
     },
 
-    updateInsightEventStatus(id, status, reviewDueDate) {
+    updateInsightEventStatus(id, status, reviewDueDate, orgId) {
+      const scope = updateScope(orgId);
       if (reviewDueDate !== undefined) {
-        db.prepare("UPDATE insight_events SET status = ?, review_due_date = ?, updated_at = ? WHERE id = ?").run(status, reviewDueDate, nowIso(), id);
+        db.prepare(`UPDATE insight_events SET status = ?, review_due_date = ?, updated_at = ? WHERE id = ?${scope.sql}`)
+          .run(status, reviewDueDate, nowIso(), id, ...scope.params);
       } else {
-        db.prepare("UPDATE insight_events SET status = ?, updated_at = ? WHERE id = ?").run(status, nowIso(), id);
+        db.prepare(`UPDATE insight_events SET status = ?, updated_at = ? WHERE id = ?${scope.sql}`)
+          .run(status, nowIso(), id, ...scope.params);
       }
-      return this.getInsightEvent(id);
+      return this.getInsightEvent(id, orgId);
     },
 
-    updateInsightEventAssignee(id, assignee) {
-      db.prepare("UPDATE insight_events SET assignee = ?, updated_at = ? WHERE id = ?").run(normalizeAssignee(assignee), nowIso(), id);
-      return this.getInsightEvent(id);
+    updateInsightEventAssignee(id, assignee, orgId) {
+      const scope = updateScope(orgId);
+      db.prepare(`UPDATE insight_events SET assignee = ?, updated_at = ? WHERE id = ?${scope.sql}`)
+        .run(normalizeAssignee(assignee), nowIso(), id, ...scope.params);
+      return this.getInsightEvent(id, orgId);
     },
 
-    updateInsightEventNote(id, note) {
+    updateInsightEventNote(id, note, orgId) {
       const now = nowIso();
       // 同样把空字符串 / 纯空白归一为 null。但 null 在这里是"未提供"语义,
       // 不应覆盖已有的 user_note——否则前端清空输入框会把历史备注一并刷掉。
       // 只有真的提供了非空内容才执行 UPDATE + 写 history。
       const normalizedNote = note && note.trim().length > 0 ? note : null;
       if (normalizedNote === null) {
-        return this.getInsightEvent(id);
+        return this.getInsightEvent(id, orgId);
       }
+      const scope = updateScope(orgId);
       withTransaction(db, () => {
-        db.prepare("UPDATE insight_events SET user_note = ?, updated_at = ? WHERE id = ?").run(normalizedNote, now, id);
+        const result = db.prepare(`UPDATE insight_events SET user_note = ?, updated_at = ? WHERE id = ?${scope.sql}`)
+          .run(normalizedNote, now, id, ...scope.params);
+        if (result.changes === 0) return;
         db.prepare("INSERT INTO insight_event_notes (id, event_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
           randomUUID(),
           id,
@@ -387,7 +439,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
           now
         );
       });
-      return this.getInsightEvent(id);
+      return this.getInsightEvent(id, orgId);
     },
 
     listReviewDueEvents(date, params = {}) {
@@ -396,6 +448,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       // 然后 markInsightEventReviewed 会把用户手动设的状态强制刷成 REVIEW_PENDING/REVIEWED,
       // 用户的"已忽略"决定被悄悄覆盖。
       const { sql: where, params: queryParams } = buildWhere(
+        whereEq("org_id", params.orgId),
         whereLte("review_due_date", date),
         { clause: "review_due_date IS NOT NULL" },
         { clause: "status IN ('TODO','REVIEW_PENDING')" },
@@ -445,6 +498,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         db.prepare("DELETE FROM insight_review_claims WHERE claimed_at < ?").run(oneHourAgo);
         const { sql: where, params: whereParams } = buildWhere(
+          whereEq("org_id", options.orgId),
           whereLte("review_due_date", date),
           { clause: "review_due_date IS NOT NULL" },
           { clause: "status IN ('TODO','REVIEW_PENDING')" },
@@ -483,14 +537,14 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       db.prepare("DELETE FROM insight_review_claims WHERE claim_id = ?").run(claimId);
     },
 
-    markInsightEventReviewed(id, result, note, nextReviewDueDate = null) {
+    markInsightEventReviewed(id, result, note, nextReviewDueDate = null, orgId) {
       const now = nowIso();
       // 把空字符串 / 纯空白归一为 null,避免 COALESCE 把现有 user_note 错刷成 ""。
       // (route 接收的 body.note 是 nullable 但用户可能传空字符串。)
       const normalizedNote = note && note.trim().length > 0 ? note : null;
       // 守卫用户手动设的状态:如果用户已经把事件标成 WATCHING / FOLLOWED / IGNORED,
       // 自动复盘不应覆盖他们的决定——但允许在原状态上记录 review_result / review_due_date。
-      const current = this.getInsightEvent(id);
+      const current = this.getInsightEvent(id, orgId);
       if (!current) {
         return null;
       }
@@ -499,6 +553,7 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
       const nextStatus: InsightEvent["status"] = shouldFlipStatus
         ? nextReviewDueDate ? "REVIEW_PENDING" : "REVIEWED"
         : current.status;
+      const scope = updateScope(orgId);
       withTransaction(db, () => {
         db.prepare(
           `UPDATE insight_events
@@ -507,8 +562,8 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
                review_due_date = COALESCE(?, review_due_date),
                user_note = COALESCE(?, user_note),
                updated_at = ?
-           WHERE id = ?`
-        ).run(nextStatus, result, nextReviewDueDate, normalizedNote, now, id);
+           WHERE id = ?${scope.sql}`
+        ).run(nextStatus, result, nextReviewDueDate, normalizedNote, now, id, ...scope.params);
         if (normalizedNote) {
           db.prepare("INSERT INTO insight_event_notes (id, event_id, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
             randomUUID(),
@@ -519,37 +574,40 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
           );
         }
       });
-      return this.getInsightEvent(id);
+      return this.getInsightEvent(id, orgId);
     },
 
-    listAsinWatchStates() {
+    listAsinWatchStates(orgId = 1) {
       return (
         db
           .prepare(
             `SELECT * FROM asin_watch_states
+             WHERE org_id = ?
              ORDER BY CASE watch_level WHEN 'CORE' THEN 1 WHEN 'POTENTIAL' THEN 2 WHEN 'NORMAL' THEN 3 ELSE 4 END,
               COALESCE(last_event_date, first_watch_date) DESC,
               asin`
           )
-          .all() as unknown as AsinWatchStateRow[]
+          .all(orgId) as unknown as AsinWatchStateRow[]
       ).map(mapAsinWatchState);
     },
 
     upsertAsinWatchState(state) {
       const now = nowIso();
+      const orgId = state.orgId ?? 1;
       const createdAt = state.createdAt ?? now;
       const updatedAt = state.updatedAt ?? now;
       db.prepare(
         `INSERT INTO asin_watch_states
-         (asin, watch_level, watch_reason, first_watch_date, last_event_date, note, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(asin) DO UPDATE SET
+         (org_id, asin, watch_level, watch_reason, first_watch_date, last_event_date, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(org_id, asin) DO UPDATE SET
           watch_level = excluded.watch_level,
           watch_reason = excluded.watch_reason,
           last_event_date = excluded.last_event_date,
           note = COALESCE(excluded.note, asin_watch_states.note),
           updated_at = excluded.updated_at`
       ).run(
+        orgId,
         state.asin,
         state.watchLevel,
         state.watchReason,
@@ -559,7 +617,8 @@ export function createInsightEventStore(db: DatabaseSync): InsightEventStoreMeth
         createdAt,
         updatedAt
       );
-      const row = db.prepare("SELECT * FROM asin_watch_states WHERE asin = ?").get(state.asin) as AsinWatchStateRow | undefined;
+      const row = db.prepare("SELECT * FROM asin_watch_states WHERE org_id = ? AND asin = ?")
+        .get(orgId, state.asin) as AsinWatchStateRow | undefined;
       if (!row) {
         throw new Error(`ASIN watch state ${state.asin} not found after upsert`);
       }
@@ -596,6 +655,37 @@ function whereEventOrReviewedDate(date: string | undefined, includeReviewedOnDat
   };
 }
 
+function buildTopInsightWhere(
+  date: string,
+  filters: TopInsightFilters = {},
+  orgId?: number
+): {
+  sql: string;
+  params: SQLInputValue[];
+} {
+  return buildWhere(
+    whereEq("org_id", orgId),
+    whereEq("event_date", date),
+    { clause: "event_level IN ('P0','P1')" },
+    { clause: "status IN ('TODO','WATCHING','REVIEW_PENDING')" },
+    { clause: "asin IS NOT NULL" },
+    filters.marketplace
+      ? { clause: "json_extract(evidence_json, '$.marketplace') = ?", param: filters.marketplace }
+      : null,
+    filters.categoryName
+      ? { clause: "json_extract(evidence_json, '$.categoryName') = ?", param: filters.categoryName }
+      : null,
+    whereEq("brand", filters.brand),
+    whereEq("assignee", filters.assignee)
+  );
+}
+
+function uniqueSorted(values: Array<string | null>): string[] {
+  return Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))
+  ).sort((left, right) => left.localeCompare(right));
+}
+
 function buildReviewDueOrderBy(sortBy: InsightEventSortKey | undefined): string {
   if (sortBy) {
     return buildInsightEventOrderBy(sortBy);
@@ -606,6 +696,7 @@ function buildReviewDueOrderBy(sortBy: InsightEventSortKey | undefined): string 
 function mapInsightEvent(row: InsightEventRow): InsightEvent {
   return {
     id: row.id,
+    orgId: row.org_id,
     eventDate: row.event_date,
     asin: row.asin,
     brand: row.brand,
@@ -648,6 +739,7 @@ function normalizeAssignee(assignee: string | null): string | null {
 
 function mapAsinWatchState(row: AsinWatchStateRow): AsinWatchState {
   return {
+    orgId: row.org_id,
     asin: row.asin,
     watchLevel: row.watch_level,
     watchReason: row.watch_reason,
@@ -666,4 +758,15 @@ function parseJsonObject<T>(value: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function scopedInsightEventId(id: string, orgId: number): string {
+  if (orgId === 1 || id.startsWith(`org:${orgId}|`)) return id;
+  return `org:${orgId}|${id}`;
+}
+
+function updateScope(orgId: number | undefined): { sql: string; params: SQLInputValue[] } {
+  return orgId === undefined
+    ? { sql: "", params: [] }
+    : { sql: " AND org_id = ?", params: [orgId] };
 }

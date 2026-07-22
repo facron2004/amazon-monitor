@@ -2,7 +2,7 @@ import type { Ref } from "vue";
 import type { CategoryMonitor } from "@amazon-monitor/shared";
 import { categoryApi } from "../api-categories";
 import { collectApi } from "../api-collect";
-import { dashboardApi } from "../api-dashboard";
+import { reportsApi } from "../api-reports";
 import type { CategoryReportResponse } from "../api-types";
 import { toErrorMessage } from "../utils/error-message";
 import { runErrorHandledTask } from "../utils/run-error-handled-task";
@@ -30,7 +30,7 @@ interface UseCategoryIntelligenceActionsOptions {
 export function useCategoryIntelligenceActions(options: UseCategoryIntelligenceActionsOptions) {
   async function syncReport() {
     if (options.store.selectedCategoryId) {
-      options.categoryReport.value = await dashboardApi.categoryReport(options.store.categoryDataDate, options.store.selectedCategoryId);
+      options.categoryReport.value = await reportsApi.category(options.store.categoryDataDate, options.store.selectedCategoryId);
     } else {
       options.categoryReport.value = null;
     }

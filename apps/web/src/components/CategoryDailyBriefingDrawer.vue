@@ -1,15 +1,24 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
-import { formatCount, formatMoney, formatSignedCount, imgFallback, localizeGeneratedText, promoText } from "../utils/formatters";
+import {
+  formatCount,
+  formatMoney,
+  formatSignedCount,
+  imgFallback,
+  localizeGeneratedText,
+  promoText,
+} from "../utils/formatters";
 import { rankPath } from "../utils/category-intelligence";
 import type { DrawerState } from "../composables/useCategoryDailyBriefing";
 
-const drawer = defineModel<DrawerState | null>({ default: null });
+const drawer = defineModel<DrawerState | null>("drawer", { default: null });
 
 defineProps<{
   formatRankDelta: (value: number | null) => string;
   formatPriceDelta: (before: number | null, after: number | null) => string;
-  brandJudgement: (brand: import("@amazon-monitor/shared").BrandMatrixSnapshot) => string;
+  brandJudgement: (
+    brand: import("@amazon-monitor/shared").BrandMatrixSnapshot,
+  ) => string;
   openExternal: (url: string | null | undefined) => void;
 }>();
 
@@ -28,14 +37,31 @@ function closeDrawer(): void {
   <div class="drawer-host" :data-open="drawer ? 'true' : 'false'">
     <div v-if="drawer" class="drawer-backdrop" @click="closeDrawer"></div>
     <aside v-if="drawer" class="drawer" @click.stop>
-      <button class="icon-button drawer-close" title="关闭" type="button" @click="closeDrawer">
+      <button
+        class="icon-button drawer-close"
+        title="关闭"
+        type="button"
+        @click="closeDrawer"
+      >
         <X :size="18" />
       </button>
 
       <template v-if="drawer.mode === 'event'">
         <div class="drawer-product">
-          <img v-if="drawer.item.snapshot?.imageUrl" :src="drawer.item.snapshot.imageUrl" :alt="drawer.item.title" loading="lazy" decoding="async" @error="imgFallback" />
-          <div v-else class="drawer-image-fallback drawer-image-fallback--large">品牌</div>
+          <img
+            v-if="drawer.item.snapshot?.imageUrl"
+            :src="drawer.item.snapshot.imageUrl"
+            :alt="drawer.item.title"
+            loading="lazy"
+            decoding="async"
+            @error="imgFallback"
+          />
+          <div
+            v-else
+            class="drawer-image-fallback drawer-image-fallback--large"
+          >
+            品牌
+          </div>
           <div>
             <span class="drawer-tag">{{ drawer.item.tag }}</span>
             <h3>{{ drawer.item.asin || drawer.item.brand }}</h3>
@@ -43,12 +69,32 @@ function closeDrawer(): void {
           </div>
         </div>
         <div class="drawer-stats">
-          <article><span>品牌</span><strong>{{ drawer.item.brand }}</strong></article>
-          <article><span>BSR</span><strong>{{ rankPath(drawer.item.rankBefore, drawer.item.rankAfter) }}</strong></article>
-          <article><span>排名变化</span><strong>{{ formatRankDelta(drawer.item.rankDelta) }}</strong></article>
-          <article><span>价格变化</span><strong>{{ formatPriceDelta(drawer.item.priceBefore, drawer.item.priceAfter) }}</strong></article>
-          <article><span>Deal/Coupon</span><strong>{{ drawer.item.promo }}</strong></article>
-          <article><span>Review 增量</span><strong>{{ formatSignedCount(drawer.item.reviewDelta) }}</strong></article>
+          <article>
+            <span>品牌</span><strong>{{ drawer.item.brand }}</strong>
+          </article>
+          <article>
+            <span>BSR</span
+            ><strong>{{
+              rankPath(drawer.item.rankBefore, drawer.item.rankAfter)
+            }}</strong>
+          </article>
+          <article>
+            <span>排名变化</span
+            ><strong>{{ formatRankDelta(drawer.item.rankDelta) }}</strong>
+          </article>
+          <article>
+            <span>价格变化</span
+            ><strong>{{
+              formatPriceDelta(drawer.item.priceBefore, drawer.item.priceAfter)
+            }}</strong>
+          </article>
+          <article>
+            <span>Deal/Coupon</span><strong>{{ drawer.item.promo }}</strong>
+          </article>
+          <article>
+            <span>Review 增量</span
+            ><strong>{{ formatSignedCount(drawer.item.reviewDelta) }}</strong>
+          </article>
         </div>
         <div class="drawer-ai">
           <h4>发生了什么</h4>
@@ -56,11 +102,23 @@ function closeDrawer(): void {
           <h4>可能原因</h4>
           <p>{{ localizeGeneratedText(drawer.item.event.possibleStrategy) }}</p>
           <h4>影响判断</h4>
-          <p>结合排名 {{ rankPath(drawer.item.rankBefore, drawer.item.rankAfter) }}、价格 {{ formatPriceDelta(drawer.item.priceBefore, drawer.item.priceAfter) }}、活动 {{ drawer.item.promo }} 和 Review {{ formatSignedCount(drawer.item.reviewDelta) }} 判断。</p>
+          <p>
+            结合排名
+            {{ rankPath(drawer.item.rankBefore, drawer.item.rankAfter) }}、价格
+            {{
+              formatPriceDelta(drawer.item.priceBefore, drawer.item.priceAfter)
+            }}、活动 {{ drawer.item.promo }} 和 Review
+            {{ formatSignedCount(drawer.item.reviewDelta) }} 判断。
+          </p>
           <h4>建议动作</h4>
           <p>{{ localizeGeneratedText(drawer.item.event.suggestedAction) }}</p>
         </div>
-        <button v-if="drawer.item.snapshot?.productUrl" class="primary drawer-action" type="button" @click="openExternal(drawer.item.snapshot.productUrl)">
+        <button
+          v-if="drawer.item.snapshot?.productUrl"
+          class="primary drawer-action"
+          type="button"
+          @click="openExternal(drawer.item.snapshot.productUrl)"
+        >
           打开 Amazon
         </button>
       </template>
@@ -72,26 +130,62 @@ function closeDrawer(): void {
           <p>{{ brandJudgement(drawer.item) }}</p>
         </div>
         <div class="drawer-stats">
-          <article><span>Top100</span><strong>{{ drawer.item.productCountTop100 }}</strong></article>
-          <article><span>Top50</span><strong>{{ drawer.item.productCountTop50 }}</strong></article>
-          <article><span>Top20</span><strong>{{ drawer.item.productCountTop20 }}</strong></article>
-          <article><span>最佳排名</span><strong>{{ drawer.item.bestRank ? `#${drawer.item.bestRank}` : "-" }}</strong></article>
-          <article><span>上升 ASIN</span><strong>{{ drawer.item.rankUpCount }}</strong></article>
-          <article><span>下滑 ASIN</span><strong>{{ drawer.item.rankDownCount }}</strong></article>
-          <article><span>新进 ASIN</span><strong>{{ drawer.item.newEntryCount }}</strong></article>
-          <article><span>活动 ASIN</span><strong>{{ drawer.item.couponCount + drawer.item.dealCount }}</strong></article>
+          <article>
+            <span>Top100</span
+            ><strong>{{ drawer.item.productCountTop100 }}</strong>
+          </article>
+          <article>
+            <span>Top50</span
+            ><strong>{{ drawer.item.productCountTop50 }}</strong>
+          </article>
+          <article>
+            <span>Top20</span
+            ><strong>{{ drawer.item.productCountTop20 }}</strong>
+          </article>
+          <article>
+            <span>最佳排名</span
+            ><strong>{{
+              drawer.item.bestRank ? `#${drawer.item.bestRank}` : "-"
+            }}</strong>
+          </article>
+          <article>
+            <span>上升 ASIN</span><strong>{{ drawer.item.rankUpCount }}</strong>
+          </article>
+          <article>
+            <span>下滑 ASIN</span
+            ><strong>{{ drawer.item.rankDownCount }}</strong>
+          </article>
+          <article>
+            <span>新进 ASIN</span
+            ><strong>{{ drawer.item.newEntryCount }}</strong>
+          </article>
+          <article>
+            <span>活动 ASIN</span
+            ><strong>{{
+              drawer.item.couponCount + drawer.item.dealCount
+            }}</strong>
+          </article>
         </div>
         <div class="drawer-ai">
           <h4>Top ASIN</h4>
           <p>{{ drawer.item.topAsins.slice(0, 8).join(" · ") || "-" }}</p>
           <h4>建议动作</h4>
-          <p>优先查看该品牌 Top50 链接的价格、Coupon/Deal 与 Review 变化，判断是矩阵活动还是自然占位提升。</p>
+          <p>
+            优先查看该品牌 Top50 链接的价格、Coupon/Deal 与 Review
+            变化，判断是矩阵活动还是自然占位提升。
+          </p>
         </div>
       </template>
 
       <template v-else>
         <div class="drawer-product">
-          <img :src="drawer.item.snapshot.imageUrl" :alt="drawer.item.snapshot.title" loading="lazy" decoding="async" @error="imgFallback" />
+          <img
+            :src="drawer.item.snapshot.imageUrl"
+            :alt="drawer.item.snapshot.title"
+            loading="lazy"
+            decoding="async"
+            @error="imgFallback"
+          />
           <div>
             <span class="drawer-tag">新品黑马</span>
             <h3>{{ drawer.item.snapshot.asin }}</h3>
@@ -99,18 +193,46 @@ function closeDrawer(): void {
           </div>
         </div>
         <div class="drawer-stats">
-          <article><span>机会分</span><strong>{{ drawer.item.score }}</strong></article>
-          <article><span>当前 BSR</span><strong>#{{ drawer.item.snapshot.rank }}</strong></article>
-          <article><span>Review</span><strong>{{ formatCount(drawer.item.snapshot.reviewCount) }}</strong></article>
-          <article><span>价格</span><strong>{{ formatMoney(drawer.item.snapshot.currentPrice) }}</strong></article>
-          <article><span>Deal/Coupon</span><strong>{{ promoText(drawer.item.snapshot) }}</strong></article>
-          <article><span>品牌</span><strong>{{ drawer.item.snapshot.brand || "未知品牌" }}</strong></article>
+          <article>
+            <span>机会分</span><strong>{{ drawer.item.score }}</strong>
+          </article>
+          <article>
+            <span>当前 BSR</span
+            ><strong>#{{ drawer.item.snapshot.rank }}</strong>
+          </article>
+          <article>
+            <span>Review</span
+            ><strong>{{
+              formatCount(drawer.item.snapshot.reviewCount)
+            }}</strong>
+          </article>
+          <article>
+            <span>价格</span
+            ><strong>{{
+              formatMoney(drawer.item.snapshot.currentPrice)
+            }}</strong>
+          </article>
+          <article>
+            <span>Deal/Coupon</span
+            ><strong>{{ promoText(drawer.item.snapshot) }}</strong>
+          </article>
+          <article>
+            <span>品牌</span
+            ><strong>{{ drawer.item.snapshot.brand || "未知品牌" }}</strong>
+          </article>
         </div>
         <div class="drawer-ai">
           <h4>机会判断</h4>
-          <p>{{ drawer.item.reason }}。建议连续观察 3-7 天，看活动结束后是否仍能维持排名。</p>
+          <p>
+            {{ drawer.item.reason }}。建议连续观察 3-7
+            天，看活动结束后是否仍能维持排名。
+          </p>
         </div>
-        <button class="primary drawer-action" type="button" @click="openExternal(drawer.item.snapshot.productUrl)">
+        <button
+          class="primary drawer-action"
+          type="button"
+          @click="openExternal(drawer.item.snapshot.productUrl)"
+        >
           打开 Amazon
         </button>
       </template>

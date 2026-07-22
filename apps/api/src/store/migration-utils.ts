@@ -6,6 +6,12 @@ import type { DatabaseSync } from "node:sqlite";
 export const SCHEMA_VERSION = 1;
 
 export function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {
+  const tableExists = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?"
+  ).get(table);
+  if (!tableExists) {
+    return;
+  }
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);

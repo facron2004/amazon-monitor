@@ -1,5 +1,6 @@
 import type {
   InventoryPlanListFilter,
+  InventoryPlanTaskResponse,
   InventoryReplenishmentPlan,
   InventoryReplenishmentSetting,
   UpsertInventoryReplenishmentSettingInput
@@ -20,6 +21,11 @@ export const inventoryApi = {
     request<InventoryReplenishmentPlan[]>(`/inventory/plans?${buildQuery(query).toString()}`),
   getPlan: (productId: number, date?: string) =>
     request<InventoryReplenishmentPlan>(`/products/${productId}/inventory-plan${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  createTask: (productId: number, date?: string) =>
+    request<InventoryPlanTaskResponse>(`/products/${productId}/inventory-plan/task`, {
+      method: "POST",
+      body: JSON.stringify({ date })
+    }),
   upsertSetting: (productId: number, payload: InventorySettingPayload) =>
     request<InventorySettingResponse>(`/products/${productId}/inventory-setting`, {
       method: "POST",

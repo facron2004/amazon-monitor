@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { createTables } from "./schema.js";
-import { createStore } from "../store.js";
+import { createStore, initSchema } from "../store.js";
 import { createTaskStore, VALID_TRANSITIONS } from "./task-store.js";
 import { createSopStore } from "./sop-store.js";
 import { createIdentityStore } from "./identity-store.js";
@@ -10,14 +9,26 @@ import type { Store } from "./types.js";
 
 function freshStore(): { db: DatabaseSync; store: Store } {
   const db = new DatabaseSync(":memory:");
-  createTables(db);
+  initSchema(db);
   const store: Store = {
     ...createTaskStore(db),
     ...createSopStore(db),
     ...createIdentityStore(db),
     ...createInsightEventStore(db),
     reset() {
-      db.exec("DELETE FROM insight_event_tasks; DELETE FROM task_notes; DELETE FROM tasks; DELETE FROM sops; DELETE FROM users; DELETE FROM organizations;");
+      db.exec(`
+        DELETE FROM insight_event_tasks;
+        DELETE FROM task_notes;
+        DELETE FROM tasks;
+        DELETE FROM sops;
+        DELETE FROM insight_review_claims;
+        DELETE FROM insight_event_notes;
+        DELETE FROM insight_events;
+        DELETE FROM asin_watch_states;
+        DELETE FROM sessions;
+        DELETE FROM users;
+        DELETE FROM organizations;
+      `);
     },
     runInTransaction(work: () => void) {
       work();

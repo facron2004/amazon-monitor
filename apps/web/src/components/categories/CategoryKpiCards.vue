@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed, type Component } from "vue";
-import { ArrowDownRight, ArrowUpRight, BadgePercent, Sparkles } from "@lucide/vue";
-import type { KpiDelta } from "../../composables/useCategoryDailyBriefing";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  BadgePercent,
+  Sparkles,
+} from "@lucide/vue";
+import type { CategoryDailyKpiDelta } from "@amazon-monitor/shared";
 
 interface Props {
   moversCount: number;
   promotionsCount: number;
   fadingCount: number;
   reviewGrowthCount: number;
-  yesterdayDelta: KpiDelta;
+  yesterdayDelta: CategoryDailyKpiDelta;
 }
 
 interface KpiItem {
-  key: keyof KpiDelta;
+  key: keyof CategoryDailyKpiDelta;
   label: string;
   value: number;
   delta: number | null;
@@ -45,7 +50,7 @@ const items = computed<KpiItem[]>(() => [
     delta: props.yesterdayDelta.movers,
     tone: "new",
     icon: Sparkles,
-    note: "新进 + 上升 + 品牌矩阵"
+    note: "新进 + 上升 + 品牌矩阵",
   },
   {
     key: "promotions",
@@ -54,7 +59,7 @@ const items = computed<KpiItem[]>(() => [
     delta: props.yesterdayDelta.promotions,
     tone: "activity",
     icon: BadgePercent,
-    note: "Coupon 启动 + Deal 启动"
+    note: "Coupon 启动 + Deal 启动",
   },
   {
     key: "fading",
@@ -63,7 +68,7 @@ const items = computed<KpiItem[]>(() => [
     delta: props.yesterdayDelta.fading,
     tone: "fall",
     icon: ArrowDownRight,
-    note: "Coupon/Deal 结束 + Rank 下滑"
+    note: "Coupon/Deal 结束 + Rank 下滑",
   },
   {
     key: "reviewGrowth",
@@ -72,20 +77,26 @@ const items = computed<KpiItem[]>(() => [
     delta: props.yesterdayDelta.reviewGrowth,
     tone: "rise",
     icon: ArrowUpRight,
-    note: "Review 净增量事件"
-  }
+    note: "Review 净增量事件",
+  },
 ]);
 </script>
 
 <template>
   <section class="kpi-cards">
-    <article v-for="item in items" :key="item.key" :class="['kpi-card', `kpi-card--${item.tone}`]">
+    <article
+      v-for="item in items"
+      :key="item.key"
+      :class="['kpi-card', `kpi-card--${item.tone}`]"
+    >
       <span class="kpi-card-icon">
         <component :is="item.icon" :size="18" />
       </span>
       <strong class="kpi-card-value">{{ item.value }}</strong>
       <span class="kpi-card-label">{{ item.label }}</span>
-      <small :class="['kpi-card-delta', `is-${deltaTone(item.delta)}`]">{{ deltaText(item.delta) }}</small>
+      <small :class="['kpi-card-delta', `is-${deltaTone(item.delta)}`]">{{
+        deltaText(item.delta)
+      }}</small>
       <small class="kpi-card-note">{{ item.note }}</small>
     </article>
   </section>
@@ -119,12 +130,30 @@ const items = computed<KpiItem[]>(() => [
   width: 32px;
 }
 
-.kpi-card--new .kpi-card-icon { background: #dbeafe; color: #1d4ed8; }
-.kpi-card--rise .kpi-card-icon { background: #dcfce7; color: #166534; }
-.kpi-card--fall .kpi-card-icon { background: #fee2e2; color: #991b1b; }
-.kpi-card--activity .kpi-card-icon { background: #ffedd5; color: #b45309; }
-.kpi-card--price .kpi-card-icon { background: #fef3c7; color: #92400e; }
-.kpi-card--brand .kpi-card-icon { background: #ede9fe; color: #6d28d9; }
+.kpi-card--new .kpi-card-icon {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.kpi-card--rise .kpi-card-icon {
+  background: #dcfce7;
+  color: #166534;
+}
+.kpi-card--fall .kpi-card-icon {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.kpi-card--activity .kpi-card-icon {
+  background: #ffedd5;
+  color: #b45309;
+}
+.kpi-card--price .kpi-card-icon {
+  background: #fef3c7;
+  color: #92400e;
+}
+.kpi-card--brand .kpi-card-icon {
+  background: #ede9fe;
+  color: #6d28d9;
+}
 
 .kpi-card-value {
   color: var(--text-primary, #0f172a);
@@ -145,10 +174,18 @@ const items = computed<KpiItem[]>(() => [
   font-weight: 600;
 }
 
-.kpi-card-delta.is-up { color: #166534; }
-.kpi-card-delta.is-down { color: #991b1b; }
-.kpi-card-delta.is-flat { color: var(--text-muted, #64748b); }
-.kpi-card-delta.is-none { color: var(--text-muted, #94a3b8); }
+.kpi-card-delta.is-up {
+  color: #166534;
+}
+.kpi-card-delta.is-down {
+  color: #991b1b;
+}
+.kpi-card-delta.is-flat {
+  color: var(--text-muted, #64748b);
+}
+.kpi-card-delta.is-none {
+  color: var(--text-muted, #94a3b8);
+}
 
 .kpi-card-note {
   color: var(--text-muted, #64748b);

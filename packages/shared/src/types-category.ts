@@ -135,6 +135,21 @@ export interface CompetitorActivityEvent {
   createdAt?: string;
 }
 
+export interface CategoryDailyKpiSnapshot {
+  date: string;
+  movers: number;
+  promotions: number;
+  fading: number;
+  reviewGrowth: number;
+}
+
+export interface CategoryDailyKpiDelta {
+  movers: number | null;
+  promotions: number | null;
+  fading: number | null;
+  reviewGrowth: number | null;
+}
+
 export interface BrandMatrixInput {
   category: CategoryMonitor;
   date: string;
@@ -155,6 +170,48 @@ export interface CategoryReportInput {
   brandMatrix: BrandMatrixSnapshot[];
   signals: CategorySignalLog[];
   activityEvents?: CompetitorActivityEvent[];
+}
+
+export type CategorySnapshotDiffType =
+  | "new_entry"
+  | "dropped"
+  | "rank_up"
+  | "rank_down"
+  | "price_changed"
+  | "coupon_changed"
+  | "deal_changed"
+  | "review_growth";
+
+export interface CategorySnapshotDiffItem {
+  asin: string;
+  marketplace: string;
+  title: string;
+  brand: string | null;
+  imageUrl: string;
+  productUrl: string;
+  changeTypes: CategorySnapshotDiffType[];
+  currentRank: NullableNumber;
+  previousRank: NullableNumber;
+  rankChange: NullableNumber;
+  currentPrice: NullableNumber;
+  previousPrice: NullableNumber;
+  priceChange: NullableNumber;
+  currentCoupon: string | null;
+  previousCoupon: string | null;
+  currentDeal: string | null;
+  previousDeal: string | null;
+  currentReviewCount: NullableNumber;
+  previousReviewCount: NullableNumber;
+  reviewCountChange: NullableNumber;
+}
+
+export interface CategorySnapshotDiffResponse {
+  categoryId: number;
+  date: string;
+  compareDate: string;
+  currentCount: number;
+  compareCount: number;
+  items: CategorySnapshotDiffItem[];
 }
 export interface BrandPlaybookPriceBand {
   sampleSize: number;

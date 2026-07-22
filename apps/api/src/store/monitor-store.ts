@@ -28,12 +28,14 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
       const result = db
         .prepare(
           `INSERT INTO amazon_keyword_monitor
-          (keyword, marketplace, zip_code, language, category_tag, crawl_pages, status, today_status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+          (org_id, keyword, marketplace, priority, zip_code, language, category_tag, crawl_pages, status, today_status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
         )
         .run(
+          input.orgId ?? 1,
           input.keyword,
           input.marketplace,
+          input.priority ?? "C",
           input.zipCode ?? null,
           input.language ?? "en_US",
           input.categoryTag ?? null,
@@ -45,14 +47,16 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
       return getKeyword(db, Number(result.lastInsertRowid))!;
     },
 
-    updateKeyword(id, input) {
-      const current = getKeyword(db, id);
+    updateKeyword(id, input, orgId) {
+      const current = getKeyword(db, id, orgId);
       if (!current) {
         throw new Error(`Keyword ${id} not found`);
       }
       const next: Required<KeywordMonitorInput> = {
+        orgId: current.orgId,
         keyword: input.keyword ?? current.keyword,
         marketplace: input.marketplace ?? current.marketplace,
+        priority: input.priority ?? current.priority,
         zipCode: input.zipCode ?? current.zipCode,
         language: input.language ?? current.language,
         categoryTag: input.categoryTag ?? current.categoryTag,
@@ -61,11 +65,12 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
       };
       db.prepare(
         `UPDATE amazon_keyword_monitor
-         SET keyword = ?, marketplace = ?, zip_code = ?, language = ?, category_tag = ?, crawl_pages = ?, status = ?, updated_at = ?
+         SET keyword = ?, marketplace = ?, priority = ?, zip_code = ?, language = ?, category_tag = ?, crawl_pages = ?, status = ?, updated_at = ?
          WHERE id = ?`
       ).run(
         next.keyword,
         next.marketplace,
+        next.priority,
         next.zipCode,
         next.language,
         next.categoryTag,
@@ -74,7 +79,7 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
         nowIso(),
         id
       );
-      return getKeyword(db, id)!;
+      return getKeyword(db, id, orgId)!;
     },
 
     markKeywordCollection(id, status) {
@@ -86,8 +91,8 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
       );
     },
 
-    deleteKeyword(id) {
-      const keyword = getKeyword(db, id);
+    deleteKeyword(id, orgId) {
+      const keyword = getKeyword(db, id, orgId);
       if (!keyword) {
         throw new Error(`Keyword ${id} not found`);
       }
@@ -99,28 +104,34 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
         db.prepare("DELETE FROM amazon_keyword_serp_snapshot WHERE keyword_id = ?").run(id);
         db.prepare(
           `DELETE FROM amazon_competitor_pool
-           WHERE first_seen_keyword = ?
+           WHERE org_id = ? AND (
+             first_seen_keyword = ?
               OR EXISTS (
                 SELECT 1 FROM amazon_keyword_serp_snapshot s
                 WHERE s.asin = amazon_competitor_pool.asin
                   AND s.marketplace = amazon_competitor_pool.marketplace
                   AND s.keyword_id = ?
-              )`
-        ).run(keyword.keyword, id);
+              ))`
+        ).run(keyword.orgId, keyword.keyword, id);
         db.prepare("DELETE FROM amazon_keyword_monitor WHERE id = ?").run(id);
       });
     },
 
-    getKeyword(id) {
-      return getKeyword(db, id);
+    getKeyword(id, orgId) {
+      return getKeyword(db, id, orgId);
     },
 
     listKeywords(filter = {}) {
       const status = filter.status;
-      const rows = status === undefined
-        ? (db.prepare("SELECT * FROM amazon_keyword_monitor ORDER BY id").all() as unknown as KeywordRow[])
-        : (db.prepare("SELECT * FROM amazon_keyword_monitor WHERE status = ? ORDER BY id").all(status === "enabled" ? 1 : 0) as unknown as KeywordRow[]);
-      return rows.map(mapKeyword);
+      const orgId = filter.orgId;
+      const rows = orgId === undefined && status === undefined
+        ? db.prepare("SELECT * FROM amazon_keyword_monitor ORDER BY id").all()
+        : orgId === undefined
+          ? db.prepare("SELECT * FROM amazon_keyword_monitor WHERE status = ? ORDER BY id").all(status === "enabled" ? 1 : 0)
+          : status === undefined
+            ? db.prepare("SELECT * FROM amazon_keyword_monitor WHERE org_id = ? ORDER BY id").all(orgId)
+            : db.prepare("SELECT * FROM amazon_keyword_monitor WHERE org_id = ? AND status = ? ORDER BY id").all(orgId, status === "enabled" ? 1 : 0);
+      return (rows as unknown as KeywordRow[]).map(mapKeyword);
     },
 
     createCategoryMonitor(input) {
@@ -129,10 +140,11 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
       const result = db
         .prepare(
           `INSERT INTO amazon_bestseller_category_monitor
-          (name, marketplace, category_url, category_path, crawl_top_n, status, today_status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+          (org_id, name, marketplace, category_url, category_path, crawl_top_n, status, today_status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
         )
         .run(
+          input.orgId ?? 1,
           input.name.trim(),
           input.marketplace.trim(),
           input.categoryUrl.trim(),
@@ -145,8 +157,8 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
       return getCategoryMonitor(db, Number(result.lastInsertRowid))!;
     },
 
-    updateCategoryMonitor(id, input) {
-      const current = getCategoryMonitor(db, id);
+    updateCategoryMonitor(id, input, orgId) {
+      const current = getCategoryMonitor(db, id, orgId);
       if (!current) {
         throw new Error(`Category monitor ${id} not found`);
       }
@@ -173,7 +185,7 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
         nowIso(),
         id
       );
-      return getCategoryMonitor(db, id)!;
+      return getCategoryMonitor(db, id, orgId)!;
     },
 
     markCategoryCollection(id, status) {
@@ -185,28 +197,40 @@ export function createMonitorStore(db: DatabaseSync): MonitorStoreMethods {
       );
     },
 
-    deleteCategoryMonitor(id) {
+    deleteCategoryMonitor(id, orgId) {
+      const current = getCategoryMonitor(db, id, orgId);
+      if (!current) throw new Error(`Category monitor ${id} not found`);
       db.prepare("DELETE FROM amazon_bestseller_category_monitor WHERE id = ?").run(id);
     },
 
-    getCategoryMonitor(id) {
-      return getCategoryMonitor(db, id);
+    getCategoryMonitor(id, orgId) {
+      return getCategoryMonitor(db, id, orgId);
     },
 
-    listCategoryMonitors() {
-      return (db.prepare("SELECT * FROM amazon_bestseller_category_monitor ORDER BY id").all() as unknown as CategoryMonitorRow[]).map(
-        mapCategoryMonitor
-      );
+    listCategoryMonitors(filter = {}) {
+      const { orgId, status } = filter;
+      const rows = orgId === undefined && status === undefined
+        ? db.prepare("SELECT * FROM amazon_bestseller_category_monitor ORDER BY id").all()
+        : orgId === undefined
+          ? db.prepare("SELECT * FROM amazon_bestseller_category_monitor WHERE status = ? ORDER BY id").all(status === "enabled" ? 1 : 0)
+          : status === undefined
+            ? db.prepare("SELECT * FROM amazon_bestseller_category_monitor WHERE org_id = ? ORDER BY id").all(orgId)
+            : db.prepare("SELECT * FROM amazon_bestseller_category_monitor WHERE org_id = ? AND status = ? ORDER BY id").all(orgId, status === "enabled" ? 1 : 0);
+      return (rows as unknown as CategoryMonitorRow[]).map(mapCategoryMonitor);
     }
   };
 }
 
-function getKeyword(db: DatabaseSync, id: number): KeywordMonitor | null {
-  const row = db.prepare("SELECT * FROM amazon_keyword_monitor WHERE id = ?").get(id) as KeywordRow | undefined;
-  return row ? mapKeyword(row) : null;
+function getKeyword(db: DatabaseSync, id: number, orgId?: number): KeywordMonitor | null {
+  const row = orgId === undefined
+    ? db.prepare("SELECT * FROM amazon_keyword_monitor WHERE id = ?").get(id)
+    : db.prepare("SELECT * FROM amazon_keyword_monitor WHERE id = ? AND org_id = ?").get(id, orgId);
+  return row ? mapKeyword(row as unknown as KeywordRow) : null;
 }
 
-function getCategoryMonitor(db: DatabaseSync, id: number): CategoryMonitor | null {
-  const row = db.prepare("SELECT * FROM amazon_bestseller_category_monitor WHERE id = ?").get(id) as CategoryMonitorRow | undefined;
-  return row ? mapCategoryMonitor(row) : null;
+function getCategoryMonitor(db: DatabaseSync, id: number, orgId?: number): CategoryMonitor | null {
+  const row = orgId === undefined
+    ? db.prepare("SELECT * FROM amazon_bestseller_category_monitor WHERE id = ?").get(id)
+    : db.prepare("SELECT * FROM amazon_bestseller_category_monitor WHERE id = ? AND org_id = ?").get(id, orgId);
+  return row ? mapCategoryMonitor(row as unknown as CategoryMonitorRow) : null;
 }

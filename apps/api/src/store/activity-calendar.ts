@@ -31,6 +31,7 @@ export function buildProductActivityDay(input: {
       rank: item.rank,
       price: item.currentPrice,
       finalEstimatedPrice: item.finalEstimatedPrice,
+      reviewCount: item.reviewCount,
       couponText: item.couponText,
       dealBadge: item.dealBadge,
       productUrl: item.productUrl
@@ -75,6 +76,7 @@ export function buildProductActivitySummary(days: ProductActivityCalendarDay[]):
   const latestKeywordRank = days.find((day) => day.keywordRanks.length)?.keywordRanks[0]?.absoluteRank ?? null;
   const latestReviewCount =
     days.find((day) => day.priceHistory?.reviewCount !== undefined && day.priceHistory.reviewCount !== null)?.priceHistory?.reviewCount ??
+    days.flatMap((day) => day.categoryRanks).find((item) => item.reviewCount !== undefined && item.reviewCount !== null)?.reviewCount ??
     days.flatMap((day) => day.events).find((event) => event.reviewCountAfter !== undefined && event.reviewCountAfter !== null)?.reviewCountAfter ??
     null;
   const reviewCountChanges = days

@@ -2,15 +2,20 @@
 import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import type { CategoryMonitor } from "@amazon-monitor/shared";
-import { useCategoryDailyBriefing, type LaneEvent } from "../composables/useCategoryDailyBriefing";
+import {
+  useCategoryDailyBriefing,
+  type LaneEvent,
+} from "../composables/useCategoryDailyBriefing";
 import { useCategoryStore } from "../stores/category";
 import CategoryBoardPanel from "./CategoryBoardPanel.vue";
 import CategoryDailyBriefingDrawer from "./CategoryDailyBriefingDrawer.vue";
 import CategoryHeader from "./categories/CategoryHeader.vue";
+import CategoryDiffPanel from "./categories/CategoryDiffPanel.vue";
 import CategoryInsightStrip from "./categories/CategoryInsightStrip.vue";
 import CategoryKpiCards from "./categories/CategoryKpiCards.vue";
 import CategoryLanePanel from "./categories/CategoryLanePanel.vue";
 import ProductDetailDrawer from "./categories/ProductDetailDrawer.vue";
+import ProductResearchAgentPanel from "./categories/ProductResearchAgentPanel.vue";
 
 interface Props {
   date: string;
@@ -29,10 +34,14 @@ const emit = defineEmits<Emits>();
 const store = useCategoryStore();
 const { categories, selectedCategoryId } = storeToRefs(store);
 
-const categoryDataIsFallback = computed(() => store.categoryDataDate !== props.date);
+const categoryDataIsFallback = computed(
+  () => store.categoryDataDate !== props.date,
+);
 const selectedAsin = ref<string | null>(null);
 const selectedCategoryName = computed(
-  () => categories.value.find((item) => item.id === selectedCategoryId.value)?.name ?? ""
+  () =>
+    categories.value.find((item) => item.id === selectedCategoryId.value)
+      ?.name ?? "",
 );
 
 const {
@@ -40,6 +49,7 @@ const {
   promotionsEvents,
   fadingEvents,
   reviewGrowthTopBrands,
+  currentKpiSnapshot,
   yesterdayKpiDelta,
   priceDropTopItems,
   allInsightCards,
@@ -47,29 +57,34 @@ const {
   formatRankDelta,
   formatPriceDelta,
   brandJudgement,
-  openExternal
+  openExternal,
 } = useCategoryDailyBriefing();
 
-// KPI 数量
-const moversCount = computed(() => moversEvents.value.length);
-const promotionsCount = computed(() => promotionsEvents.value.length);
-const fadingCount = computed(() => fadingEvents.value.length);
-const reviewGrowthCount = computed(() => reviewGrowthTopBrands.value.reduce((sum, item) => sum + item.asinCount, 0));
+const moversCount = computed(() => currentKpiSnapshot.value.movers);
+const promotionsCount = computed(() => currentKpiSnapshot.value.promotions);
+const fadingCount = computed(() => currentKpiSnapshot.value.fading);
+const reviewGrowthCount = computed(() => currentKpiSnapshot.value.reviewGrowth);
 
 // mini-table rows: 每个 lane 末尾的 4 行明细
-function laneTableRows(events: LaneEvent[]): { label: string; value: string }[] {
+function laneTableRows(
+  events: LaneEvent[],
+): { label: string; value: string }[] {
   return events.slice(0, 4).map((lane) => ({
     label: lane.asin ?? lane.brand,
-    value: lane.changeLabel
+    value: lane.changeLabel,
   }));
 }
 
 const moversTableRows = computed(() => laneTableRows(moversEvents.value));
-const promotionsTableRows = computed(() => laneTableRows(promotionsEvents.value));
+const promotionsTableRows = computed(() =>
+  laneTableRows(promotionsEvents.value),
+);
 const fadingTableRows = computed(() => laneTableRows(fadingEvents.value));
 
 // 洞察行:风险提示 = fadingEvents 前 3 个 ASIN
-const fadingAlertItems = computed<LaneEvent[]>(() => fadingEvents.value.slice(0, 3));
+const fadingAlertItems = computed<LaneEvent[]>(() =>
+  fadingEvents.value.slice(0, 3),
+);
 
 function handleSelectCategory(id: number): void {
   store.selectedCategoryId = id;
@@ -100,7 +115,10 @@ function handleInsightJump(payload: { brand: string | null }): void {
     store.dealCouponFilter = "with-promotion";
   }
   // 平滑滚到 BSR 表格锚点(由 CategoryBoardPanel 的 id="category-board" 提供)
-  const target = typeof document !== "undefined" ? document.querySelector("#category-board") : null;
+  const target =
+    typeof document !== "undefined"
+      ? document.querySelector("#category-board")
+      : null;
   if (target instanceof HTMLElement) {
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -179,6 +197,10 @@ function handleLaneSelect(eventKey: string): void {
       @jump-to-board="handleInsightJump"
     />
 
+    <ProductResearchAgentPanel :date="props.date" />
+
+    <CategoryDiffPanel @select-asin="handleSelectAsin" />
+
     <CategoryBoardPanel @select-asin="handleSelectAsin" />
 
     <CategoryDailyBriefingDrawer
@@ -189,10 +211,7 @@ function handleLaneSelect(eventKey: string): void {
       :open-external="openExternal"
     />
 
-    <ProductDetailDrawer
-      :asin="selectedAsin"
-      @close="selectedAsin = null"
-    />
+    <ProductDetailDrawer :asin="selectedAsin" @close="selectedAsin = null" />
   </section>
 </template>
 

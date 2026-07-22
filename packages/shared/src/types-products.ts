@@ -43,6 +43,9 @@ export interface SerpSnapshot extends SerpProductInput {
   bsrText: string | null;
   bestsellerRanks: ProductRanking[];
   detailCollectedAt: string | null;
+  dataSource?: string;
+  lastSyncedAt?: string | null;
+  syncStatus?: ProductSyncStatus;
   createdAt?: string;
 }
 
@@ -77,6 +80,16 @@ export interface BestsellerRankSnapshot extends BestSellerProductInput {
   finalEstimatedPrice: NullableNumber;
   bsrRank: NullableNumber;
   bsrCategory: string | null;
+  competitorPoolStatus?: "active" | "ignored" | "missing";
+  previousRank?: NullableNumber;
+  sevenDayReferenceRank?: NullableNumber;
+  sevenDayRankChange?: NullableNumber;
+  firstListedDate?: string;
+  daysListed?: number;
+  isNewListing?: boolean;
+  dataSource?: string;
+  lastSyncedAt?: string | null;
+  syncStatus?: ProductSyncStatus;
   createdAt?: string;
 }
 
@@ -184,6 +197,7 @@ export interface ProductDataFreshness {
 export interface OwnedProduct extends ProductDataFreshness {
   id: number;
   orgId: number;
+  storeId: number | null;
   marketplace: string;
   sku: string;
   asin: string;
@@ -256,6 +270,7 @@ export interface OwnedProductDetail extends OwnedProductListItem {
 
 export interface CreateOwnedProductInput {
   orgId: number;
+  storeId?: number | null;
   marketplace: string;
   sku: string;
   asin: string;
@@ -272,6 +287,7 @@ export interface CreateOwnedProductInput {
 }
 
 export interface UpdateOwnedProductInput {
+  storeId?: number | null;
   marketplace?: string;
   sku?: string;
   asin?: string;

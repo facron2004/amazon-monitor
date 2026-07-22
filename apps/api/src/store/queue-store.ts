@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { getCollectionFreshness } from "./collection-freshness-store.js";
 import { clampLimit, clampOffset, nowIso, withTransaction } from "./sql-utils.js";
 import type { CollectJob, Store } from "./types.js";
 
@@ -16,9 +17,24 @@ type QueueStoreMethods = Pick<
   | "resetQueue"
 >;
 
-export function mapCollectJob(row: any): CollectJob {
+interface CollectJobRow {
+  id: number;
+  org_id: number;
+  task_type: CollectJob["taskType"];
+  target_id: number;
+  date: string;
+  status: CollectJob["status"];
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  retry_count: number;
+}
+
+export function mapCollectJob(row: CollectJobRow): CollectJob {
   return {
     id: row.id,
+    orgId: row.org_id,
     taskType: row.task_type as "keyword" | "category",
     targetId: row.target_id,
     date: row.date,
@@ -33,7 +49,7 @@ export function mapCollectJob(row: any): CollectJob {
 
 export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
   return {
-    pushJob(taskType, targetId, date) {
+    pushJob(taskType, targetId, date, orgId = 1) {
       const now = nowIso();
 
       // Atomic dedup via partial unique index idx_queue_dedup_active.
@@ -42,37 +58,38 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       // the previous SELECT-then-INSERT had under concurrent pushJob calls.
       const insertStmt = db.prepare(`
         INSERT OR IGNORE INTO amazon_collect_job_queue
-        (task_type, target_id, date, status, created_at)
-        VALUES (?, ?, ?, 'pending', ?)
+        (org_id, task_type, target_id, date, status, created_at)
+        VALUES (?, ?, ?, ?, 'pending', ?)
       `);
-      const result = insertStmt.run(taskType, targetId, date, now);
+      const result = insertStmt.run(orgId, taskType, targetId, date, now);
 
       if (result.changes > 0) {
         const newJob = db.prepare(`
           SELECT * FROM amazon_collect_job_queue WHERE id = ?
-        `).get(Number(result.lastInsertRowid)) as any;
+        `).get(Number(result.lastInsertRowid)) as unknown as CollectJobRow;
         return mapCollectJob(newJob);
       }
 
       // Existing pending/processing job — return it
       const existing = db.prepare(`
         SELECT * FROM amazon_collect_job_queue
-        WHERE task_type = ? AND target_id = ? AND date = ? AND status IN ('pending', 'processing')
+        WHERE org_id = ? AND task_type = ? AND target_id = ? AND date = ? AND status IN ('pending', 'processing')
         LIMIT 1
-      `).get(taskType, targetId, date) as any;
+      `).get(orgId, taskType, targetId, date) as unknown as CollectJobRow | undefined;
 
       // Defensive: rare race where the job transitioned between INSERT IGNORE
       // and SELECT. Re-attempt the insert once.
       if (!existing) {
-        const retry = insertStmt.run(taskType, targetId, date, now);
+        const retry = insertStmt.run(orgId, taskType, targetId, date, now);
         if (retry.changes > 0) {
           const newJob = db.prepare(`
             SELECT * FROM amazon_collect_job_queue WHERE id = ?
-          `).get(Number(retry.lastInsertRowid)) as any;
+          `).get(Number(retry.lastInsertRowid)) as unknown as CollectJobRow;
           return mapCollectJob(newJob);
         }
       }
 
+      if (!existing) throw new Error("Unable to queue collection job");
       return mapCollectJob(existing);
     },
 
@@ -85,7 +102,7 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
           WHERE status = 'pending'
           ORDER BY id ASC
           LIMIT 1
-        `).get() as any;
+        `).get() as unknown as CollectJobRow | undefined;
 
         if (job) {
           const now = nowIso();
@@ -97,7 +114,7 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
 
           const updatedJob = db.prepare(`
             SELECT * FROM amazon_collect_job_queue WHERE id = ?
-          `).get(job.id) as any;
+          `).get(job.id) as unknown as CollectJobRow;
 
           db.exec("COMMIT");
           return mapCollectJob(updatedJob);
@@ -126,7 +143,7 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
     failJob(id, errorMessage, maxRetries) {
       const job = db.prepare(`
         SELECT * FROM amazon_collect_job_queue WHERE id = ?
-      `).get(id) as any;
+      `).get(id) as unknown as CollectJobRow | undefined;
 
       if (!job) return;
 
@@ -148,89 +165,27 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       }
     },
 
-    listJobs(limit = 50, offset = 0) {
+    listJobs(limit = 50, offset = 0, orgId) {
       const clamped = clampLimit(limit) || 50;
       const off = clampOffset(offset);
       const rows = db.prepare(`
         SELECT * FROM amazon_collect_job_queue
+        ${orgId === undefined ? "" : "WHERE org_id = ?"}
         ORDER BY id DESC
         LIMIT ? OFFSET ?
-      `).all(clamped, off) as any[];
+      `).all(...(orgId === undefined ? [clamped, off] : [orgId, clamped, off])) as unknown as CollectJobRow[];
       return rows.map(mapCollectJob);
     },
 
-    getJobStatus(id) {
-      const row = db.prepare(`
-        SELECT * FROM amazon_collect_job_queue WHERE id = ?
-      `).get(id) as any;
-      return row ? mapCollectJob(row) : null;
+    getJobStatus(id, orgId) {
+      const row = orgId === undefined
+        ? db.prepare("SELECT * FROM amazon_collect_job_queue WHERE id = ?").get(id)
+        : db.prepare("SELECT * FROM amazon_collect_job_queue WHERE id = ? AND org_id = ?").get(id, orgId);
+      return row ? mapCollectJob(row as unknown as CollectJobRow) : null;
     },
 
-    /**
-     * Aggregate latest collection status per task_type. Used by the dashboard
-     * to surface "data is X hours stale" without exposing the raw queue.
-     */
-    getCollectionFreshness() {
-      // SQL-side aggregation: avoids loading the entire queue into JS memory
-      // on every dashboard refresh. ISO 8601 timestamps sort correctly as
-      // strings, so MAX() yields the latest.
-      const rows = db.prepare(`
-        SELECT q.task_type,
-          COUNT(*) AS total_jobs,
-          SUM(CASE WHEN q.status = 'failed' THEN 1 ELSE 0 END) AS failed_jobs,
-          MAX(q.completed_at) AS last_completed_at,
-          MAX(q.started_at) AS last_started_at,
-          (
-            SELECT q2.status FROM amazon_collect_job_queue q2
-            WHERE q2.task_type = q.task_type
-            ORDER BY q2.id DESC LIMIT 1
-          ) AS last_status
-        FROM amazon_collect_job_queue q
-        GROUP BY q.task_type
-      `).all() as Array<{
-        task_type: "keyword" | "category";
-        total_jobs: number;
-        failed_jobs: number;
-        last_completed_at: string | null;
-        last_started_at: string | null;
-        last_status: "completed" | "failed" | "pending" | "processing" | null;
-      }>;
-
-      const byType = new Map<string, {
-        taskType: "keyword" | "category";
-        lastCompletedAt: string | null;
-        lastStartedAt: string | null;
-        lastStatus: "completed" | "failed" | "pending" | "processing" | null;
-        totalJobs: number;
-        failedJobs: number;
-      }>();
-
-      for (const row of rows) {
-        byType.set(row.task_type, {
-          taskType: row.task_type,
-          lastCompletedAt: row.last_completed_at,
-          lastStartedAt: row.last_started_at,
-          lastStatus: row.last_status,
-          totalJobs: row.total_jobs,
-          failedJobs: row.failed_jobs
-        });
-      }
-
-      // Ensure both task types are always returned (even when queue is empty)
-      for (const taskType of ["keyword", "category"] as const) {
-        if (!byType.has(taskType)) {
-          byType.set(taskType, {
-            taskType,
-            lastCompletedAt: null,
-            lastStartedAt: null,
-            lastStatus: null,
-            totalJobs: 0,
-            failedJobs: 0
-          });
-        }
-      }
-
-      return Array.from(byType.values()).sort((a, b) => a.taskType.localeCompare(b.taskType));
+    getCollectionFreshness(orgId) {
+      return getCollectionFreshness(db, orgId);
     },
 
     resetQueue() {
@@ -242,7 +197,7 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
      * query — used by `/api/collect/queue-stats` to render the topbar badge
      * without paging through the full job list.
      */
-    getQueueStats() {
+    getQueueStats(orgId) {
       const counts = db.prepare(`
         SELECT
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
@@ -250,7 +205,8 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_recent_count,
           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_recent_count
         FROM amazon_collect_job_queue
-      `).get() as {
+        WHERE (? IS NULL OR org_id = ?)
+      `).get(orgId ?? null, orgId ?? null) as {
         pending_count: number | null;
         processing_count: number | null;
         completed_recent_count: number | null;
@@ -259,10 +215,10 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
 
       const oldest = db.prepare(`
         SELECT created_at FROM amazon_collect_job_queue
-        WHERE status = 'pending'
+        WHERE status = 'pending' AND (? IS NULL OR org_id = ?)
         ORDER BY created_at ASC
         LIMIT 1
-      `).get() as { created_at: string } | undefined;
+      `).get(orgId ?? null, orgId ?? null) as { created_at: string } | undefined;
 
       const oldestPendingAgeMs = oldest
         ? Math.max(0, Date.now() - new Date(oldest.created_at).getTime())

@@ -1,44 +1,43 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { BrainCircuit, CalendarDays, Download, RefreshCw, Sparkles, Target } from "@lucide/vue";
+import { storeToRefs } from "pinia";
 import {
   ElAlert,
-  ElButton,
   ElCard,
   ElCol,
-  ElEmpty,
-  ElProgress,
   ElRow,
-  ElScrollbar,
-  ElSegmented,
-  ElStatistic,
-  ElTable,
-  ElTableColumn,
-  ElTag,
-  ElTimeline,
-  ElTimelineItem,
-  ElTooltip
+  ElStatistic
 } from "element-plus";
 import {
-  insightEventTypeLabels,
-  strategyTagLabels,
-  type InsightEvent,
-  type StrategyTag
+  workflowReportPeriodLabels,
+  type AiReportWriterResponse
 } from "@amazon-monitor/shared";
-import type { CategoryReportResponse, DailyReportResponse, InsightReportPeriod, PeriodInsightReportResponse } from "../api-types";
-import { downloadDailyReportExcel } from "../api-dashboard";
+import type { InsightReportPeriod } from "../api-types";
+import { aiApi } from "../api-ai";
+import {
+  downloadDailyReportExcel,
+  downloadDailyReportMarkdown,
+  downloadDailyReportPdf,
+  downloadPeriodReportMarkdown,
+  downloadPeriodReportPdf
+} from "../api-reports";
+import { useReportsStore } from "../stores/reports";
 import { toErrorMessage } from "../utils/error-message";
+import DailyReportArchivePanel from "./reports/DailyReportArchivePanel.vue";
+import DailyReportReadinessPanel from "./reports/DailyReportReadinessPanel.vue";
+import PeriodReportArchivePanel from "./reports/PeriodReportArchivePanel.vue";
 import ReportChartsPanel from "./reports/ReportChartsPanel.vue";
 import ReportReviewOutcomePanel from "./reports/ReportReviewOutcomePanel.vue";
 import ReportReviewQueuePanel from "./reports/ReportReviewQueuePanel.vue";
+import ReportReaderCard from "./reports/ReportReaderCard.vue";
+import ReportSignalSidebar from "./reports/ReportSignalSidebar.vue";
+import ReportWorkspaceHeader from "./reports/ReportWorkspaceHeader.vue";
+import { useWriteAccess } from "../composables/useWriteAccess";
+import ReadOnlyNotice from "./ReadOnlyNotice.vue";
 
-type ReportPane = "insight" | "ai" | "daily" | "category";
-type SegmentValue = string | number | boolean;
-
+type ReportPane = "periodArchive" | "archive" | "insight" | "writer" | "ai" | "daily" | "category";
 interface Props {
-  report: DailyReportResponse | null;
-  categoryReport: CategoryReportResponse | null;
-  periodInsightReport: PeriodInsightReportResponse | null;
+  date: string;
   period: InsightReportPeriod;
 }
 
@@ -52,34 +51,58 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   requestAiSummary: [];
   "update:period": [period: InsightReportPeriod];
+  navigate: [target: "data-sources" | "logs"];
 }>();
 
-const activePane = ref<ReportPane>("insight");
-const downloadingExcel = ref(false);
-const excelDownloadError = ref("");
-const periodOptions: Array<{ value: InsightReportPeriod; label: string }> = [
-  { value: "weekly", label: "按周" },
-  { value: "monthly", label: "按月" }
-];
+const reportsStore = useReportsStore();
+const { canWrite } = useWriteAccess("manage_reports");
+const {
+  dailyReport: report,
+  categoryReport,
+  periodInsightReport,
+  periodArchive,
+  periodHistory,
+  periodHistoryTotal,
+  archive,
+  history,
+  historyTotal,
+  generating,
+  periodGenerating,
+  selectingArchive,
+  selectingPeriodArchive
+} = storeToRefs(reportsStore);
+
+const activePane = ref<ReportPane>("periodArchive");
+const dailyExporting = ref(false);
+const periodExporting = ref(false);
+const exportError = ref("");
+const archiveError = ref("");
+const reportWriter = ref<AiReportWriterResponse | null>(null);
+const reportWriterLoading = ref(false);
+const reportWriterError = ref("");
 const paneOptions: Array<{ value: ReportPane; label: string }> = [
+  { value: "periodArchive", label: "周期归档" },
+  { value: "archive", label: "归档日报" },
+  { value: "writer", label: "Report Writer" },
   { value: "insight", label: "洞察" },
   { value: "ai", label: "AI 摘要" },
   { value: "daily", label: "日报" },
   { value: "category", label: "类目" }
 ];
+const paneKeys = new Set<ReportPane>(paneOptions.map((option) => option.value));
 
-const aiSummary = computed(() => props.periodInsightReport?.aiSummary ?? null);
+const aiSummary = computed(() => periodInsightReport.value?.aiSummary ?? null);
 const hasAiSummaryText = computed(() => Boolean(aiSummary.value?.text));
 const reportWindow = computed(() => {
-  const report = props.periodInsightReport;
-  return report ? `${report.startDate} - ${report.endDate}` : props.report?.date ?? "-";
+  if (activePane.value === "periodArchive" && periodArchive.value) {
+    return `${periodArchive.value.startDate} - ${periodArchive.value.endDate}`;
+  }
+  const periodReport = periodInsightReport.value;
+  return periodReport ? `${periodReport.startDate} - ${periodReport.endDate}` : report.value?.date ?? props.date;
 });
-const dailyReportDate = computed(() => props.report?.date ?? props.periodInsightReport?.endDate ?? "");
+const dailyReportDate = computed(() => props.date || report.value?.date || periodInsightReport.value?.endDate || "");
 const reportLabel = computed(() => (props.period === "monthly" ? "月度" : "周度"));
-const summary = computed(() => props.periodInsightReport?.summary ?? null);
-const topEvents = computed(() => props.periodInsightReport?.topEvents.slice(0, 6) ?? []);
-const topBrands = computed(() => props.periodInsightReport?.topBrands.slice(0, 8) ?? []);
-const maxBrandEvents = computed(() => Math.max(...topBrands.value.map((brand) => brand.eventCount), 1));
+const summary = computed(() => periodInsightReport.value?.summary ?? null);
 
 const kpis = computed<KpiItem[]>(() => [
   {
@@ -105,19 +128,49 @@ const kpis = computed<KpiItem[]>(() => [
 ]);
 
 const markdown = computed(() => {
+  if (activePane.value === "periodArchive") {
+    return periodArchive.value?.markdown
+      ?? `尚未生成该窗口的${workflowReportPeriodLabels[props.period]}。`;
+  }
+  if (activePane.value === "archive") {
+    return archive.value?.markdown ?? "尚未生成该日期的归档日报。请点击“生成日报”保存一份可追溯版本。";
+  }
+  if (activePane.value === "writer") {
+    return reportWriter.value?.markdown ?? (reportWriterError.value || "Run Report Writer to create an approval-gated operations report.");
+  }
   if (activePane.value === "ai") {
     return aiSummary.value?.text ?? aiSummary.value?.error ?? "尚未为本报告生成 AI 摘要。";
   }
   if (activePane.value === "daily") {
-    return props.report?.markdown ?? "暂无关键词日报。";
+    return report.value?.markdown ?? "暂无关键词日报。";
   }
   if (activePane.value === "category") {
-    return props.categoryReport?.markdown ?? "暂无类目报告。";
+    return categoryReport.value?.markdown ?? "暂无类目报告。";
   }
-  return props.periodInsightReport?.markdown ?? `暂无${props.period === "monthly" ? "月" : "周"}度洞察报告。`;
+  return periodInsightReport.value?.markdown ?? `暂无${props.period === "monthly" ? "月" : "周"}度洞察报告。`;
 });
 
+const showAiStatus = computed(() => activePane.value === "writer" || activePane.value === "ai");
+
 const aiStatus = computed(() => {
+  if (activePane.value === "writer") {
+    if (reportWriter.value) {
+      return {
+        type: "success" as const,
+        title: `Report Writer generated (${reportWriter.value.run.model})`
+      };
+    }
+    if (reportWriterError.value) {
+      return {
+        type: "error" as const,
+        title: `Report Writer failed: ${reportWriterError.value}`
+      };
+    }
+    return {
+      type: "info" as const,
+      title: "Report Writer has not generated a report for this window."
+    };
+  }
   if (aiSummary.value?.status === "generated") {
     return {
       type: "success" as const,
@@ -143,84 +196,138 @@ const aiStatus = computed(() => {
 });
 
 function requestAiSummary(): void {
+  if (!canWrite.value) return;
   emit("requestAiSummary");
   activePane.value = "ai";
 }
 
-async function downloadExcel(): Promise<void> {
+async function requestReportWriter(): Promise<void> {
+  if (!canWrite.value) return;
   if (!dailyReportDate.value) return;
-  downloadingExcel.value = true;
-  excelDownloadError.value = "";
+  reportWriterLoading.value = true;
+  reportWriterError.value = "";
+  activePane.value = "writer";
   try {
-    await downloadDailyReportExcel(dailyReportDate.value);
+    reportWriter.value = await aiApi.createReport(dailyReportDate.value, props.period);
   } catch (error) {
-    excelDownloadError.value = toErrorMessage(error);
+    reportWriter.value = null;
+    reportWriterError.value = toErrorMessage(error);
   } finally {
-    downloadingExcel.value = false;
+    reportWriterLoading.value = false;
   }
 }
 
-function selectPeriod(value: SegmentValue): void {
-  if (value === "weekly" || value === "monthly") {
-    emit("update:period", value);
+async function generateDailyArchive(): Promise<void> {
+  if (!canWrite.value) return;
+  if (!dailyReportDate.value) return;
+  archiveError.value = "";
+  try {
+    await reportsStore.generateDaily(dailyReportDate.value);
+    activePane.value = "archive";
+  } catch (error) {
+    archiveError.value = toErrorMessage(error);
   }
 }
 
-function percentage(value: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.min(100, Math.round((value / total) * 100));
+async function generatePeriodArchive(): Promise<void> {
+  if (!canWrite.value || !dailyReportDate.value) return;
+  archiveError.value = "";
+  try {
+    await reportsStore.generatePeriod(dailyReportDate.value, props.period);
+    activePane.value = "periodArchive";
+  } catch (error) {
+    archiveError.value = toErrorMessage(error);
+  }
 }
 
-function levelTagType(event: InsightEvent): "danger" | "warning" | "info" {
-  if (event.eventLevel === "P0") return "danger";
-  if (event.eventLevel === "P1") return "warning";
-  return "info";
+async function selectArchivedReport(date: string): Promise<void> {
+  archiveError.value = "";
+  try {
+    await reportsStore.selectArchive(date);
+    activePane.value = "archive";
+  } catch (error) {
+    archiveError.value = toErrorMessage(error);
+  }
 }
 
-function brandShare(value: number): number {
-  return percentage(value, maxBrandEvents.value);
+async function selectPeriodReport(endDate: string): Promise<void> {
+  archiveError.value = "";
+  try {
+    await reportsStore.selectPeriodArchive(endDate, props.period);
+    activePane.value = "periodArchive";
+  } catch (error) {
+    archiveError.value = toErrorMessage(error);
+  }
 }
 
-function strategyLabel(tag: StrategyTag): string {
-  return strategyTagLabels[tag];
+async function exportPeriod(format: "markdown" | "pdf"): Promise<void> {
+  if (!periodArchive.value) return;
+  periodExporting.value = true;
+  exportError.value = "";
+  try {
+    const download = format === "pdf" ? downloadPeriodReportPdf : downloadPeriodReportMarkdown;
+    await download(periodArchive.value.endDate, periodArchive.value.period);
+  } catch (error) {
+    exportError.value = toErrorMessage(error);
+  } finally {
+    periodExporting.value = false;
+  }
 }
+
+async function exportDaily(format: "markdown" | "pdf" | "excel"): Promise<void> {
+  const date = archive.value?.reportDate ?? dailyReportDate.value;
+  if (!date) return;
+  dailyExporting.value = true;
+  exportError.value = "";
+  try {
+    if (format === "pdf") await downloadDailyReportPdf(date);
+    else if (format === "markdown") await downloadDailyReportMarkdown(date);
+    else await downloadDailyReportExcel(date);
+  } catch (error) {
+    exportError.value = toErrorMessage(error);
+  } finally {
+    dailyExporting.value = false;
+  }
+}
+
+function selectPane(value: string): void {
+  if (paneKeys.has(value as ReportPane)) {
+    activePane.value = value as ReportPane;
+  }
+}
+
 </script>
 
 <template>
   <section class="reports-view">
-    <header class="reports-head">
-      <div>
-        <span>报告</span>
-        <h2>洞察报告工作台</h2>
-      </div>
-      <div class="reports-head-actions">
-        <ElSegmented
-          :model-value="period"
-          :options="periodOptions"
-          size="large"
-          @update:model-value="selectPeriod"
-        />
-        <ElTag class="window-tag" effect="plain" round>
-          <CalendarDays :size="14" />
-          <strong>{{ reportWindow }}</strong>
-        </ElTag>
-        <ElButton
-          :loading="downloadingExcel"
-          :disabled="!dailyReportDate"
-          @click="downloadExcel"
-        >
-          <Download :size="15" />
-          <span>下载 Excel</span>
-        </ElButton>
-      </div>
-    </header>
+    <ReportWorkspaceHeader
+      :period="period"
+      :report-window="reportWindow"
+      :can-write="canWrite"
+      :date-available="Boolean(dailyReportDate)"
+      :period-archive-current="periodArchive?.endDate === dailyReportDate"
+      :daily-archive-current="archive?.reportDate === dailyReportDate"
+      :period-archive-available="Boolean(periodArchive)"
+      :daily-archive-available="Boolean(archive)"
+      :period-generating="periodGenerating"
+      :daily-generating="generating"
+      :period-exporting="periodExporting"
+      :daily-exporting="dailyExporting"
+      @update:period="emit('update:period', $event)"
+      @generate-period="generatePeriodArchive"
+      @export-period="exportPeriod"
+      @generate-daily="generateDailyArchive"
+      @export-daily="exportDaily"
+    />
+
+    <ReadOnlyNotice v-if="!canWrite" />
 
     <ElAlert
-      v-if="excelDownloadError"
-      :title="excelDownloadError"
+      v-if="archiveError || exportError"
+      :title="archiveError || exportError"
       type="error"
       show-icon
-      @close="excelDownloadError = ''"
+      @close="archiveError = ''; exportError = ''"
     />
 
     <ElRow :gutter="12" class="report-kpis">
@@ -234,82 +341,26 @@ function strategyLabel(tag: StrategyTag): string {
 
     <section class="report-grid">
       <aside class="report-side">
-        <ElCard shadow="never" class="report-card">
-          <template #header>
-            <div class="panel-title">
-              <Target :size="16" />
-              <span>优先级</span>
-              <ElTag size="small" type="danger" effect="light">{{ topEvents.length }}</ElTag>
-            </div>
-          </template>
+        <PeriodReportArchivePanel
+          :period="period"
+          :history="periodHistory"
+          :history-total="periodHistoryTotal"
+          :active-report="periodArchive"
+          :loading="selectingPeriodArchive"
+          @select="selectPeriodReport"
+        />
 
-          <ElTimeline v-if="topEvents.length" class="event-timeline">
-            <ElTimelineItem
-              v-for="event in topEvents"
-              :key="event.id"
-              :type="levelTagType(event)"
-              :timestamp="event.eventDate"
-              placement="top"
-            >
-              <div class="event-feed-item">
-                <div>
-                  <ElTag size="small" :type="levelTagType(event)" effect="dark">{{ event.eventLevel }}</ElTag>
-                  <strong>{{ event.brand || event.asin || "未知对象" }}</strong>
-                </div>
-                <p>{{ insightEventTypeLabels[event.eventType] }}</p>
-                <ElTooltip :content="event.eventTitle" placement="top" :show-after="350">
-                  <small>{{ event.eventTitle }}</small>
-                </ElTooltip>
-                <ElProgress :percentage="Math.min(event.scoreTotal, 100)" :stroke-width="6" :show-text="false" />
-              </div>
-            </ElTimelineItem>
-          </ElTimeline>
-          <ElEmpty v-else description="本期暂无事件证据。" :image-size="72" />
-        </ElCard>
+        <DailyReportArchivePanel
+          :history="history"
+          :history-total="historyTotal"
+          :active-report="archive"
+          :loading="selectingArchive"
+          @select="selectArchivedReport"
+        />
 
-        <ElCard shadow="never" class="report-card">
-          <template #header>
-            <div class="panel-title">
-              <Sparkles :size="16" />
-              <span>品牌信号榜</span>
-            </div>
-          </template>
+        <DailyReportReadinessPanel @navigate="emit('navigate', $event)" />
 
-          <ElTable v-if="topBrands.length" :data="topBrands" size="small" class="brand-table" height="286">
-            <ElTableColumn prop="brand" label="品牌" min-width="118" show-overflow-tooltip />
-            <ElTableColumn label="事件" width="112">
-              <template #default="{ row }">
-                <div class="brand-events">
-                  <strong>{{ row.eventCount }}</strong>
-                  <ElProgress :percentage="brandShare(row.eventCount)" :stroke-width="5" :show-text="false" />
-                </div>
-              </template>
-            </ElTableColumn>
-            <ElTableColumn label="最高分" width="64">
-              <template #default="{ row }">{{ row.topScore }}</template>
-            </ElTableColumn>
-            <ElTableColumn label="策略标签" min-width="140" show-overflow-tooltip>
-              <template #default="{ row }">
-                <div class="strategy-tags">
-                  <ElTag
-                    v-for="tag in row.strategyTags.slice(0, 2)"
-                    :key="tag"
-                    size="small"
-                    effect="plain"
-                    round
-                  >
-                    {{ strategyLabel(tag) }}
-                  </ElTag>
-                  <ElTag v-if="row.strategyTags.length > 2" size="small" effect="plain" round>
-                    +{{ row.strategyTags.length - 2 }}
-                  </ElTag>
-                  <span v-if="row.strategyTags.length === 0">-</span>
-                </div>
-              </template>
-            </ElTableColumn>
-          </ElTable>
-          <ElEmpty v-else description="本期暂无品牌信号证据。" :image-size="72" />
-        </ElCard>
+        <ReportSignalSidebar :report="periodInsightReport" />
 
         <ReportReviewQueuePanel
           :events="periodInsightReport?.reviewDueEvents ?? []"
@@ -322,286 +373,23 @@ function strategyLabel(tag: StrategyTag): string {
       <main class="report-main">
         <ReportChartsPanel :report="periodInsightReport" :report-label="reportLabel" />
 
-        <ElCard shadow="never" class="report-card report-reader-card">
-          <template #header>
-            <div class="report-toolbar">
-              <ElSegmented v-model="activePane" :options="paneOptions" />
-              <ElButton type="primary" :disabled="!periodInsightReport" @click="requestAiSummary">
-                <RefreshCw :size="15" />
-                <span>{{ hasAiSummaryText ? "刷新 AI" : "生成 AI" }}</span>
-              </ElButton>
-            </div>
-          </template>
-
-          <ElAlert
-            :title="aiStatus.title"
-            :type="aiStatus.type"
-            :closable="false"
-            show-icon
-            class="ai-status"
-          >
-            <template #icon>
-              <BrainCircuit :size="16" />
-            </template>
-          </ElAlert>
-
-          <ElScrollbar class="report-scroll">
-            <pre class="report">{{ markdown }}</pre>
-          </ElScrollbar>
-        </ElCard>
+        <ReportReaderCard
+          :model-value="activePane"
+          :options="paneOptions"
+          :markdown="markdown"
+          :show-ai-status="showAiStatus"
+          :ai-status="aiStatus"
+          :report-writer-loading="reportWriterLoading"
+          :report-writer-disabled="!canWrite || !dailyReportDate"
+          :ai-disabled="!canWrite || !periodInsightReport"
+          :has-ai-summary="hasAiSummaryText"
+          @update:model-value="selectPane"
+          @request-report-writer="requestReportWriter"
+          @request-ai-summary="requestAiSummary"
+        />
       </main>
     </section>
   </section>
 </template>
 
-<style scoped>
-.reports-view {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 16px;
-  min-height: 0;
-  overflow: auto;
-  padding: 18px;
-}
-
-.reports-head {
-  align-items: center;
-  display: flex;
-  gap: 16px;
-  justify-content: space-between;
-}
-
-.reports-head > div:first-child > span {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.reports-head h2 {
-  color: #0f172a;
-  font-size: 26px;
-  line-height: 1.2;
-  margin: 3px 0 0;
-}
-
-.reports-head-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.reports-head-actions :deep(.el-button span) {
-  align-items: center;
-  display: inline-flex;
-  gap: 6px;
-}
-
-.window-tag {
-  align-items: center;
-  display: inline-flex;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 12px;
-}
-
-.report-kpis {
-  row-gap: 12px;
-}
-
-.report-kpi {
-  height: 100%;
-}
-
-.report-kpi :deep(.el-card__body) {
-  display: grid;
-  gap: 8px;
-  min-height: 96px;
-}
-
-.report-kpi :deep(.el-statistic__content) {
-  color: #0f172a;
-  font-size: 27px;
-  font-weight: 800;
-}
-
-.report-kpi span {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.report-grid {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 14px;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  min-height: 0;
-}
-
-.report-side,
-.report-main {
-  display: grid;
-  gap: 14px;
-  min-height: 0;
-}
-
-.report-main {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-.report-card {
-  min-width: 0;
-}
-
-.panel-title {
-  align-items: center;
-  color: #0f172a;
-  display: flex;
-  font-size: 13px;
-  font-weight: 800;
-  gap: 8px;
-  text-transform: uppercase;
-}
-
-.event-timeline {
-  margin: 0;
-  padding-left: 4px;
-}
-
-.event-feed-item {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.event-feed-item > div {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  min-width: 0;
-}
-
-.event-feed-item strong,
-.event-feed-item small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.event-feed-item p {
-  color: #475569;
-  font-size: 12px;
-  margin: 0;
-}
-
-.event-feed-item small {
-  color: #64748b;
-  display: block;
-}
-
-.brand-table {
-  width: 100%;
-}
-
-.brand-events {
-  display: grid;
-  gap: 5px;
-}
-
-.brand-events strong {
-  color: #0f172a;
-  font-size: 12px;
-}
-
-.strategy-tags {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.strategy-tags span {
-  color: #94a3b8;
-  font-size: 12px;
-}
-
-.report-reader-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.report-reader-card :deep(.el-card__body) {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.report-toolbar {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-}
-
-.report-toolbar :deep(.el-button span) {
-  align-items: center;
-  display: inline-flex;
-  gap: 6px;
-}
-
-.ai-status {
-  margin-bottom: 10px;
-}
-
-.report-scroll {
-  flex: 1 1 auto;
-  min-height: 420px;
-}
-
-.report {
-  min-height: 420px;
-}
-
-@media (max-width: 1040px) {
-  .report-grid {
-    flex: 0 0 auto;
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
-  .report-side,
-  .report-main {
-    min-height: auto;
-  }
-
-  .report-main {
-    grid-template-rows: auto auto;
-  }
-}
-
-@media (max-width: 720px) {
-  .reports-view {
-    padding: 12px;
-  }
-
-  .reports-head,
-  .report-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .reports-head-actions {
-    justify-content: stretch;
-  }
-
-  .window-tag,
-  .reports-head-actions :deep(.el-button),
-  .reports-head-actions :deep(.el-segmented) {
-    justify-content: center;
-    width: 100%;
-  }
-}
-</style>
+<style scoped src="../styles/reports.css"></style>

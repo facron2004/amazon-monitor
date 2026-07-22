@@ -63,19 +63,22 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
 
     listBrandMatrix(filter = {}) {
       const { sql: where, params } = buildWhere(
-        whereEq("snapshot_date", filter.date),
-        whereEq("category_id", filter.categoryId),
-        whereEq("brand", filter.brand),
-        whereGte("snapshot_date", filter.startDate),
-        whereLte("snapshot_date", filter.endDate)
+        whereEq("m.org_id", filter.orgId),
+        whereEq("b.snapshot_date", filter.date),
+        whereEq("b.category_id", filter.categoryId),
+        whereEq("b.brand", filter.brand),
+        whereGte("b.snapshot_date", filter.startDate),
+        whereLte("b.snapshot_date", filter.endDate)
       );
       const clamped = clampLimit(filter.limit);
       const limitSuffix = clamped > 0 ? `LIMIT ${clamped}` : "";
       return (
         db
           .prepare(
-            `SELECT * FROM amazon_brand_matrix_snapshot ${where}
-             ORDER BY product_count_top20 DESC, product_count_top50 DESC, product_count_top100 DESC, COALESCE(best_rank, 9999) ASC
+            `SELECT b.* FROM amazon_brand_matrix_snapshot b
+             INNER JOIN amazon_bestseller_category_monitor m ON m.id = b.category_id
+             ${where}
+             ORDER BY b.product_count_top20 DESC, b.product_count_top50 DESC, b.product_count_top100 DESC, COALESCE(b.best_rank, 9999) ASC
              ${limitSuffix}`
           )
           .all(...params) as unknown as BrandMatrixRow[]
@@ -114,9 +117,10 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
 
     listCategorySignals(filter = {}) {
       const { sql: where, params } = buildWhere(
-        { clause: "source_type = 'category'" },
-        whereEq("signal_date", filter.date),
-        whereEq("category_id", filter.categoryId)
+        { clause: "s.source_type = 'category'" },
+        whereEq("m.org_id", filter.orgId),
+        whereEq("s.signal_date", filter.date),
+        whereEq("s.category_id", filter.categoryId)
       );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
@@ -126,12 +130,13 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
       return (
         db
           .prepare(
-            `SELECT * FROM amazon_competitor_signal_log
+            `SELECT s.* FROM amazon_competitor_signal_log s
+             INNER JOIN amazon_bestseller_category_monitor m ON m.id = s.category_id
              ${where}
              ORDER BY
-              CASE alert_level WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
-              COALESCE(rank_no, 9999) ASC,
-              id ASC
+              CASE s.alert_level WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+              COALESCE(s.rank_no, 9999) ASC,
+              s.id ASC
              ${pagination}`
           )
           .all(...params) as unknown as CategorySignalRow[]
@@ -211,13 +216,14 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
 
     listCategoryActivityEvents(filter = {}) {
       const { sql: where, params } = buildWhere(
-        whereEq("event_date", filter.date),
-        whereEq("category_id", filter.categoryId),
-        whereEq("asin", filter.asin),
-        whereEq("brand", filter.brand),
-        whereEq("event_type", filter.eventType),
-        whereGte("event_date", filter.startDate),
-        whereLte("event_date", filter.endDate)
+        whereEq("m.org_id", filter.orgId),
+        whereEq("e.event_date", filter.date),
+        whereEq("e.category_id", filter.categoryId),
+        whereEq("e.asin", filter.asin),
+        whereEq("e.brand", filter.brand),
+        whereEq("e.event_type", filter.eventType),
+        whereGte("e.event_date", filter.startDate),
+        whereLte("e.event_date", filter.endDate)
       );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
@@ -227,12 +233,14 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
       return (
         db
           .prepare(
-            `SELECT * FROM amazon_competitor_activity_event ${where}
-             ORDER BY event_date DESC,
-              CASE event_level WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
-              COALESCE(rank_after, 999999) ASC,
-              event_type,
-              COALESCE(asin, brand, '')
+            `SELECT e.* FROM amazon_competitor_activity_event e
+             INNER JOIN amazon_bestseller_category_monitor m ON m.id = e.category_id
+             ${where}
+             ORDER BY e.event_date DESC,
+              CASE e.event_level WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+              COALESCE(e.rank_after, 999999) ASC,
+              e.event_type,
+              COALESCE(e.asin, e.brand, '')
              ${pagination}`
           )
           .all(...params) as unknown as ActivityEventRow[]
@@ -247,36 +255,44 @@ export function createCategoryInsightStore(db: DatabaseSync): CategoryInsightSto
       ).run(date, categoryId, markdown, nowIso());
     },
 
-    getCategoryReport(date, categoryId) {
+    getCategoryReport(date, categoryId, orgId) {
       if (categoryId) {
         const row = db
-          .prepare("SELECT markdown FROM amazon_category_daily_report WHERE report_date = ? AND category_id = ?")
-          .get(date, categoryId) as { markdown: string } | undefined;
+          .prepare(`SELECT r.markdown FROM amazon_category_daily_report r
+            INNER JOIN amazon_bestseller_category_monitor m ON m.id = r.category_id
+            WHERE r.report_date = ? AND r.category_id = ? AND (? IS NULL OR m.org_id = ?)`)
+          .get(date, categoryId, orgId ?? null, orgId ?? null) as { markdown: string } | undefined;
         return row?.markdown ?? "";
       }
-      const rows = db.prepare("SELECT markdown FROM amazon_category_daily_report WHERE report_date = ? ORDER BY category_id").all(date) as {
+      const rows = db.prepare(`SELECT r.markdown FROM amazon_category_daily_report r
+        INNER JOIN amazon_bestseller_category_monitor m ON m.id = r.category_id
+        WHERE r.report_date = ? AND (? IS NULL OR m.org_id = ?) ORDER BY r.category_id`).all(date, orgId ?? null, orgId ?? null) as {
         markdown: string;
       }[];
       return rows.map((row) => row.markdown).join("\n\n---\n\n");
     },
 
-    getCategoryProductLink(asin, categoryId) {
+    getCategoryProductLink(asin, categoryId, orgId) {
       const params: SQLInputValue[] = [asin];
-      const categoryClause = categoryId ? "AND category_id = ?" : "";
+      const categoryClause = categoryId ? "AND s.category_id = ?" : "";
       if (categoryId) {
         params.push(categoryId);
       }
+      const orgClause = orgId === undefined ? "" : "AND m.org_id = ?";
+      if (orgId !== undefined) params.push(orgId);
       const snapshot = db
         .prepare(
-          `SELECT asin, marketplace, product_url FROM amazon_bestseller_rank_snapshot
-           WHERE asin = ? ${categoryClause}
-           ORDER BY snapshot_date DESC, rank_no ASC
+          `SELECT s.asin, s.marketplace, s.product_url FROM amazon_bestseller_rank_snapshot s
+           INNER JOIN amazon_bestseller_category_monitor m ON m.id = s.category_id
+           WHERE s.asin = ? ${categoryClause} ${orgClause}
+           ORDER BY s.snapshot_date DESC, s.rank_no ASC
            LIMIT 1`
         )
         .get(...params) as { asin: string; marketplace: string; product_url: string | null } | undefined;
       if (snapshot?.product_url) {
         return { asin: snapshot.asin, marketplace: snapshot.marketplace, url: snapshot.product_url };
       }
+      if (orgId !== undefined) return null;
       const master = db.prepare("SELECT asin, marketplace, product_url FROM amazon_product_master WHERE asin = ? LIMIT 1").get(asin) as
         | { asin: string; marketplace: string; product_url: string | null }
         | undefined;

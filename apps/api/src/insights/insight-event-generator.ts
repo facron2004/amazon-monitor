@@ -25,15 +25,20 @@ import {
   priceRate,
   rankDelta
 } from "./insight-event-builder.js";
+import type { CategoryInsightBuildContext } from "./insight-build-context.js";
+import { buildSnapshotDiffEvents, snapshotDiffEventKey } from "./snapshot-diff-events.js";
 
 export interface GenerateInsightEventsOptions {
   categoryId?: number;
+  orgId?: number;
 }
 
-export interface CategoryInsightContext {
+export interface CategoryInsightContext extends CategoryInsightBuildContext {
   category: CategoryMonitor;
+  keyword: null;
   date: string;
   snapshotsByAsin: Map<string, BestsellerRankSnapshot>;
+  previousSnapshotsByAsin: Map<string, BestsellerRankSnapshot>;
   priceByAsin: Map<string, ProductPriceHistory>;
   brandByName: Map<string, BrandMatrixSnapshot>;
   brandTop100ShareChangeByName: Map<string, number>;
@@ -44,25 +49,24 @@ export interface CategoryInsightContext {
 }
 
 export function generateInsightEvents(store: Store, date: string, options: GenerateInsightEventsOptions = {}): InsightEvent[] {
-  const categories = resolveCategories(store, options.categoryId);
+  const orgId = options.orgId ?? 1;
+  const categories = resolveCategories(store, orgId, options.categoryId);
   const generated = new Map<string, InsightEventInput>();
 
-  // Hoist competitor pool and watch states out of the per-category loop —
-  // both are global (not category-scoped) and were previously re-queried
-  // for every category, causing N full-table scans of competitor_pool.
-  const competitors = store.listCompetitors();
-  const watchStates = store.listAsinWatchStates();
+  // Hoist organization-scoped pool and watch states out of the per-category loop.
+  const competitors = store.listCompetitors({ orgId });
+  const watchStates = store.listAsinWatchStates(orgId);
   const competitorsByAsin = new Map(competitors.map((item) => [item.asin, item]));
   const watchByAsin = new Map(watchStates.map((item) => [item.asin, item]));
 
   for (const category of categories) {
-    const snapshots = store.listCategorySnapshots({ date, categoryId: category.id, limit: category.crawlTopN || 1000 });
+    const snapshots = store.listCategorySnapshots({ orgId, date, categoryId: category.id, limit: category.crawlTopN || 1000 });
     if (snapshots.length === 0) {
       continue;
     }
 
-    const priceHistory = store.listProductPriceHistory({ date, categoryId: category.id, limit: 1000 });
-    const activityEvents = store.listCategoryActivityEvents({ date, categoryId: category.id, limit: 1000 });
+    const priceHistory = store.listProductPriceHistory({ orgId, date, categoryId: category.id, limit: 1000 });
+    const activityEvents = store.listCategoryActivityEvents({ orgId, date, categoryId: category.id, limit: 1000 });
     const rankChanges = store.listBsrRankChanges({
       date,
       sourceType: "category_bestseller",
@@ -70,14 +74,16 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
       includeUnchanged: false,
       limit: 1000
     });
-    const brandMatrix = store.listBrandMatrix({ date, categoryId: category.id });
-    const previousSnapshots = store.getPreviousCategorySnapshots(category.id, date);
-    const recentSnapshots = store.listCategorySnapshots({ categoryId: category.id, startDate: isoDateOffset(date, -2), endDate: date });
-    const categorySignals = store.listCategorySignals({ date, categoryId: category.id, limit: 1000 });
+    const brandMatrix = store.listBrandMatrix({ orgId, date, categoryId: category.id });
+    const previousSnapshots = store.getPreviousCategorySnapshots(category.id, date, orgId);
+    const recentSnapshots = store.listCategorySnapshots({ orgId, categoryId: category.id, startDate: isoDateOffset(date, -2), endDate: date });
+    const categorySignals = store.listCategorySignals({ orgId, date, categoryId: category.id, limit: 1000 });
     const context: CategoryInsightContext = {
       category,
+      keyword: null,
       date,
       snapshotsByAsin: new Map(snapshots.map((item) => [item.asin, item])),
+      previousSnapshotsByAsin: new Map(previousSnapshots.map((item) => [item.asin, item])),
       priceByAsin: new Map(priceHistory.map((item) => [item.asin, item])),
       brandByName: new Map(brandMatrix.map((item) => [item.brand, item])),
       brandTop100ShareChangeByName: buildBrandTop100ShareChanges(snapshots, previousSnapshots),
@@ -116,6 +122,20 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
     }
 
     for (const snapshot of snapshots) {
+      const previous = context.previousSnapshotsByAsin.get(snapshot.asin);
+      if (previous) {
+        for (const listingEvent of buildSnapshotDiffEvents(context, toSnapshotDiffProduct(snapshot), toSnapshotDiffProduct(previous))) {
+          const key = snapshotDiffEventKey(listingEvent) ?? listingEvent.id;
+          const existingId = store.listInsightEvents({
+            orgId,
+            date,
+            asin: listingEvent.asin ?? undefined,
+            eventType: listingEvent.eventType,
+            limit: 1
+          })[0]?.id;
+          generated.set(key, existingId ? { ...listingEvent, id: existingId } : listingEvent);
+        }
+      }
       const lowReview = insightFromLowReviewHighRank(context, snapshot);
       if (lowReview) {
         generated.set(lowReview.id, lowReview);
@@ -130,18 +150,18 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
   const persisted: InsightEvent[] = [];
   store.runInTransaction(() => {
     for (const event of generated.values()) {
-      persisted.push(store.upsertInsightEvent(event));
+      persisted.push(store.upsertInsightEvent({ ...event, orgId }));
     }
   });
   return persisted.sort((left, right) => right.scoreTotal - left.scoreTotal || left.id.localeCompare(right.id));
 }
 
-function resolveCategories(store: Store, categoryId?: number): CategoryMonitor[] {
+function resolveCategories(store: Store, orgId: number, categoryId?: number): CategoryMonitor[] {
   if (categoryId !== undefined) {
-    const category = store.getCategoryMonitor(categoryId);
+    const category = store.getCategoryMonitor(categoryId, orgId);
     return category ? [category] : [];
   }
-  return store.listCategoryMonitors().filter((category) => category.status === "enabled");
+  return store.listCategoryMonitors({ orgId, status: "enabled" });
 }
 
 function insightFromActivityEvent(context: CategoryInsightContext, event: CompetitorActivityEvent): InsightEventInput | null {
@@ -369,6 +389,22 @@ function insightFromSignal(context: CategoryInsightContext, signal: CategorySign
     brand,
     competitor
   });
+}
+
+function toSnapshotDiffProduct(snapshot: BestsellerRankSnapshot) {
+  return {
+    asin: snapshot.asin,
+    title: snapshot.title,
+    brand: snapshot.brand,
+    imageUrl: snapshot.imageUrl,
+    productUrl: snapshot.productUrl,
+    rank: snapshot.rank,
+    currentPrice: snapshot.currentPrice,
+    rating: snapshot.rating,
+    reviewCount: snapshot.reviewCount,
+    couponText: snapshot.couponText,
+    dealBadge: snapshot.dealBadge
+  };
 }
 
 function insightFromLowReviewHighRank(context: CategoryInsightContext, snapshot: BestsellerRankSnapshot): InsightEventInput | null {

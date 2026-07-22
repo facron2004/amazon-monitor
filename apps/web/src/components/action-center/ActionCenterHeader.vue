@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { CheckCircle2, RefreshCw } from "@lucide/vue";
+import { useWriteAccess } from "../../composables/useWriteAccess";
+
+const { canWrite } = useWriteAccess();
 
 defineProps<{
   date: string;
@@ -22,11 +25,11 @@ const emit = defineEmits<{
       <p>{{ date }} · 洞察事件、归因评分、状态流转和复盘队列</p>
     </div>
     <div class="action-center-actions">
-      <button class="secondary" type="button" :disabled="reviewing || reviewDueCount === 0" @click="emit('evaluate-review-due')">
+      <button class="secondary" type="button" :disabled="reviewing || reviewDueCount === 0 || !canWrite" @click="emit('evaluate-review-due')">
         <CheckCircle2 :size="16" :class="{ spinning: reviewing }" />
         <span>{{ reviewing ? "复盘中" : "自动复盘" }}</span>
       </button>
-      <button class="primary" type="button" :disabled="generating" @click="emit('generate')">
+      <button class="primary" type="button" :disabled="generating || !canWrite" @click="emit('generate')">
         <RefreshCw :size="16" :class="{ spinning: generating }" />
         <span>{{ generating ? "生成中" : "生成洞察" }}</span>
       </button>

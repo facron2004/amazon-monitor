@@ -5,6 +5,8 @@ import { ElButton, ElDialog, ElInput, ElMessage, ElTag } from "element-plus";
 import { ClipboardCheck, RefreshCw, Save, Sparkles } from "@lucide/vue";
 import type { ListingHealthLevel, ProductListingHealthItem } from "@amazon-monitor/shared";
 import { useListingHealthStore } from "../stores/listingHealth";
+import AgentActionTaskButton from "./AgentActionTaskButton.vue";
+import ListingRewriteDraftPanel from "./listing-health/ListingRewriteDraftPanel.vue";
 
 const props = defineProps<{ date: string }>();
 
@@ -269,12 +271,24 @@ function splitList(value: string): string[] {
             <h3>Listing Optimizer Agent</h3>
             <strong>{{ aiAnalysis.output.summary }}</strong>
             <p>{{ aiAnalysis.output.impact }}</p>
+            <ListingRewriteDraftPanel
+              v-if="aiAnalysis.output.artifacts?.listingRewrite"
+              :draft="aiAnalysis.output.artifacts.listingRewrite"
+            />
             <ol>
               <li v-for="action in aiAnalysis.output.recommended_actions" :key="action.action">
                 <span>{{ action.priority }}</span>
                 <div>
                   <strong>{{ action.action }}</strong>
                   <small>{{ action.reason }}</small>
+                  <AgentActionTaskButton
+                    :run-id="aiAnalysis.run.id"
+                    agent-type="listing_optimizer"
+                    :output="aiAnalysis.output"
+                    :action="action"
+                    :related-asin="selectedItem.asin"
+                    :related-brand="selectedItem.brand"
+                  />
                 </div>
               </li>
             </ol>

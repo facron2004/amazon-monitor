@@ -11,6 +11,7 @@ export const useProductStore = defineStore("products", () => {
   const error = ref<string | null>(null);
   const query = ref("");
   const status = ref<OwnedProductStatus | "all">("active");
+  const storeId = ref<number | null>(null);
 
   async function fetchProducts(date?: string): Promise<void> {
     loading.value = true;
@@ -19,6 +20,7 @@ export const useProductStore = defineStore("products", () => {
       products.value = await productApi.listProducts({
         q: query.value || undefined,
         status: status.value,
+        storeId: storeId.value ?? undefined,
         date,
         limit: 200
       });
@@ -62,6 +64,23 @@ export const useProductStore = defineStore("products", () => {
     }
   }
 
+  async function updateProductStore(productId: number, nextStoreId: number | null, date?: string): Promise<void> {
+    saving.value = true;
+    error.value = null;
+    try {
+      await productApi.updateProduct(productId, { storeId: nextStoreId });
+      await fetchProducts(date);
+      if (products.value.some((item) => item.id === productId)) {
+        await selectProduct(productId, date);
+      }
+    } catch (err) {
+      error.value = (err as Error).message;
+      throw err;
+    } finally {
+      saving.value = false;
+    }
+  }
+
   async function upsertMetric(productId: number, payload: UpsertProductMetricPayload, date?: string): Promise<void> {
     saving.value = true;
     error.value = null;
@@ -84,9 +103,11 @@ export const useProductStore = defineStore("products", () => {
     error,
     query,
     status,
+    storeId,
     fetchProducts,
     selectProduct,
     createProduct,
+    updateProductStore,
     upsertMetric
   };
 });

@@ -4,6 +4,49 @@ import type { InsightEventInput } from "@amazon-monitor/shared";
 import { createStore, initSchema } from "../store.js";
 
 describe("insight event store", () => {
+  it("migrates legacy watch states and allows the same ASIN in separate organizations", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(`
+      CREATE TABLE asin_watch_states (
+        asin TEXT PRIMARY KEY,
+        watch_level TEXT NOT NULL DEFAULT 'NORMAL',
+        watch_reason TEXT,
+        first_watch_date TEXT NOT NULL,
+        last_event_date TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO asin_watch_states
+        (asin, watch_level, watch_reason, first_watch_date, last_event_date, note, created_at, updated_at)
+      VALUES
+        ('B0LEGACY01', 'CORE', 'Legacy priority', '2026-06-01', '2026-06-19', NULL, '2026-06-01', '2026-06-19');
+    `);
+    initSchema(db);
+    const store = createStore(db);
+    const secondOrg = store.createOrganization({ name: "Second watch org" });
+
+    expect(store.listAsinWatchStates(1)).toEqual([
+      expect.objectContaining({ orgId: 1, asin: "B0LEGACY01", watchLevel: "CORE" })
+    ]);
+    store.upsertAsinWatchState({
+      orgId: secondOrg.id,
+      asin: "B0LEGACY01",
+      watchLevel: "POTENTIAL",
+      watchReason: "Second organization research",
+      firstWatchDate: "2026-06-20",
+      lastEventDate: null,
+      note: null
+    });
+    expect(store.listAsinWatchStates(secondOrg.id)).toEqual([
+      expect.objectContaining({
+        orgId: secondOrg.id,
+        asin: "B0LEGACY01",
+        watchLevel: "POTENTIAL"
+      })
+    ]);
+  });
+
   it("persists insight events, preserves workflow state on upsert, and exposes review/watch queues", () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
@@ -409,7 +452,7 @@ describe("insight event store", () => {
         ...sampleInsightEvent(),
         asin: "B0DUPE",
         eventTitle: "low",
-        eventLevel: "P2",
+        eventLevel: "P1",
         scoreTotal: 40
       });
       store.upsertInsightEvent({
@@ -422,7 +465,7 @@ describe("insight event store", () => {
         scoreTotal: 90
       });
 
-      // Core competitor rank surge should rank above a passive P2 entry
+      // Core competitor rank surge should remain eligible for the P0/P1 feed.
       store.upsertInsightEvent({
         ...sampleInsightEvent(),
         id: "2026-06-19|cat1|asin:B0CORE|RANK",
@@ -470,6 +513,22 @@ describe("insight event store", () => {
         eventTitle: "ignored",
         status: "IGNORED"
       });
+      for (const [index, status] of ["FOLLOWED", "REVIEWED", "CONVERTED_TO_TASK"] as const) {
+        store.upsertInsightEvent({
+          ...sampleInsightEvent(),
+          id: `2026-06-19|cat1|asin:B0CLOSED${index}|${status}`,
+          asin: `B0CLOSED${index}`,
+          eventTitle: status,
+          status
+        });
+      }
+      store.upsertInsightEvent({
+        ...sampleInsightEvent(),
+        id: "2026-06-19|cat1|asin:B0P2|RANK",
+        asin: "B0P2",
+        eventTitle: "P2 event",
+        eventLevel: "P2"
+      });
 
       const top = store.listTopInsights("2026-06-19", 5);
       expect(top.map((event) => event.asin)).toEqual(["B0ACTIVE"]);
@@ -492,6 +551,60 @@ describe("insight event store", () => {
       }
       const top = store.listTopInsights("2026-06-19", 3);
       expect(top).toHaveLength(3);
+    });
+
+    it("filters by marketplace, category, brand, and assignee and lists complete options", () => {
+      const db = new DatabaseSync(":memory:");
+      initSchema(db);
+      const store = createStore(db);
+      const base = sampleInsightEvent();
+
+      store.upsertInsightEvent({ ...base, assignee: "Mia" });
+      store.upsertInsightEvent({
+        ...base,
+        id: "2026-06-19|category:1|asin:B0DEICE001|RANK_SURGE",
+        asin: "B0DEICE001",
+        evidence: { ...base.evidence, marketplace: "amazon.de" },
+        assignee: "Mia"
+      });
+      store.upsertInsightEvent({
+        ...base,
+        id: "2026-06-19|category:2|asin:B0USFAN001|RANK_SURGE",
+        asin: "B0USFAN001",
+        brand: "Breezo",
+        categoryId: 2,
+        evidence: {
+          ...base.evidence,
+          marketplace: "amazon.com",
+          categoryName: "Fans"
+        },
+        assignee: "Leo"
+      });
+      store.upsertInsightEvent({
+        ...base,
+        id: "2026-06-19|category:3|asin:B0HIDDEN01|RANK_SURGE",
+        asin: "B0HIDDEN01",
+        brand: "Hidden",
+        eventLevel: "P2",
+        evidence: {
+          ...base.evidence,
+          marketplace: "amazon.co.uk",
+          categoryName: "Hidden Category"
+        },
+        assignee: "Nora"
+      });
+
+      expect(store.listTopInsights("2026-06-19", 5, { marketplace: "amazon.de" }).map((event) => event.asin))
+        .toEqual(["B0DEICE001"]);
+      expect(store.listTopInsights("2026-06-19", 5, { categoryName: "Fans" }).map((event) => event.asin))
+        .toEqual(["B0USFAN001"]);
+      expect(store.listTopInsights("2026-06-19", 5, { brand: "Acme", assignee: "Mia" })).toHaveLength(2);
+      expect(store.listTopInsightFilterOptions("2026-06-19")).toEqual({
+        marketplaces: ["amazon.com", "amazon.de"],
+        categoryNames: ["Fans", "Ice Makers"],
+        brands: ["Acme", "Breezo"],
+        assignees: ["Leo", "Mia"]
+      });
     });
   });
 });

@@ -6,18 +6,81 @@ import { createApiApp } from "../server.js";
 import { createStore, initSchema } from "../store.js";
 
 describe("insight event routes", () => {
+  it("supports the PRD event contract and idempotent task conversion", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
+    const event = store.upsertInsightEvent(sampleRouteInsightEvent());
+    const pathId = encodeURIComponent(event.id);
+
+    expect((await api.get("/api/events?date=2026-06-19").expect(200)).body[0].id).toBe(event.id);
+    await api.get(`/api/events/${pathId}`).expect(200);
+    expect((await api.post(`/api/events/${pathId}/acknowledge`).expect(200)).body.status).toBe("FOLLOWED");
+    expect((await api.post(`/api/events/${pathId}/ignore`).expect(200)).body.status).toBe("IGNORED");
+
+    const first = await api.post(`/api/events/${pathId}/convert-to-task`).send({ dueDate: "2026-06-25" }).expect(201);
+    const second = await api.post(`/api/events/${pathId}/convert-to-task`).send({ dueDate: "2026-06-26" }).expect(200);
+    expect(second.body.id).toBe(first.body.id);
+    expect(store.getInsightEvent(event.id, 1)?.status).toBe("CONVERTED_TO_TASK");
+  });
+
+  it("filters the Today 5 feed and exposes actionable filter options", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
+    const base = sampleRouteInsightEvent();
+
+    store.upsertInsightEvent({ ...base, assignee: "Mia" });
+    store.upsertInsightEvent({
+      ...base,
+      id: "2026-06-19|category:2|asin:B0ROUTEFAN|RANK_SURGE",
+      asin: "B0ROUTEFAN",
+      brand: "Breezo",
+      categoryId: 2,
+      evidence: {
+        ...base.evidence,
+        categoryName: "Fans"
+      },
+      assignee: "Leo"
+    });
+
+    await api
+      .get("/api/insight-events/top-summary?date=2026-06-19&brand=Breezo&assignee=Leo")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTEFAN"]);
+      });
+
+    await api
+      .get("/api/insight-events/top-summary/filter-options?date=2026-06-19")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          marketplaces: ["amazon.com"],
+          categoryNames: ["Fans", "Ice Makers"],
+          brands: ["Acme", "Breezo"],
+          assignees: ["Leo", "Mia"]
+        });
+      });
+  });
+
   it("lists, updates, watches, reviews, and manually generates insight events", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
     const store = createStore(db);
     const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
     const event = sampleRouteInsightEvent();
     store.upsertInsightEvent(event);
 
-    const list = await request(app).get("/api/insight-events?date=2026-06-19").expect(200);
+    const list = await api.get("/api/insight-events?date=2026-06-19").expect(200);
     expect(list.body[0]).toMatchObject({ id: event.id, eventType: "NEW_TOP50_ENTRY" });
 
-    await request(app)
+    await api
       .patch(`/api/insight-events/${encodeURIComponent(event.id)}/status`)
       .send({ status: "FOLLOWED" })
       .expect(200)
@@ -25,7 +88,7 @@ describe("insight event routes", () => {
         expect(response.body.status).toBe("FOLLOWED");
       });
 
-    await request(app)
+    await api
       .patch(`/api/insight-events/${encodeURIComponent(event.id)}/assignee`)
       .send({ assignee: "  Alice  " })
       .expect(200)
@@ -50,29 +113,29 @@ describe("insight event routes", () => {
       status: "FOLLOWED",
       reviewDueDate: null
     });
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-19&assignee=Alice")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { id: string }) => item.id)).toEqual([event.id]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-19&unassignedOnly=true")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE003"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events?unassignedOnly=maybe")
       .expect(400);
 
-    await request(app)
+    await api
       .get(`/api/insight-events?assignee=${"a".repeat(121)}`)
       .expect(400);
 
-    await request(app)
+    await api
       .patch(`/api/insight-events/${encodeURIComponent(event.id)}/assignee`)
       .send({ assignee: null })
       .expect(200)
@@ -80,7 +143,7 @@ describe("insight event routes", () => {
         expect(response.body.assignee).toBeNull();
       });
 
-    await request(app)
+    await api
       .patch(`/api/insight-events/${encodeURIComponent(event.id)}/note`)
       .send({ note: "已记录价格变化" })
       .expect(200)
@@ -88,12 +151,12 @@ describe("insight event routes", () => {
         expect(response.body.userNote).toBe("已记录价格变化");
       });
 
-    await request(app)
+    await api
       .patch(`/api/insight-events/${encodeURIComponent(event.id)}/note`)
       .send({ note: "复盘时检查 Top50 是否保持" })
       .expect(200);
 
-    await request(app)
+    await api
       .get(`/api/insight-events/${encodeURIComponent(event.id)}/notes`)
       .expect(200)
       .expect((response) => {
@@ -103,11 +166,11 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/missing-event/notes")
       .expect(404);
 
-    await request(app)
+    await api
       .post(`/api/insight-events/${encodeURIComponent(event.id)}/watch`)
       .send({ watchLevel: "POTENTIAL" })
       .expect(200)
@@ -115,7 +178,7 @@ describe("insight event routes", () => {
         expect(response.body.watchState).toMatchObject({ asin: event.asin, watchLevel: "POTENTIAL" });
       });
 
-    await request(app)
+    await api
       .patch(`/api/asin-watch-states/${event.asin}`)
       .send({
         watchLevel: "CORE",
@@ -133,17 +196,17 @@ describe("insight event routes", () => {
         });
       });
 
-    await request(app)
+    await api
       .patch(`/api/asin-watch-states/${event.asin}`)
       .send({ watchLevel: "CORE", lastEventDate: "not-a-date" })
       .expect(400);
 
     // 用户把 event 标成 FOLLOWED 后,它应该从自动复盘队列里消失——
     // 否则 evaluator 会把 FOLLOWED 刷回 REVIEW_PENDING,覆盖用户的决定。
-    const due = await request(app).get("/api/insight-events/review-due?date=2026-06-22").expect(200);
+    const due = await api.get("/api/insight-events/review-due?date=2026-06-22").expect(200);
     expect(due.body).toEqual([]);
 
-    await request(app)
+    await api
       .post(`/api/insight-events/${encodeURIComponent(event.id)}/review`)
       .send({ date: "2026-06-22", result: "CONFIRMED", note: "3 天后仍在 Top50" })
       .expect(200)
@@ -176,21 +239,21 @@ describe("insight event routes", () => {
       eventTitle: "Today signal",
       reviewDueDate: null
     });
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-22")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0TODAY001"]);
       });
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-22&reviewedOnDate=true")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0TODAY001", "B0OLDREV01"]);
       });
-    await request(app).get("/api/insight-events?date=2026-06-22&reviewedOnDate=maybe").expect(400);
+    await api.get("/api/insight-events?date=2026-06-22&reviewedOnDate=maybe").expect(400);
 
-    await request(app).post("/api/insight-events/generate?date=2026-06-19").send({ date: "2026-06-19" }).expect(201);
+    await api.post("/api/insight-events/generate?date=2026-06-19").send({ date: "2026-06-19" }).expect(201);
   });
 
   it("evaluates due review events through the fixed review-due route", async () => {
@@ -198,10 +261,11 @@ describe("insight event routes", () => {
     initSchema(db);
     const store = createStore(db);
     const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
     const event = sampleRouteInsightEvent();
     store.upsertInsightEvent(event);
 
-    const response = await request(app)
+    const response = await api
       .post("/api/insight-events/review-due/evaluate?date=2026-06-22")
       .send({ date: "2026-06-22" })
       .expect(200);
@@ -221,6 +285,7 @@ describe("insight event routes", () => {
     initSchema(db);
     const store = createStore(db);
     const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
     const event = sampleRouteInsightEvent();
     store.upsertInsightEvent({ ...event, assignee: "Alice" });
     store.upsertInsightEvent({
@@ -244,35 +309,35 @@ describe("insight event routes", () => {
       reviewDueDate: "2026-06-20"
     });
 
-    await request(app)
+    await api
       .get("/api/insight-events/review-due?date=2026-06-22&assignee=Alice")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE001"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/review-due?date=2026-06-22&status=REVIEW_PENDING&level=P1&eventType=RANK_SURGE")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE002"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/review-due?date=2026-06-22&unassignedOnly=true&limit=1")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE002"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/review-due?date=2026-06-22&actionStage=reviewDue")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE002", "B0ROUTE001"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/review-due?date=2026-06-22&unassignedOnly=maybe")
       .expect(400);
   });
@@ -282,6 +347,7 @@ describe("insight event routes", () => {
     initSchema(db);
     const store = createStore(db);
     const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
     const event = sampleRouteInsightEvent();
 
     store.upsertInsightEvent({
@@ -310,21 +376,21 @@ describe("insight event routes", () => {
       evidence: { ...event.evidence, rankChange: 10, reviewCountChange: 80 }
     });
 
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-19&sortBy=rankChange&limit=1")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTERANK"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/review-due?date=2026-06-22&sortBy=reviewChange&limit=1")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTEREVIEW"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-19&sortBy=not-real")
       .expect(400);
   });
@@ -334,6 +400,7 @@ describe("insight event routes", () => {
     initSchema(db);
     const store = createStore(db);
     const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
     const event = sampleRouteInsightEvent();
 
     store.upsertInsightEvent({
@@ -378,7 +445,7 @@ describe("insight event routes", () => {
       reviewResult: "FAILED"
     });
 
-    await request(app)
+    await api
       .get("/api/insight-events/trend?endDate=2026-06-22&days=3")
       .expect(200)
       .expect((response) => {
@@ -416,7 +483,7 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/trend?endDate=2026-06-22&days=3&level=P0")
       .expect(200)
       .expect((response) => {
@@ -454,7 +521,7 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/trend?endDate=2026-06-22&days=3&attributionTag=COUPON_DRIVEN&strategyTag=COUPON_DEPENDENT")
       .expect(200)
       .expect((response) => {
@@ -492,7 +559,7 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/trend?endDate=2026-06-22&days=3&evidenceMovement=rankGain&scoreDriver=rankingScore")
       .expect(200)
       .expect((response) => {
@@ -507,7 +574,7 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/trend?endDate=2026-06-22&days=3&reviewCadence=upcoming")
       .expect(200)
       .expect((response) => {
@@ -522,21 +589,21 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-20&evidenceMovement=priceCut&scoreDriver=rankingScore&reviewCadence=upcoming")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE001"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events?date=2026-06-20&actionStage=unassigned")
       .expect(200)
       .expect((response) => {
         expect(response.body.map((item: { asin: string }) => item.asin)).toEqual(["B0ROUTE001"]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/trend?endDate=2026-06-22&days=3&actionStage=closed")
       .expect(200)
       .expect((response) => {
@@ -551,7 +618,7 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app)
+    await api
       .get("/api/insight-events/trend?endDate=2026-06-22&days=3&reviewResult=FAILED")
       .expect(200)
       .expect((response) => {
@@ -589,12 +656,209 @@ describe("insight event routes", () => {
         ]);
       });
 
-    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&days=31").expect(400);
-    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&strategyTag=NOT_A_TAG").expect(400);
-    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&evidenceMovement=not-real").expect(400);
-    await request(app).get("/api/insight-events/trend?endDate=2026-06-22&actionStage=not-real").expect(400);
+    await api.get("/api/insight-events/trend?endDate=2026-06-22&days=31").expect(400);
+    await api.get("/api/insight-events/trend?endDate=2026-06-22&strategyTag=NOT_A_TAG").expect(400);
+    await api.get("/api/insight-events/trend?endDate=2026-06-22&evidenceMovement=not-real").expect(400);
+    await api.get("/api/insight-events/trend?endDate=2026-06-22&actionStage=not-real").expect(400);
   });
+  it("separates workflow writes from competitor-pool management", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const event = sampleRouteInsightEvent();
+    store.upsertInsightEvent(event);
+
+    await request(app).get("/api/insight-events?date=2026-06-19").expect(401);
+    await request(app).get("/api/asin-watch-states").expect(401);
+    await request(app)
+      .patch(`/api/insight-events/${encodeURIComponent(event.id)}/status`)
+      .send({ status: "FOLLOWED" })
+      .expect(401);
+
+    const organization = store.listOrganizations()[0];
+    store.createUser({
+      orgId: organization.id,
+      username: "insight-reader",
+      password: "password-1234",
+      role: "developer"
+    });
+    const reader = request.agent(app);
+    await reader
+      .post("/api/auth/login")
+      .send({ username: "insight-reader", password: "password-1234" })
+      .expect(200);
+
+    await reader.get("/api/insight-events?date=2026-06-19").expect(200);
+    await reader
+      .patch(`/api/insight-events/${encodeURIComponent(event.id)}/status`)
+      .send({ status: "FOLLOWED" })
+      .expect(403);
+    await reader.post("/api/insight-events/generate").send({ date: "2026-06-19" }).expect(403);
+    await reader
+      .patch(`/api/asin-watch-states/${event.asin}`)
+      .send({ watchLevel: "CORE" })
+      .expect(403);
+
+    store.createUser({
+      orgId: organization.id,
+      username: "ads-workflow-operator",
+      password: "password-1234",
+      role: "ads_operator"
+    });
+    const adsOperator = request.agent(app);
+    await adsOperator
+      .post("/api/auth/login")
+      .send({ username: "ads-workflow-operator", password: "password-1234" })
+      .expect(200);
+    await adsOperator
+      .patch(`/api/insight-events/${encodeURIComponent(event.id)}/status`)
+      .send({ status: "FOLLOWED" })
+      .expect(200);
+    await adsOperator
+      .patch(`/api/asin-watch-states/${event.asin}`)
+      .send({ watchLevel: "CORE" })
+      .expect(403);
+    await adsOperator
+      .patch(`/api/competitors/${event.asin}/key`)
+      .send({ isKeyCompetitor: true })
+      .expect(403);
+
+    store.createUser({
+      orgId: organization.id,
+      username: "competitor-researcher",
+      password: "password-1234",
+      role: "product_researcher"
+    });
+    const researcher = request.agent(app);
+    await researcher
+      .post("/api/auth/login")
+      .send({ username: "competitor-researcher", password: "password-1234" })
+      .expect(200);
+    await researcher
+      .patch(`/api/asin-watch-states/${event.asin}`)
+      .send({ watchLevel: "CORE", watchReason: "Research priority" })
+      .expect(200);
+    await researcher
+      .patch(`/api/competitors/${event.asin}/key`)
+      .send({ isKeyCompetitor: true })
+      .expect(404);
+  });
+
+  it("isolates events, mutations, watch states, and task conversion by organization", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const orgOneApi = await authenticatedAgent(app);
+    const orgTwo = store.createOrganization({ name: "Second insight org" });
+    store.createUser({
+      orgId: orgTwo.id,
+      username: "second-insight-admin",
+      password: "password-1234",
+      role: "admin"
+    });
+    const orgTwoApi = request.agent(app);
+    await orgTwoApi
+      .post("/api/auth/login")
+      .send({ username: "second-insight-admin", password: "password-1234" })
+      .expect(200);
+
+    const base = sampleRouteInsightEvent();
+    const orgOneEvent = store.upsertInsightEvent({ ...base, orgId: 1 });
+    const orgTwoEvent = store.upsertInsightEvent({
+      ...base,
+      orgId: orgTwo.id,
+      eventTitle: "Second organization event"
+    });
+    expect(orgTwoEvent.id).not.toBe(orgOneEvent.id);
+
+    await orgOneApi
+      .get("/api/insight-events?date=2026-06-19")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((event: { id: string }) => event.id)).toEqual([orgOneEvent.id]);
+      });
+    await orgTwoApi
+      .get("/api/insight-events?date=2026-06-19")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((event: { id: string }) => event.id)).toEqual([orgTwoEvent.id]);
+      });
+
+    await orgTwoApi
+      .get(`/api/insight-events/${encodeURIComponent(orgOneEvent.id)}`)
+      .expect(404);
+    await orgTwoApi
+      .patch(`/api/insight-events/${encodeURIComponent(orgOneEvent.id)}/status`)
+      .send({ status: "FOLLOWED" })
+      .expect(404);
+    await orgTwoApi
+      .get(`/api/insight-events/${encodeURIComponent(orgOneEvent.id)}/notes`)
+      .expect(404);
+    await orgTwoApi
+      .post("/api/tasks")
+      .send({
+        sourceType: "insight_event",
+        sourceId: orgOneEvent.id,
+        title: "Cross-org task",
+        taskType: "competitor",
+        priority: "P1"
+      })
+      .expect(404);
+
+    await orgOneApi
+      .patch(`/api/asin-watch-states/${base.asin}`)
+      .send({ watchLevel: "CORE", watchReason: "Org one priority" })
+      .expect(200);
+    await orgTwoApi
+      .patch(`/api/asin-watch-states/${base.asin}`)
+      .send({ watchLevel: "POTENTIAL", watchReason: "Org two research" })
+      .expect(200);
+
+    await orgOneApi
+      .get("/api/asin-watch-states")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual([
+          expect.objectContaining({ orgId: 1, asin: base.asin, watchLevel: "CORE" })
+        ]);
+      });
+    await orgTwoApi
+      .get("/api/asin-watch-states")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual([
+          expect.objectContaining({ orgId: orgTwo.id, asin: base.asin, watchLevel: "POTENTIAL" })
+        ]);
+      });
+
+    await orgTwoApi
+      .post("/api/tasks")
+      .send({
+        sourceType: "insight_event",
+        sourceId: orgTwoEvent.id,
+        title: "Own event task",
+        taskType: "competitor",
+        priority: "P1"
+      })
+      .expect(201);
+    expect(store.getInsightEvent(orgTwoEvent.id, orgTwo.id)).toMatchObject({
+      status: "CONVERTED_TO_TASK"
+    });
+    expect(store.getInsightEvent(orgOneEvent.id, 1)).toMatchObject({ status: "TODO" });
+  });
+
 });
+
+async function authenticatedAgent(app: ReturnType<typeof createApiApp>) {
+  const api = request.agent(app);
+  await api
+    .post("/api/auth/login")
+    .send({ username: "admin", password: "admin123" })
+    .expect(200);
+  return api;
+}
 
 function sampleRouteInsightEvent(): InsightEventInput {
   return {

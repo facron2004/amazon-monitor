@@ -75,11 +75,12 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
 
     listBsrRankHistory(filter = {}) {
       const { sql: where, params } = buildWhere(
-        whereEq("snapshot_date", filter.date),
-        whereEq("source_type", filter.sourceType),
-        whereEq("source_id", filter.sourceId),
-        whereEq("category", filter.category),
-        whereEq("asin", filter.asin)
+        sourceOwnershipClause("h", filter.orgId),
+        whereEq("h.snapshot_date", filter.date),
+        whereEq("h.source_type", filter.sourceType),
+        whereEq("h.source_id", filter.sourceId),
+        whereEq("h.category", filter.category),
+        whereEq("h.asin", filter.asin)
       );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
@@ -89,8 +90,8 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
       return (
         db
           .prepare(
-            `SELECT * FROM amazon_bsr_rank_history ${where}
-             ORDER BY snapshot_date DESC, source_type, source_id, category, rank_no
+            `SELECT h.* FROM amazon_bsr_rank_history h ${where}
+             ORDER BY h.snapshot_date DESC, h.source_type, h.source_id, h.category, h.rank_no
              ${pagination}`
           )
           .all(...params) as unknown as BsrRankHistoryRow[]
@@ -103,7 +104,7 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
         sourceType: filter.sourceType,
         sourceId: filter.sourceId,
         category: filter.category
-      });
+      }).filter((item) => sourceBelongsToOrganization(db, item.sourceType, item.sourceId, filter.orgId));
       if (today.length === 0) {
         return [];
       }
@@ -152,11 +153,12 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
 
     listBsrSnapshotQuality(filter = {}) {
       const { sql: where, params } = buildWhere(
-        whereEq("snapshot_date", filter.date),
-        whereEq("source_type", filter.sourceType),
-        whereEq("source_id", filter.sourceId),
-        whereEq("category", filter.category),
-        whereEq("quality_status", filter.qualityStatus)
+        sourceOwnershipClause("q", filter.orgId),
+        whereEq("q.snapshot_date", filter.date),
+        whereEq("q.source_type", filter.sourceType),
+        whereEq("q.source_id", filter.sourceId),
+        whereEq("q.category", filter.category),
+        whereEq("q.quality_status", filter.qualityStatus)
       );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
@@ -173,7 +175,7 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
       return (
         db
           .prepare(
-            `SELECT * FROM amazon_bsr_snapshot_quality ${where}
+            `SELECT q.* FROM amazon_bsr_snapshot_quality q ${where}
              ${orderBy}
              ${pagination}`
           )
@@ -191,13 +193,14 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
 
     listCompetitorActionInsights(filter = {}) {
       const { sql: where, params } = buildWhere(
-        whereEq("insight_date", filter.date),
-        whereEq("source_type", filter.sourceType),
-        whereEq("source_id", filter.sourceId),
-        whereEq("category", filter.category),
-        whereEq("asin", filter.asin),
-        whereEq("brand", filter.brand),
-        whereEq("insight_type", filter.insightType)
+        sourceOwnershipClause("i", filter.orgId),
+        whereEq("i.insight_date", filter.date),
+        whereEq("i.source_type", filter.sourceType),
+        whereEq("i.source_id", filter.sourceId),
+        whereEq("i.category", filter.category),
+        whereEq("i.asin", filter.asin),
+        whereEq("i.brand", filter.brand),
+        whereEq("i.insight_type", filter.insightType)
       );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
@@ -207,7 +210,7 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
       return (
         db
           .prepare(
-            `SELECT * FROM amazon_competitor_action_insight ${where}
+            `SELECT i.* FROM amazon_competitor_action_insight i ${where}
              ORDER BY insight_date DESC,
               CASE confidence WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
               COALESCE(current_rank, previous_rank, 999999) ASC,
@@ -219,4 +222,28 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
       ).map(mapActionInsight);
     }
   };
+}
+
+function sourceOwnershipClause(alias: string, orgId?: number) {
+  if (orgId === undefined) return undefined;
+  return {
+    clause: `(( ${alias}.source_type = 'keyword_detail' AND EXISTS (
+      SELECT 1 FROM amazon_keyword_monitor km WHERE km.id = ${alias}.source_id AND km.org_id = ?
+    )) OR ( ${alias}.source_type = 'category_bestseller' AND EXISTS (
+      SELECT 1 FROM amazon_bestseller_category_monitor cm WHERE cm.id = ${alias}.source_id AND cm.org_id = ?
+    )))`,
+    params: [orgId, orgId]
+  };
+}
+
+function sourceBelongsToOrganization(
+  db: DatabaseSync,
+  sourceType: "keyword_detail" | "category_bestseller",
+  sourceId: number | null,
+  orgId?: number
+): boolean {
+  if (orgId === undefined) return true;
+  if (sourceId === null) return false;
+  const table = sourceType === "keyword_detail" ? "amazon_keyword_monitor" : "amazon_bestseller_category_monitor";
+  return db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND org_id = ?`).get(sourceId, orgId) !== undefined;
 }

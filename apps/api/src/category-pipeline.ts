@@ -21,6 +21,7 @@ import {
   totalPageRetryCount
 } from "./category-pipeline-helpers.js";
 import { formatDuration, ts } from "./log.js";
+import { resolveCollectionDataSource } from "./collection-provenance.js";
 import { generateInsightEvents } from "./insights/insight-event-generator.js";
 import { evaluateDueInsightEventReviews } from "./insights/review-evaluator.js";
 import type { Store } from "./store.js";
@@ -41,6 +42,8 @@ export interface AmazonBestSellerCollector {
 export interface CategoryCollectionOptions {
   collector?: AmazonBestSellerCollector;
   signal?: AbortSignal;
+  organizationId?: number;
+  dataSource?: string;
 }
 
 const defaultCategoryCollector = new PlaywrightAmazonBestSellerCollector();
@@ -78,7 +81,7 @@ export async function runCategoryCollectionForAll(
   options: CategoryCollectionOptions = {}
 ): Promise<CollectTaskLog[]> {
   const logs: CollectTaskLog[] = [];
-  const categories = store.listCategoryMonitors().filter((category) => category.status === "enabled");
+  const categories = store.listCategoryMonitors({ orgId: options.organizationId, status: "enabled" });
 
   logs.push(
     ...(await runLimitedConcurrency(categories, categoryCollectionConcurrency(), (category) =>
@@ -95,7 +98,7 @@ export async function runCategoryCollectionForMonitor(
   date = isoDate(),
   options: CategoryCollectionOptions = {}
 ): Promise<CollectTaskLog> {
-  const category = store.getCategoryMonitor(categoryId);
+  const category = store.getCategoryMonitor(categoryId, options.organizationId);
   if (!category) {
     throw new Error(`Category monitor ${categoryId} not found`);
   }
@@ -146,19 +149,26 @@ export async function runCategoryCollectionForMonitor(
       // but still save the data so we don't lose everything for one gap.
       dataQuality = "partial";
     }
+    const collectedAt = new Date().toISOString();
+    const dataSource = resolveCollectionDataSource(options.dataSource, options.collector !== undefined);
     const decoratedSnapshots = decorateBestsellerSnapshots({
       categoryId: category.id,
       categoryName: category.name,
       marketplace: category.marketplace,
       snapshotDate: date,
       products
-    });
+    }).map((snapshot) => ({
+      ...snapshot,
+      dataSource,
+      lastSyncedAt: collectedAt,
+      syncStatus: dataQuality === "partial" ? "partial" as const : "success" as const
+    }));
 
     if (decoratedSnapshots.length === 0) {
       throw new Error(`No Amazon Best Sellers products collected for "${category.name}".`);
     }
 
-    const previous = store.getPreviousCategorySnapshots(category.id, date);
+    const previous = store.getPreviousCategorySnapshots(category.id, date, category.orgId);
     const snapshots = preserveKnownCommercialFields(decoratedSnapshots, previous);
     const t2 = Date.now();
     console.log(`[${ts()}] [Pipeline] Processing done in ${formatDuration(t2 - t1)} — ${snapshots.length} products, analyzing & storing...`);
@@ -213,14 +223,14 @@ export async function runCategoryCollectionForMonitor(
         })
       });
       store.upsertProductMasterFromCategorySnapshots(snapshots);
-      store.upsertCompetitorsFromCategorySnapshots(snapshots, activityEvents);
+      store.upsertCompetitorsFromCategorySnapshots(snapshots, activityEvents, category.orgId);
       store.replaceProductPriceHistoryForDate(category.id, date, snapshots);
       store.replaceBrandMatrix(category.id, date, brandMatrix);
       store.replaceCategorySignals(category.id, date, signals);
       store.replaceCategoryActivityEvents(category.id, date, activityEvents);
       store.saveCategoryReport(date, category.id, report);
-      generateInsightEvents(store, date, { categoryId: category.id });
-      evaluateDueInsightEventReviews(store, date, { categoryId: category.id });
+      generateInsightEvents(store, date, { categoryId: category.id, orgId: category.orgId });
+      evaluateDueInsightEventReviews(store, date, { categoryId: category.id, orgId: category.orgId });
     });
 
     // Record BSR quality for partial collections
@@ -254,6 +264,7 @@ export async function runCategoryCollectionForMonitor(
     console.log(`[${ts()}] [Pipeline] ✓ Category "${category.name}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)} (${snapshots.length} products, quality=${dataQuality})`);
 
     const log = store.insertTaskLog({
+      orgId: category.orgId,
       taskType: "category_collect",
       keywordId: null,
       keyword: category.name,
@@ -295,6 +306,7 @@ export async function runCategoryCollectionForMonitor(
       });
     }
     const log = store.insertTaskLog({
+      orgId: category.orgId,
       taskType: "category_collect",
       keywordId: null,
       keyword: category.name,

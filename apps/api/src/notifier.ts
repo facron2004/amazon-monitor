@@ -27,13 +27,17 @@ export async function sendNotificationSchedule(
   sender: NotificationSender = new RealNotificationSender()
 ): Promise<NotificationSendLog> {
   const sentAt = new Date().toISOString();
-  const summary = store.getDashboardSummary(date);
+  const summary = store.getDashboardSummary(date, schedule.orgId);
   const content =
     schedule.channel === "feishu"
-      ? buildFeishuNotificationContent(store, date, summary, buildReportExcelDownloadUrl(date))
-      : buildNotificationContent(store, date, summary);
-  const htmlContent = schedule.channel === "email" ? buildNotificationSummaryHtmlContent(store, date, summary) : undefined;
-  const attachments = schedule.channel === "email" ? [buildNotificationExcelAttachment(store, date)] : undefined;
+      ? buildFeishuNotificationContent(store, date, summary, buildReportExcelDownloadUrl(date), schedule.orgId)
+      : buildNotificationContent(store, date, summary, schedule.orgId);
+  const htmlContent = schedule.channel === "email"
+    ? buildNotificationSummaryHtmlContent(store, date, summary, schedule.orgId)
+    : undefined;
+  const attachments = schedule.channel === "email"
+    ? [buildNotificationExcelAttachment(store, date, schedule.orgId)]
+    : undefined;
 
   try {
     const result = await sender.send(schedule, date, content, htmlContent, attachments);
@@ -58,8 +62,9 @@ function logNotificationResult(
     sentDate: date,
     status,
     errorMessage: errorMessage ?? null
-  });
+  }, schedule.orgId);
   return store.insertNotificationSendLog({
+    orgId: schedule.orgId,
     scheduleId: schedule.id,
     scheduleName: schedule.name,
     channel: schedule.channel,

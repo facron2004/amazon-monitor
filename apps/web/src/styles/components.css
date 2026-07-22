@@ -219,7 +219,7 @@
 /* Forms Grid Layout */
 .keyword-form {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.7fr 0.8fr 92px 92px;
+  grid-template-columns: 1.2fr 0.9fr 140px 0.7fr 0.8fr 92px 92px;
   gap: 10px;
   margin-bottom: 20px;
   padding: 14px;

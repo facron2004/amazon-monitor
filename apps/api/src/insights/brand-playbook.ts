@@ -16,6 +16,7 @@ import { isoDateOffset } from "../store/date-utils.js";
 import type { Store } from "../store.js";
 
 export interface BrandPlaybookInput {
+  orgId?: number;
   categoryId: number;
   brand: string;
   date: string;
@@ -41,7 +42,7 @@ const maxWindowDays = 180;
 const topStrongAsinLimit = 5;
 
 export function buildBrandPlaybookProfile(store: Store, input: BrandPlaybookInput): BrandPlaybookProfile | null {
-  const category = store.getCategoryMonitor(input.categoryId);
+  const category = store.getCategoryMonitor(input.categoryId, input.orgId);
   if (!category) {
     return null;
   }
@@ -55,13 +56,13 @@ export function buildBrandPlaybookProfile(store: Store, input: BrandPlaybookInpu
   // 现在每张表一次日期范围查询，然后过滤 brand。4 次 SQL 搞定 —— DB 里的
   // brand 大小写可能不一致（"Apple" vs "apple"），所以 brand 匹配在 JS 做
   // 而不是用 case-sensitive 的 WHERE brand = ?。
-  const allMatrices = store.listBrandMatrix({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const allMatrices = store.listBrandMatrix({ orgId: input.orgId, categoryId: input.categoryId, startDate, endDate, limit: 5000 });
   const matrices = allMatrices.filter((item) => normalizeBrand(item.brand) === brandKey);
-  const allSnapshots = store.listCategorySnapshots({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const allSnapshots = store.listCategorySnapshots({ orgId: input.orgId, categoryId: input.categoryId, startDate, endDate, limit: 5000 });
   const snapshots = allSnapshots.filter((item) => normalizeBrand(item.brand) === brandKey);
-  const allPriceRows = store.listProductPriceHistory({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const allPriceRows = store.listProductPriceHistory({ orgId: input.orgId, categoryId: input.categoryId, startDate, endDate, limit: 5000 });
   const priceRows = allPriceRows.filter((item) => normalizeBrand(item.brand) === brandKey);
-  const allActivityEvents = store.listCategoryActivityEvents({ categoryId: input.categoryId, startDate, endDate, limit: 5000 });
+  const allActivityEvents = store.listCategoryActivityEvents({ orgId: input.orgId, categoryId: input.categoryId, startDate, endDate, limit: 5000 });
   const activityEvents = allActivityEvents.filter((item) => normalizeBrand(item.brand) === brandKey);
 
   const evidenceDates = new Set<string>();

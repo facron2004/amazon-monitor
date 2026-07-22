@@ -21,6 +21,7 @@ import {
   findCompetitorWatchState,
   normalizeCompetitorWatchLevel
 } from "../utils/competitorWatchState";
+import { useWriteAccess } from "../composables/useWriteAccess";
 
 interface Props {
   selectedCompetitor: CompetitorPoolItem | null;
@@ -38,6 +39,7 @@ interface Emits {
 
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
+const { canWrite: canManageCompetitors } = useWriteAccess("manage_competitors");
 
 const selectedWatchState = computed(() => {
   const competitor = props.selectedCompetitor;
@@ -46,7 +48,7 @@ const selectedWatchState = computed(() => {
 const selectedWatchLevel = computed(() => competitorWatchLevel(selectedWatchState.value));
 
 function updateWatchLevel(value: unknown): void {
-  if (!props.selectedCompetitor) return;
+  if (!props.selectedCompetitor || !canManageCompetitors.value) return;
   emit("set-watch-state", props.selectedCompetitor, normalizeCompetitorWatchLevel(value));
 }
 </script>
@@ -137,7 +139,7 @@ function updateWatchLevel(value: unknown): void {
       <ElSelect
         class="drawer-watch-select"
         :model-value="selectedWatchLevel"
-        :disabled="watchStateUpdatingAsin === selectedCompetitor.asin"
+        :disabled="!canManageCompetitors || watchStateUpdatingAsin === selectedCompetitor.asin"
         :loading="watchStateUpdatingAsin === selectedCompetitor.asin"
         @update:model-value="updateWatchLevel"
       >
@@ -160,7 +162,7 @@ function updateWatchLevel(value: unknown): void {
     </div>
 
     <div class="drawer-actions">
-      <button type="button" @click="emit('toggle-key-competitor', selectedCompetitor)">
+      <button type="button" :disabled="!canManageCompetitors" @click="emit('toggle-key-competitor', selectedCompetitor)">
         <Star v-if="selectedCompetitor.isKeyCompetitor" :size="17" />
         <StarOff v-else :size="17" />
         <span>{{ selectedCompetitor.isKeyCompetitor ? "取消重点标记" : "标记为重点" }}</span>

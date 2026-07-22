@@ -1,0 +1,449 @@
+/*
+ * Operations workspace v2
+ * A compact command-center layer inspired by native desktop software.
+ * This file intentionally loads last so the current feature styles remain
+ * intact while the shared shell and information hierarchy stay consistent.
+ */
+:root {
+  --ops-bg: #f4f5f7;
+  --ops-surface: #ffffff;
+  --ops-surface-subtle: #f8f8fa;
+  --ops-text: #1d1d1f;
+  --ops-text-secondary: #5f6065;
+  --ops-text-muted: #8b8c92;
+  --ops-line: rgba(29, 29, 31, 0.1);
+  --ops-line-strong: rgba(29, 29, 31, 0.16);
+  --ops-blue: #0674e7;
+  --ops-blue-dark: #005bb8;
+  --ops-blue-soft: #eaf3ff;
+  --ops-green: #18864b;
+  --ops-amber: #a15c00;
+  --ops-red: #c1322b;
+  --bg-base: var(--ops-bg);
+  --bg-surface: var(--ops-surface);
+  --bg-sidebar: #fbfbfc;
+  --text-primary: var(--ops-text);
+  --text-secondary: var(--ops-text-secondary);
+  --text-muted: var(--ops-text-muted);
+  --color-primary: var(--ops-blue);
+  --color-primary-hover: var(--ops-blue-dark);
+  --color-primary-light: var(--ops-blue-soft);
+  --border-color: var(--ops-line);
+  --border-color-hover: var(--ops-line-strong);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.035);
+  --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.045);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.07);
+}
+
+body {
+  overflow: hidden;
+  background: var(--ops-bg);
+}
+
+button {
+  box-shadow: none;
+}
+
+button:active:not(:disabled) {
+  transform: none;
+}
+
+.shell {
+  grid-template-columns: 224px minmax(0, 1fr);
+  background: var(--ops-bg);
+}
+
+.sidebar {
+  gap: 8px;
+  padding: 12px 10px 10px;
+  background: #fbfbfc;
+  border-right: 1px solid var(--ops-line);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.brand {
+  min-height: 50px;
+  padding: 0 8px 10px;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  background: #1d1d1f;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.brand strong {
+  color: var(--ops-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.brand span {
+  max-width: 148px;
+  color: var(--ops-text-muted);
+  font-size: 10.5px;
+}
+
+.sidebar-nav-group {
+  gap: 3px;
+}
+
+.sidebar-section-label {
+  padding: 7px 9px 3px;
+  color: #9a9ba1;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.nav {
+  gap: 1px;
+}
+
+.nav button {
+  min-height: 32px;
+  gap: 9px;
+  padding: 0 9px;
+  border-radius: 6px;
+  color: #5d5e63;
+  font-size: 12.5px;
+  font-weight: 520;
+}
+
+.nav button:hover {
+  background: #f0f0f2;
+  color: var(--ops-text);
+}
+
+.nav button.active {
+  background: var(--ops-blue-soft);
+  color: #005dbb;
+  font-weight: 650;
+}
+
+.nav button.active::before {
+  display: block;
+  left: -10px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ops-blue);
+}
+
+.sidebar-version {
+  margin-top: auto;
+  color: var(--ops-text-muted);
+}
+
+.main {
+  gap: 0;
+  padding: 0;
+  background: var(--ops-bg);
+}
+
+.topbar {
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--ops-line);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: none;
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+.topbar-section {
+  min-height: 28px;
+  padding: 0 8px;
+  background: #f3f3f5;
+  color: var(--ops-text-secondary);
+}
+
+.topbar h1 {
+  font-size: 15px;
+  font-weight: 680;
+}
+
+.topbar-date-control,
+.topbar-refresh,
+.topbar-collect {
+  min-height: 32px;
+  border-radius: 6px;
+}
+
+.topbar-date-control {
+  background: #fafafa;
+}
+
+.topbar-date-control input {
+  min-height: 28px;
+}
+
+.topbar-ready,
+.topbar .queue-badge,
+.topbar .worker-dot {
+  min-height: 26px;
+  border-radius: 6px;
+  background: #f6f6f8;
+  font-size: 11px;
+}
+
+.main .view-state {
+  padding: 12px 14px 14px;
+  scrollbar-gutter: stable;
+}
+
+.panel,
+.metric,
+.top-actions-panel,
+.activity-feed,
+.overview-operations {
+  border-color: var(--ops-line);
+  background: var(--ops-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+}
+
+.panel:hover,
+.metric:hover {
+  border-color: var(--ops-line-strong);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.04);
+  transform: none;
+}
+
+.overview-shell {
+  gap: 10px;
+  padding: 0;
+}
+
+.overview-hero {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.58fr);
+  min-height: 82px;
+  padding: 11px 14px;
+  border-radius: 8px;
+}
+
+.overview-hero-copy h1 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.overview-kicker {
+  color: var(--ops-text-muted);
+  font-size: 10.5px;
+}
+
+.overview-hero-metrics {
+  border-color: var(--ops-line);
+  background: var(--ops-surface-subtle);
+}
+
+.hero-metric {
+  min-height: 58px;
+  padding: 8px 11px;
+}
+
+.hero-metric span,
+.hero-metric small {
+  font-size: 10.5px;
+}
+
+.hero-metric strong {
+  margin: 3px 0 0;
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-operations {
+  padding: 12px;
+}
+
+.overview-operations__grid {
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+}
+
+.operations-metric {
+  min-height: 94px;
+  padding: 10px;
+}
+
+.operations-metric strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.38fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.overview-command-grid > .top-actions-panel {
+  min-width: 0;
+  margin: 0;
+}
+
+.overview-context-rail {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.overview-context-rail .panel {
+  padding: 13px;
+}
+
+.overview-context-rail .panel-head {
+  align-items: flex-start;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+}
+
+.overview-context-rail .panel-caption {
+  display: none;
+}
+
+.overview-context-rail .alert-list {
+  gap: 8px;
+}
+
+.overview-context-rail .alert-row {
+  grid-template-columns: 18px minmax(0, 1fr) 30px;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.overview-context-rail .alert-row p {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.overview-context-rail .alert-row button {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+
+.overview-context-rail .keyword-table-wrap {
+  max-height: 236px;
+}
+
+.overview-context-rail th,
+.overview-context-rail td {
+  padding: 8px 9px;
+}
+
+.activity-feed {
+  margin: 0;
+}
+
+.table-wrap {
+  border-color: var(--ops-line);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+th {
+  background: #f7f7f9;
+  color: #717278;
+  font-size: 11px;
+}
+
+tbody tr:hover {
+  background: #f6f8fb;
+}
+
+@media (max-width: 1380px) {
+  .overview-operations__grid {
+    grid-template-columns: repeat(5, minmax(120px, 1fr));
+  }
+
+  .overview-command-grid {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+
+@media (max-width: 1180px) {
+  body {
+    overflow: auto;
+  }
+
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    width: min(286px, calc(100vw - 24px));
+    border-radius: 0 10px 10px 0;
+    box-shadow: 18px 0 42px rgba(15, 23, 42, 0.14);
+  }
+
+  .main {
+    min-height: 100dvh;
+  }
+
+  .topbar {
+    grid-template-columns: minmax(160px, 1fr) auto;
+  }
+
+  .overview-command-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-context-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .main .view-state {
+    padding: 8px;
+  }
+
+  .topbar {
+    grid-template-columns: 1fr;
+    padding: 7px 8px;
+  }
+
+  .topbar-toggle {
+    width: 32px;
+    min-height: 32px;
+    border-radius: 6px;
+    background: #f3f3f5;
+    color: var(--ops-text);
+    border-color: var(--ops-line);
+  }
+
+  .topbar-toggle:hover {
+    background: #ebebee;
+    color: var(--ops-text);
+  }
+
+  .overview-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-hero-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .overview-operations__grid,
+  .overview-context-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .operations-metric {
+    min-height: 82px;
+  }
+}

@@ -1,11 +1,10 @@
 import { defineStore } from "pinia";
-import type { AlertLog, DailyChange } from "@amazon-monitor/shared";
+import type { AlertLog } from "@amazon-monitor/shared";
 import { alertApi } from "../api-alerts";
 
 export const useAlertStore = defineStore("alert", {
   state: () => ({
-    alerts: [] as AlertLog[],
-    changes: [] as DailyChange[],
+    alerts: [] as AlertLog[]
   }),
   getters: {
     pendingAlerts: (state) => state.alerts.filter((item) => item.status === "pending"),
@@ -14,9 +13,6 @@ export const useAlertStore = defineStore("alert", {
   actions: {
     async loadAlerts(date: string) {
       this.alerts = await alertApi.alerts(date);
-    },
-    async loadChanges(date: string) {
-      this.changes = await alertApi.changes(date);
     },
     async updateAlert(alert: AlertLog, status: AlertLog["status"], date: string) {
       if (!alert.id) return;

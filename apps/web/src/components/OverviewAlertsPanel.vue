@@ -17,10 +17,13 @@ const emit = defineEmits<Emits>();
 </script>
 
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>重点预警</h2>
-      <span>{{ pendingAlertsCount }} 条待处理</span>
+  <section class="panel alert-panel">
+    <div class="panel-head panel-head-split">
+      <div>
+        <h2>重点预警</h2>
+        <span>{{ pendingAlertsCount }} 条待处理</span>
+      </div>
+      <p class="panel-caption">把高风险项目单独拆出来，减少在信息列表里来回扫描的成本。</p>
     </div>
     <div v-if="highAlerts.length" class="alert-list">
       <article v-for="alert in highAlerts.slice(0, 8)" :key="alert.id" class="alert-row">

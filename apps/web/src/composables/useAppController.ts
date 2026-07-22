@@ -5,7 +5,6 @@ import type { CollectionFreshness, InsightEvent, QueueStats, WorkerStatus } from
 import { categoryApi } from "../api-categories";
 import { collectApi } from "../api-collect";
 import { useCategoryStore } from "../stores/category";
-import { useDashboardStore } from "../stores/dashboard";
 import { useInsightEventsStore } from "../stores/insightEvents";
 import { loadAppView, clearViewCache, type AppViewLoaders } from "./app-view-loader";
 import { useAuthGuard } from "./useAuthGuard";
@@ -18,11 +17,16 @@ import { useToast } from "./useToast";
 import { useKeywordChart } from "./useKeywordChart";
 import { useNotifications } from "./useNotifications";
 import { useDashboardData } from "./useDashboardData";
+import { useReportsStore } from "../stores/reports";
+import { useSessionStore } from "../stores/session";
 import { tabs, type TabKey } from "../constants/tabs";
 import type { InsightReportPeriod } from "../api-types";
 import { toErrorMessage } from "../utils/error-message";
+import { useOverviewWorkflowActions } from "./useOverviewWorkflowActions";
+import { useOverviewActivityStore } from "../stores/overviewActivity";
 
 export function useAppController() {
+  const session = useSessionStore();
   const { showToast } = useToast();
   const { setChartElement, renderKeywordChart, resizeKeywordChart, disposeKeywordChart } = useKeywordChart();
 
@@ -43,8 +47,12 @@ export function useAppController() {
   const adsLoading = ref(false);
   const reviewVocLoading = ref(false);
   const actionCenterLoading = ref(false);
+  const aiAgentsLoading = ref(false);
   const tasksLoading = ref(false);
+  const promotionsLoading = ref(false);
   const sopsLoading = ref(false);
+  const rulesLoading = ref(false);
+  const dataSourcesLoading = ref(false);
   const alertsLoading = ref(false);
   const reportsLoading = ref(false);
   const notificationsLoading = ref(false);
@@ -66,36 +74,49 @@ export function useAppController() {
     ads: adsLoading,
     "review-voc": reviewVocLoading,
     "action-center": actionCenterLoading,
+    "ai-agents": aiAgentsLoading,
     tasks: tasksLoading,
+    promotions: promotionsLoading,
     sops: sopsLoading,
+    rules: rulesLoading,
+    "data-sources": dataSourcesLoading,
     alerts: alertsLoading,
     reports: reportsLoading,
     notifications: notificationsLoading,
     logs: logsLoading,
   };
 
+  const activeViewLoading = computed(() => loadingMap[activeTab.value].value);
+  const viewErrorMessage = ref("");
+
   const loading = computed(() =>
     overviewLoading.value || categoriesLoading.value || keywordsLoading.value ||
-    competitorsLoading.value || productsLoading.value || inventoryLoading.value || profitLoading.value || listingHealthLoading.value || adsLoading.value || reviewVocLoading.value || actionCenterLoading.value || alertsLoading.value || reportsLoading.value ||
+    competitorsLoading.value || productsLoading.value || inventoryLoading.value || profitLoading.value || listingHealthLoading.value || adsLoading.value || reviewVocLoading.value || actionCenterLoading.value || aiAgentsLoading.value || promotionsLoading.value || rulesLoading.value || dataSourcesLoading.value || alertsLoading.value || reportsLoading.value ||
     notificationsLoading.value || logsLoading.value || collecting.value
   );
 
   const { actionMessage, errorMessage, setAction, setError, clearMessages } = useStatusMessages({ showToast });
   const activeTabLabel = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.label ?? "总览");
 
-  const dashboard = useDashboardData(date, reportPeriod);
-  const dashboardStore = useDashboardStore();
-  const { collectJobs } = storeToRefs(dashboardStore);
-
+  const dashboard = useDashboardData(date);
+  const overviewWorkflow = useOverviewWorkflowActions({
+    date,
+    loadSummary: dashboard.loadSummary,
+    setAction,
+    setError
+  });
+  const reportsStore = useReportsStore();
+  const reports = storeToRefs(reportsStore);
   const categoryStore = useCategoryStore();
   const insightEventsStore = useInsightEventsStore();
+  const overviewActivityStore = useOverviewActivityStore();
   const insightEventRefs = storeToRefs(insightEventsStore);
   const { categories: categoryMonitors, selectedCategoryId } = storeToRefs(categoryStore);
 
   const category = useCategoryIntelligence({
     date,
     collecting,
-    categoryReport: dashboard.categoryReport,
+    categoryReport: reports.categoryReport,
     setAction,
     setError,
     refreshCollectionStatus
@@ -120,7 +141,9 @@ export function useAppController() {
     overview: async (signal?: AbortSignal) => {
       await Promise.all([
         keywords.setKeywords(await dashboard.loadOverview()),
-        insightEventsStore.loadTopSummary(date.value, signal)
+        insightEventsStore.loadTopSummary(date.value, signal),
+        overviewActivityStore.load(date.value, signal),
+        reportsStore.loadArchive(date.value, signal)
       ]);
     },
     categories: category.loadCategories,
@@ -157,25 +180,41 @@ export function useAppController() {
         insightEventsStore.loadWatchStates(signal)
       ]);
     },
+    "ai-agents": async () => {
+      const { useAiRunsStore } = await import("../stores/aiRuns.js");
+      await useAiRunsStore().fetchRuns();
+    },
     tasks: async () => {
       const { useTaskStore } = await import("../stores/tasks.js");
       await useTaskStore().fetchTasks();
+    },
+    promotions: async (signal?: AbortSignal) => {
+      const { usePromotionStore } = await import("../stores/promotions.js");
+      await usePromotionStore().fetchWorkspace(date.value, signal);
     },
     sops: async () => {
       const { useSopStore } = await import("../stores/sops.js");
       await useSopStore().fetchSops();
     },
+    rules: async () => {
+      const { useRulesStore } = await import("../stores/rules.js");
+      await useRulesStore().fetchRules();
+    },
+    "data-sources": async () => {
+      const { useDataSourcesStore } = await import("../stores/dataSources.js");
+      await useDataSourcesStore().fetchSources();
+    },
     alerts: dashboard.loadAlerts,
-    reports: dashboard.loadReport,
+    reports: (signal?: AbortSignal) => reportsStore.loadWorkspace(date.value, reportPeriod.value, signal),
     notifications: notifications.loadNotifications,
     logs: async () => {
-      await Promise.all([dashboard.loadLogs(), dashboardStore.loadCollectJobs()]);
+      const { useCollectorsStore } = await import("../stores/collectors.js");
+      await useCollectorsStore().fetchCenter();
     }
   };
 
   async function loadAll() {
     clearViewCache();
-    await Promise.all([loadFreshness(), loadQueueStats(), loadWorkerStatus()]);
     await loadCurrentView(true);
   }
 
@@ -200,9 +239,13 @@ export function useAppController() {
     loadSignalController?.abort();
     const controller = new AbortController();
     loadSignalController = controller;
+    for (const viewLoading of Object.values(loadingMap)) {
+      viewLoading.value = false;
+    }
     const tabLoading = loadingMap[activeTab.value];
     tabLoading.value = true;
     errorMessage.value = "";
+    viewErrorMessage.value = "";
 
     try {
       await Promise.all([
@@ -214,12 +257,18 @@ export function useAppController() {
     } catch (error) {
       // Swallow AbortError — the next load supersedes this one intentionally.
       if (error instanceof DOMException && error.name === "AbortError") return;
-      errorMessage.value = toErrorMessage(error);
+      const message = toErrorMessage(error);
+      errorMessage.value = message;
+      viewErrorMessage.value = message;
     } finally {
       if (loadSignalController === controller) {
         tabLoading.value = false;
       }
     }
+  }
+
+  function retryCurrentView(): Promise<void> {
+    return loadCurrentView(true);
   }
 
   /**
@@ -248,10 +297,13 @@ export function useAppController() {
 
     reportsLoading.value = true;
     errorMessage.value = "";
+    viewErrorMessage.value = "";
     try {
-      await dashboard.loadPeriodInsightReport(false);
+      await reportsStore.loadPeriodWorkspace(date.value, reportPeriod.value);
     } catch (error) {
-      errorMessage.value = toErrorMessage(error);
+      const message = toErrorMessage(error);
+      errorMessage.value = message;
+      viewErrorMessage.value = message;
     } finally {
       reportsLoading.value = false;
     }
@@ -298,6 +350,15 @@ export function useAppController() {
     }
   }
 
+  async function restartWorker() {
+    try {
+      await collectApi.restartWorker();
+      await loadWorkerStatus();
+    } catch (error) {
+      setError(toErrorMessage(error));
+    }
+  }
+
   async function refreshCollectionStatus() {
     await Promise.all([loadQueueStats(), loadWorkerStatus()]);
   }
@@ -327,6 +388,7 @@ export function useAppController() {
   const { showAuthModal, mode, usernameInput, passwordInput, authError, handleUnauthorized, handleAuthSubmit, switchMode } = useAuthGuard(loadCurrentView);
 
   useAppViewEffects({
+    canLoad: () => session.isAuthenticated,
     activeTab,
     date,
     categoriesLoading,
@@ -355,23 +417,28 @@ export function useAppController() {
     date,
     reportPeriod,
     loading,
+    activeViewLoading,
+    viewErrorMessage,
     collecting,
     freshness,
     queueStats,
     workerStatus,
-    collectJobs,
     loadFreshness,
     loadQueueStats,
     loadWorkerStatus,
+    restartWorker,
     actionMessage,
     errorMessage,
     activeTabLabel,
     ...dashboard,
+    loadPeriodInsightReport: (includeAiSummary = false) =>
+      reportsStore.loadPeriodInsightReport(date.value, reportPeriod.value, includeAiSummary),
     setReportPeriod,
     topSummary: insightEventRefs.topSummary,
     topSummaryLoading: insightEventRefs.topSummaryLoading,
     dailyBrief: insightEventRefs.dailyBrief,
     dailyBriefLoading: insightEventRefs.dailyBriefLoading,
+    ...overviewWorkflow,
     generateDailyBrief,
     openActionCenterForEvent,
     categories: categoryMonitors,
@@ -384,6 +451,7 @@ export function useAppController() {
     ...keywords,
     ...notifications,
     loadAll,
+    retryCurrentView,
     toggleSidebar,
     closeSidebar,
     handleOverviewSelectKeyword,

@@ -14,6 +14,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2026-07-22
+
+### Added
+
+#### 多租户组织隔离 (Organization Scope)
+- **运营数据按 org 隔离**：类目 / 关键词 / 竞品 / 通知 / 运营表补齐 `org_id` 迁移（`store/*-organization-migration*`、`operational-scope-migrations.ts`），历史数据回填到默认组织。
+- **路由级隔离测试**：`routes/*-organization-scope.test.ts` 覆盖跨组织读写拒绝路径，防止会话串数据。
+
+#### 规则中心 (Rules Center)
+- **`alert_rule_configs` + 运行时**：`store/rule-store.ts` + `schema/rule-schema.ts` + `services/rule-runtime-service.ts` —— 10 条 PRD P0 规则可启停、改阈值、冷却，并生成标准 Insight Event。
+- **可运行规则集**：核心词掉页、低库存、ACOS 超标、评分下降、差评聚集、Listing 健康等（`rule-runtime-owned-evaluators.ts`）。
+- **API / 页面**：`/api/rules` + `/api/rules/run` + `RulesView.vue` + `stores/rules.ts`。
+
+#### 数据源中心 (Data Sources)
+- **连接与同步台账**：`data_source_configs` / `data_source_sync_runs`（`store/data-source-store.ts`）支持 SP-API / Ads API / 公开采集 / CSV / ERP·WMS / 手工六类数据源。
+- **CSV/XLSX 导入编排**：`services/data-source-*-import.ts` + `data-source-import-runner.ts` —— 自营日指标、Ads 报表、利润成本、库存假设事务化导入，行级错误 + partial 成功。
+- **API / 页面**：`/api/data-sources` + `DataSourcesView.vue` + `stores/dataSources.ts`。
+
+#### 活动排期 (Promotions)
+- **`promotion_plans`**：`store/promotion-store.ts` + `types-promotions.ts` —— 多店铺/SKU 活动时间线，派生 `preparation_due` / `active` / `review_due` 等监控态。
+- **准备/复盘任务联动**：`POST /api/promotions/:id/tasks` 幂等挂接 workflow task。
+- **页面**：`PromotionsView.vue` + `stores/promotions.ts`。
+
+#### 采集中心 (Collectors)
+- **采集运维 API**：`routes/collectors.ts` —— `/api/collectors/run|jobs|logs|freshness|queue-stats|worker-status`。
+- **快照溯源**：`snapshot-provenance-migrations.ts` + `collection-provenance.ts` —— SERP/BSR 快照补齐 `data_source` / `last_synced_at` / `sync_status`。
+- **新鲜度聚合**：`store/collection-freshness-store.ts` + 前端 `CollectorsView.vue` / `stores/collectors.ts`。
+
+#### 店铺账号 (Commerce Stores)
+- **组织级店铺主数据**：`commerce_stores`（`store/commerce-store-store.ts` + `types-stores.ts`）记录站点、Seller ID、授权状态与启停。
+- **API / 嵌入面板**：`/api/stores` + 数据源页 `StoreAccountsPanel`，SKU 可按店铺归属筛选。
+
+#### 报告工作台归档 (Reports Archive)
+- **日报 / 周报 / 月报归档**：`workflow_daily_reports` / `workflow_period_reports`（`store/report-store.ts` + `schema/report-schema.ts`），版本化 Markdown + 覆盖度状态。
+- **工作流报告生成**：`reports/daily-workflow-report.ts` / `period-workflow-report.ts` + readiness 缺口归因（`daily-report-readiness.ts`）。
+- **PDF 交付**：`reports/report-pdf.ts`（Playwright 打印）+ 前端归档面板（`DailyReportArchivePanel` / `PeriodReportArchivePanel`）。
+
+#### AI Agent 矩阵补齐
+- **Product Research**：`POST /api/ai/research-product`（`product-research-agent-service.ts`）—— 类目榜单 + 品牌矩阵切入窗口，候选 ASIN 人工确认入池。
+- **Competitor Analyst**：`POST /api/ai/analyze-competitor`（`competitor-agent-service.ts`）—— 事件驱动竞品研判。
+- **Report Writer**：`POST /api/ai/create-report`（`report-writer-agent-service.ts`）—— 日报/周报/月报 Markdown + 审批动作摘要。
+- **统一策略**：`services/ai-agent-policy.ts` —— 置信度门槛、强制 `needs_human_approval`、禁止低置信度产出 P0。
+- **Agent 中心 UI**：`AiAgentsView.vue` + `stores/aiRuns.ts`，运行历史 / 证据 / 失败原因 / 审批动作转任务 + 点赞点踩反馈。
+
+#### 任务闭环增强
+- **库存 / 利润计划转任务**：`inventory-task-service.ts` / `profit-action-task-service.ts`，证据绑定 + 幂等 sourceId。
+- **执行清单导出**：`task-execution-export.ts` —— 已确认任务 CSV。
+- **前端任务工作台**：`composables/useTaskWorkspace.ts` + `components/tasks/*`。
+
+#### 洞察与共享计算
+- **快照 Diff 事件**：`insights/listing-diff.ts` / `keyword-snapshot-diff-generator.ts` / `snapshot-diff-events.ts`。
+- **Shared 计算模块**：`keyword-rank-matrix`、`category-diff`、`asin-dual-score`、`category-daily-kpis`、`competitor-daily-kpis`、`profit-actions` 及对应 types。
+
+#### 前端经营工作台
+- **今日经营概览**：多币种 SKU KPI 聚合、P0/P1 行动条、活动流（`OverviewOperationsPanel` / `OverviewActivityFeed` / `stores/overviewActivity.ts`）。
+- **写权限门禁**：`composables/useWriteAccess.ts` + `ReadOnlyNotice.vue`，按角色 capability 控制写操作。
+- **竞品趋势 / 类目 Diff / Product Research 面板**：`CompetitorTrendPanel`、`CategoryDiffPanel`、`ProductResearchAgentPanel`。
+
+### Changed
+
+- **README 经营中心表**扩展到规则 / 任务 / 活动 / 数据源 / 采集 / 日报周月报归档等支柱，Agent 矩阵文档化为 7 个确定性 Agent。
+- **Tauri 桌面壳版本**从滞后的 `0.4.0` 对齐到 monorepo `0.6.0`（`src-tauri/tauri.conf.json` + `Cargo.toml`）。
+- **Windows 开发脚本**：新增 `scripts/start-dev.ps1` / `stop-dev.ps1`。
+
+### Fixed
+
+- **跨组织数据边界**：遗留 monitor / snapshot / notification / daily_report 无 `org_id` 导致的串租户风险，由迁移 + 路由测试兜底。
+- **Agent 低置信度 P0**：统一策略层降级为 P1，避免无证据自动抬优先级。
+
+### Tests
+
+- 新增约 60 个测试文件，覆盖组织隔离迁移与路由、规则运行时、数据源导入、活动排期、采集中心、报告 PDF/归档、Agent policy、任务导出与大量前端 util/store 用例。
+- 既有 40+ 测试文件同步适配 org scope 与新契约。
+
+### Documentation
+
+- README 顶部版本徽章更新至 **v0.6.0**（2026-07-22）。
+- 设计参考：`docs/design/` / `docs/design-references/` 补充运营工作台 UI 草案。
+
+---
+
 ## [0.5.0] - 2026-07-08
 
 ### Added

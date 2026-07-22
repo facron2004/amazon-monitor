@@ -55,14 +55,15 @@ const periodDays: Record<InsightReportPeriod, number> = {
 
 export function buildPeriodInsightReport(
   store: Store,
-  input: { endDate: string; period: InsightReportPeriod }
+  input: { endDate: string; period: InsightReportPeriod; orgId?: number }
 ): PeriodInsightReport {
+  const orgId = input.orgId ?? 1;
   const days = periodDays[input.period];
   const dates = dateWindow(input.endDate, days);
   const startDate = dates[0] ?? input.endDate;
-  const insightEvents = uniqueById(dates.flatMap((date) => store.listInsightEvents({ date, limit: 1000 })));
-  const candidates = uniqueById([...insightEvents, ...store.listInsightEvents({ limit: 1000 })]);
-  const reviewDueEvents = store.listReviewDueEvents(input.endDate, { limit: 1000 });
+  const insightEvents = uniqueById(dates.flatMap((date) => store.listInsightEvents({ orgId, date, limit: 1000 })));
+  const candidates = uniqueById([...insightEvents, ...store.listInsightEvents({ orgId, limit: 1000 })]);
+  const reviewDueEvents = store.listReviewDueEvents(input.endDate, { orgId, limit: 1000 });
   const reviewedEvents = candidates
     .filter(
       (event) => event.reviewResult !== null && event.updatedAt.slice(0, 10) >= startDate && event.updatedAt.slice(0, 10) <= input.endDate

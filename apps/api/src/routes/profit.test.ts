@@ -19,6 +19,14 @@ async function loginAsAdmin(): Promise<string> {
   return response.body.token as string;
 }
 
+async function loginAs(username: string, password: string): Promise<string> {
+  const response = await request(app)
+    .post("/api/auth/login")
+    .send({ username, password })
+    .expect(200);
+  return response.body.token as string;
+}
+
 beforeEach(async () => {
   db = new DatabaseSync(":memory:");
   initSchema(db);
@@ -112,9 +120,140 @@ describe("profit routes", () => {
       .set("x-amazon-monitor-session", token)
       .expect(200);
     expect(detail.body.scenarios).toHaveLength(4);
+
+    const taskResponse = await request(app)
+      .post(`/api/products/${productId}/profit-plan/task`)
+      .set("x-amazon-monitor-session", token)
+      .send({ date: "2026-07-08", actionKind: "target_margin" })
+      .expect(201);
+    expect(taskResponse.body).toMatchObject({
+      created: true,
+      option: {
+        kind: "target_margin",
+        price: 234.62,
+        marginRate: 0.3,
+        safe: true
+      },
+      task: {
+        sourceType: "rule",
+        sourceId: `profit-plan:${productId}:2026-07-08:target_margin`,
+        title: "价格调整评审：ICE-PROFIT-001 · 目标毛利价",
+        taskType: "price",
+        priority: "P1",
+        dueDate: "2026-07-08"
+      }
+    });
+    expect(taskResponse.body.task.description).toContain("竞品证据缺口");
+    expect(taskResponse.body.task.description).toContain("不会自动改价");
+
+    const repeated = await request(app)
+      .post(`/api/products/${productId}/profit-plan/task`)
+      .set("x-amazon-monitor-session", token)
+      .send({ date: "2026-07-08", actionKind: "target_margin" })
+      .expect(200);
+    expect(repeated.body).toMatchObject({
+      created: false,
+      task: { id: taskResponse.body.task.id }
+    });
+
+    await request(app)
+      .post(`/api/products/${productId}/profit-plan/task`)
+      .set("x-amazon-monitor-session", token)
+      .send({ date: "2026-07-08", actionKind: "coupon_15" })
+      .expect(409);
   });
 
   it("requires authentication for profit plans", async () => {
     await request(app).get("/api/profit/plans").expect(401);
+  });
+
+  it("returns summary profit data to partial roles and reserves costs for managers", async () => {
+    await request(app)
+      .post(`/api/products/${productId}/metrics`)
+      .set("x-amazon-monitor-session", token)
+      .send({ date: "2026-07-08", salesAmount: 2200, unitsSold: 10, adSpend: 100, tacos: 0.045 })
+      .expect(201);
+    await request(app)
+      .post(`/api/products/${productId}/profit-setting`)
+      .set("x-amazon-monitor-session", token)
+      .send({
+        purchaseCost: 80,
+        inboundFreight: 10,
+        fbaFee: 20,
+        referralFeeRate: 0.15,
+        storageFee: 2,
+        returnLossRate: 0.03,
+        targetMarginRate: 0.3,
+        minimumMarginRate: 0.2,
+        dealFee: 5
+      })
+      .expect(201);
+
+    store.createUser({ orgId: 1, username: "profit-operator", password: "Operator123!", role: "operator" });
+    store.createUser({ orgId: 1, username: "profit-manager", password: "Manager123!", role: "manager" });
+    store.createUser({ orgId: 1, username: "profit-ads", password: "AdsOperator123!", role: "ads_operator" });
+    const operatorToken = await loginAs("profit-operator", "Operator123!");
+    const managerToken = await loginAs("profit-manager", "Manager123!");
+    const adsToken = await loginAs("profit-ads", "AdsOperator123!");
+
+    const summary = await request(app)
+      .get("/api/profit/plans?date=2026-07-08")
+      .set("x-amazon-monitor-session", operatorToken)
+      .expect(200);
+    expect(summary.body[0]).toMatchObject({
+      setting: null,
+      latestMetric: null,
+      salesAmount: null,
+      unitsSold: null,
+      adSpend: null,
+      adCostPerUnit: null,
+      tacos: null,
+      minimumSafePrice: 196.77
+    });
+    expect(summary.body[0].scenarios[0]).toMatchObject({
+      marginRate: 0.2655,
+      productCost: null,
+      platformFees: null,
+      adCost: null,
+      netProfit: null,
+      profitPerUnit: null
+    });
+    await request(app)
+      .post(`/api/products/${productId}/profit-plan/task`)
+      .set("x-amazon-monitor-session", operatorToken)
+      .send({ date: "2026-07-08", actionKind: "target_margin" })
+      .expect(201);
+    await request(app)
+      .post(`/api/products/${productId}/profit-setting`)
+      .set("x-amazon-monitor-session", operatorToken)
+      .send({ minimumMarginRate: 0.18 })
+      .expect(403);
+
+    const full = await request(app)
+      .get(`/api/products/${productId}/profit-plan?date=2026-07-08`)
+      .set("x-amazon-monitor-session", managerToken)
+      .expect(200);
+    expect(full.body.setting).toMatchObject({ purchaseCost: 80, fbaFee: 20 });
+    expect(full.body.scenarios[0]).toMatchObject({ productCost: 112, adCost: 10 });
+    await request(app)
+      .post(`/api/products/${productId}/profit-setting`)
+      .set("x-amazon-monitor-session", managerToken)
+      .send({
+        purchaseCost: 80,
+        inboundFreight: 10,
+        fbaFee: 20,
+        referralFeeRate: 0.15,
+        storageFee: 2,
+        returnLossRate: 0.03,
+        targetMarginRate: 0.3,
+        minimumMarginRate: 0.18,
+        dealFee: 5
+      })
+      .expect(201);
+
+    await request(app)
+      .get("/api/profit/plans")
+      .set("x-amazon-monitor-session", adsToken)
+      .expect(403);
   });
 });

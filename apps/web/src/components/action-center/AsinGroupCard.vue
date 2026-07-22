@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { AlertTriangle, Eye, PackageSearch } from "@lucide/vue";
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, PackageSearch, Star } from "@lucide/vue";
 import { ElButton, ElTag } from "element-plus";
 import {
   insightEventTypeLabels,
-  type InsightEvent
+  type AsinWatchLevel,
+  type InsightEvent,
+  type InsightEventStatus
 } from "@amazon-monitor/shared";
 import type { AsinGroupedView } from "../../stores/insightEvents";
+import { useWriteAccess } from "../../composables/useWriteAccess";
 import InsightScoreBadge from "./InsightScoreBadge.vue";
 import AttributionTags from "./AttributionTags.vue";
 import StrategyTags from "./StrategyTags.vue";
@@ -19,7 +22,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: "select", value: InsightEvent): void;
   (event: "toggle-expand", asin: string): void;
+  (event: "watch-state", insight: InsightEvent, level: AsinWatchLevel): void;
+  (event: "status", id: string, status: InsightEventStatus): void;
 }>();
+
+const { canWrite } = useWriteAccess();
 
 const eventCount = computed(() => props.group.events.length);
 const triggeredTypes = computed(() => {
@@ -69,6 +76,39 @@ function watchTagType(): "danger" | "warning" | "info" {
   if (props.group.watchLevel === "POTENTIAL") return "warning";
   return "info";
 }
+
+const dualScoreTitle = computed(() => {
+  const opportunity = props.group.opportunityReasons.join(" / ") || "暂无机会解释";
+  const risk = props.group.riskReasons.join(" / ") || "暂无风险解释";
+  return `机会分 ${props.group.opportunityScore}：${opportunity}；风险分 ${props.group.riskScore}：${risk}`;
+});
+
+function stopAnd(event: Event, action: () => void): void {
+  event.stopPropagation();
+  action();
+}
+
+function markCore(event: Event): void {
+  stopAnd(event, () => emit("watch-state", props.group.representative, "CORE"));
+}
+
+function markWatch(event: Event): void {
+  stopAnd(event, () => {
+    emit("watch-state", props.group.representative, "POTENTIAL");
+    emit("status", props.group.representative.id, "WATCHING");
+  });
+}
+
+function markHandled(event: Event): void {
+  stopAnd(event, () => emit("status", props.group.representative.id, "FOLLOWED"));
+}
+
+function markIgnored(event: Event): void {
+  stopAnd(event, () => {
+    emit("watch-state", props.group.representative, "IGNORED");
+    emit("status", props.group.representative.id, "IGNORED");
+  });
+}
 </script>
 
 <template>
@@ -91,6 +131,10 @@ function watchTagType(): "danger" | "warning" | "info" {
         </div>
         <h4>{{ group.representative.brand || "未知品牌" }} / {{ group.asin }}</h4>
         <p>{{ rankSummary }}</p>
+        <div class="asin-dual-scores" :title="dualScoreTitle">
+          <span class="score-pill is-opportunity">机会 {{ group.opportunityScore }}</span>
+          <span class="score-pill is-risk">风险 {{ group.riskScore }}</span>
+        </div>
       </div>
       <div class="asin-card-side">
         <span v-if="eventCount > 1" class="more-pill">
@@ -100,6 +144,25 @@ function watchTagType(): "danger" | "warning" | "info" {
         <span class="toggle-hint">{{ expanded ? "收起" : "展开" }}</span>
       </div>
     </header>
+
+    <div class="asin-quick-actions" @click.stop>
+      <ElButton size="small" plain :disabled="!canWrite || group.watchLevel === 'CORE'" @click="markCore">
+        <Star :size="13" />
+        <span>加入核心竞品</span>
+      </ElButton>
+      <ElButton size="small" plain :disabled="!canWrite" @click="markWatch">
+        <Eye :size="13" />
+        <span>加入观察池</span>
+      </ElButton>
+      <ElButton size="small" plain :disabled="!canWrite" @click="markHandled">
+        <CheckCircle2 :size="13" />
+        <span>标记已处理</span>
+      </ElButton>
+      <ElButton size="small" plain :disabled="!canWrite" @click="markIgnored">
+        <EyeOff :size="13" />
+        <span>忽略</span>
+      </ElButton>
+    </div>
 
     <section v-if="expanded" class="asin-card-body">
       <div class="trigger-list">
@@ -217,6 +280,36 @@ function watchTagType(): "danger" | "warning" | "info" {
   color: #475569;
   font-size: 12px;
   margin: 0;
+}
+
+.asin-dual-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.score-pill {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.score-pill.is-opportunity {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.score-pill.is-risk {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.asin-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .asin-card-side {

@@ -2,21 +2,22 @@
 import { computed } from "vue";
 import { AlertTriangle, CheckCircle2, Clock4 } from "@lucide/vue";
 import type { CollectionFreshness } from "@amazon-monitor/shared";
+import {
+  snapshotDataSourceLabel,
+  snapshotSyncStatusLabel
+} from "../utils/snapshotProvenance";
 
-interface Props {
+type Severity = "fresh" | "aging" | "stale" | "failed" | "empty";
+
+const props = defineProps<{
   freshness: CollectionFreshness[];
-}
-
-const props = defineProps<Props>();
-
-const keywordFreshness = computed(() => props.freshness.find((item) => item.taskType === "keyword") ?? null);
-const categoryFreshness = computed(() => props.freshness.find((item) => item.taskType === "category") ?? null);
+}>();
 
 function ageHours(iso: string | null): number | null {
   if (!iso) return null;
   const ms = Date.now() - new Date(iso).getTime();
   if (Number.isNaN(ms)) return null;
-  return Math.max(0, ms / (1000 * 60 * 60));
+  return Math.max(0, ms / 3_600_000);
 }
 
 function ageLabel(iso: string | null): string {
@@ -27,53 +28,79 @@ function ageLabel(iso: string | null): string {
   return `${Math.round(hours / 24)} 天前`;
 }
 
-type Severity = "fresh" | "aging" | "stale" | "failed" | "empty";
+function evidenceTime(item: CollectionFreshness | null): string | null {
+  return item?.lastSyncedAt ?? item?.lastCompletedAt ?? null;
+}
 
 function severity(item: CollectionFreshness | null, staleHours: number): Severity {
-  if (!item) return "empty";
-  if (item.lastStatus === "failed") return "failed";
-  if (item.lastCompletedAt === null) return "empty";
-  const age = ageHours(item.lastCompletedAt) ?? 0;
+  if (!item || !evidenceTime(item)) return "empty";
+  if (item.syncStatus === "failed" || item.lastStatus === "failed") return "failed";
+  const age = ageHours(evidenceTime(item)) ?? 0;
   if (age < staleHours / 2) return "fresh";
   if (age < staleHours) return "aging";
   return "stale";
 }
 
-const KEYWORD_STALE_HOURS = 48; // 关键词数据两天未更新 = 过期
-const CATEGORY_STALE_HOURS = 12; // 类目数据 12 小时未更新 = 过期
-
-const keywordSeverity = computed(() => severity(keywordFreshness.value, KEYWORD_STALE_HOURS));
-const categorySeverity = computed(() => severity(categoryFreshness.value, CATEGORY_STALE_HOURS));
-
-function iconFor(sev: Severity) {
-  if (sev === "failed" || sev === "stale") return AlertTriangle;
-  if (sev === "empty") return Clock4;
+function iconFor(value: Severity) {
+  if (value === "failed" || value === "stale") return AlertTriangle;
+  if (value === "empty") return Clock4;
   return CheckCircle2;
 }
 
-function tooltipFor(sev: Severity, item: CollectionFreshness | null): string {
-  if (!item || !item.lastCompletedAt) return "尚无完成记录";
-  if (sev === "failed") return `最近一次采集失败（${item.failedJobs} 次失败）`;
-  if (sev === "stale") return "数据已过期，建议触发采集";
-  if (sev === "aging") return "数据稍旧，下次采集前请谨慎参考";
-  return "数据新鲜";
+function details(entry: FreshnessEntry): string {
+  const item = entry.item;
+  if (!item) return `${entry.label}：暂无采集记录`;
+  const parts = [
+    `${entry.label}数据`,
+    `来源：${snapshotDataSourceLabel(item.dataSource)}`,
+    `状态：${snapshotSyncStatusLabel(item.syncStatus)}`,
+    `更新时间：${item.lastSyncedAt ?? item.lastCompletedAt ?? "暂无"}`
+  ];
+  if (item.syncError) parts.push(`失败原因：${item.syncError}`);
+  return parts.join("；");
+}
+
+interface FreshnessEntry {
+  kind: CollectionFreshness["taskType"];
+  label: string;
+  item: CollectionFreshness | null;
+  severity: Severity;
+}
+
+const entries = computed<FreshnessEntry[]>(() => [
+  buildEntry("keyword", "关键词", 72),
+  buildEntry("category", "类目", 12)
+]);
+
+function buildEntry(
+  kind: CollectionFreshness["taskType"],
+  label: string,
+  staleHours: number
+): FreshnessEntry {
+  const item = props.freshness.find((candidate) => candidate.taskType === kind) ?? null;
+  return { kind, label, item, severity: severity(item, staleHours) };
 }
 </script>
 
 <template>
-  <div class="freshness-bar">
+  <div class="freshness-bar" aria-label="数据新鲜度">
     <span
-      v-for="entry in [
-        { label: '关键词', severity: keywordSeverity, item: keywordFreshness },
-        { label: '类目', severity: categorySeverity, item: categoryFreshness }
-      ]"
-      :key="entry.label"
+      v-for="entry in entries"
+      :key="entry.kind"
       :class="['freshness-chip', `is-${entry.severity}`]"
-      :title="tooltipFor(entry.severity, entry.item)"
+      :title="details(entry)"
+      :aria-label="details(entry)"
+      role="status"
+      tabindex="0"
     >
-      <component :is="iconFor(entry.severity)" :size="13" />
-      <span class="freshness-label">{{ entry.label }}</span>
-      <span class="freshness-age">{{ ageLabel(entry.item?.lastCompletedAt ?? null) }}</span>
+      <component :is="iconFor(entry.severity)" class="freshness-icon" :size="13" />
+      <span class="freshness-identity">
+        <strong>{{ entry.label }}</strong>
+        <span class="freshness-status">{{ snapshotSyncStatusLabel(entry.item?.syncStatus) }}</span>
+      </span>
+      <small class="freshness-meta">
+        {{ snapshotDataSourceLabel(entry.item?.dataSource) }} · {{ ageLabel(evidenceTime(entry.item)) }}
+      </small>
     </span>
   </div>
 </template>
@@ -81,54 +108,95 @@ function tooltipFor(sev: Severity, item: CollectionFreshness | null): string {
 <style scoped>
 .freshness-bar {
   align-items: center;
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 .freshness-chip {
   align-items: center;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 6px;
   display: inline-flex;
-  font-size: 12px;
-  gap: 4px;
-  padding: 3px 10px;
+  font-size: 11px;
+  gap: 5px;
+  line-height: 1;
+  min-height: 28px;
+  padding: 0 8px;
   white-space: nowrap;
 }
 
-.freshness-label {
-  font-weight: 600;
-  letter-spacing: 0.02em;
+.freshness-chip:focus-visible {
+  outline: 2px solid #0a84ff;
+  outline-offset: 2px;
 }
 
-.freshness-age {
-  color: inherit;
-  opacity: 0.85;
+.freshness-identity {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.freshness-meta {
+  font-size: inherit;
+  opacity: 0.72;
+}
+
+.freshness-status {
+  font-weight: 600;
 }
 
 .is-fresh {
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-  color: #047857;
+  background: #eefaf2;
+  border-color: rgba(22, 163, 74, 0.2);
+  color: #166534;
 }
 
 .is-aging {
-  background: #fefce8;
-  border-color: #fde047;
+  background: #fff8e5;
+  border-color: rgba(202, 138, 4, 0.2);
   color: #713f12;
 }
 
 .is-stale,
 .is-failed {
-  background: #fee2e2;
-  border-color: #fecaca;
-  color: #b91c1c;
+  background: #fef2f2;
+  border-color: rgba(220, 38, 38, 0.18);
+  color: #991b1b;
 }
 
 .is-empty {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #475569;
+  background: #f2f2f7;
+  border-color: rgba(29, 29, 31, 0.08);
+  color: #515154;
+}
+
+@media (max-width: 760px) {
+  .freshness-bar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .freshness-chip {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    min-height: 42px;
+    padding-block: 5px;
+  }
+
+  .freshness-icon {
+    grid-row: 1 / 3;
+  }
+
+  .freshness-identity,
+  .freshness-meta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 </style>

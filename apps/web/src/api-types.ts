@@ -4,6 +4,7 @@ import type {
   BrandMatrixSnapshot,
   BsrSnapshotQuality,
   BsrSourceType,
+  CategoryDailyKpiSnapshot,
   CategoryMonitor,
   CategorySignalLog,
   NotificationSendLog,
@@ -12,9 +13,12 @@ import type {
   InsightReviewResult,
   KeywordMonitor,
   SerpSnapshot,
-  StrategyTag
+  StrategyTag,
 } from "@amazon-monitor/shared";
-import type { CompetitorSourceFilter, CompetitorTierFilter } from "./constants/competitors";
+import type {
+  CompetitorSourceFilter,
+  CompetitorTierFilter,
+} from "./constants/competitors";
 
 export interface KeywordDetail {
   keyword: KeywordMonitor | null;
@@ -35,6 +39,7 @@ export interface CategoryDetail {
   brandMatrix: BrandMatrixSnapshot[];
   signals: CategorySignalLog[];
   report: string;
+  yesterdayKpiSnapshot: CategoryDailyKpiSnapshot | null;
 }
 
 export interface CategoryReportResponse {

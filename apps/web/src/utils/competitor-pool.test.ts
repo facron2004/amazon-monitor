@@ -41,7 +41,8 @@ function makeCompetitor(overrides: Partial<CompetitorPoolItem> = {}): Competitor
     status: "active",
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-05T00:00:00.000Z",
-    ...overrides
+    ...overrides,
+    orgId: overrides.orgId ?? 1
   };
 }
 
@@ -55,7 +56,8 @@ function makeWatchState(overrides: Partial<AsinWatchState> = {}): AsinWatchState
     note: null,
     createdAt: "2026-07-05T00:00:00.000Z",
     updatedAt: "2026-07-05T00:00:00.000Z",
-    ...overrides
+    ...overrides,
+    orgId: overrides.orgId ?? 1
   };
 }
 

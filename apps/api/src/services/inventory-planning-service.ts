@@ -30,15 +30,26 @@ export function buildInventoryReplenishmentPlan(input: {
   date?: string;
 }): InventoryReplenishmentPlan {
   const latestMetric = input.metrics[0] ?? null;
-  const leadTimeDays = input.setting?.leadTimeDays ?? DEFAULT_LEAD_TIME_DAYS;
+  const productionLeadTimeDays = input.setting?.productionLeadTimeDays ?? null;
+  const inboundLeadTimeDays = input.setting?.inboundLeadTimeDays ?? null;
+  const leadTimeDays = productionLeadTimeDays !== null || inboundLeadTimeDays !== null
+    ? (productionLeadTimeDays ?? 0) + (inboundLeadTimeDays ?? 0)
+    : input.setting?.leadTimeDays ?? DEFAULT_LEAD_TIME_DAYS;
   const safetyStockDays = input.setting?.safetyStockDays ?? DEFAULT_SAFETY_STOCK_DAYS;
   const targetStockDays = input.setting?.targetStockDays ?? DEFAULT_TARGET_STOCK_DAYS;
   const dailySalesVelocity = inferDailyVelocity(input.metrics, latestMetric);
+  const salesVelocity7d = averageSalesVelocity(input.metrics, 7);
+  const salesVelocity30d = averageSalesVelocity(input.metrics, 30);
   const inventoryAvailable = latestMetric?.inventoryAvailable ?? null;
+  const inTransitUnits = input.setting?.inTransitUnits ?? 0;
+  const localWarehouseUnits = input.setting?.localWarehouseUnits ?? 0;
+  const supplyPositionUnits = inventoryAvailable === null && inTransitUnits === 0 && localWarehouseUnits === 0
+    ? null
+    : (inventoryAvailable ?? 0) + inTransitUnits + localWarehouseUnits;
   const inventoryDays = latestMetric?.inventoryDays ?? inferInventoryDays(inventoryAvailable, dailySalesVelocity);
   const reorderPointUnits = input.setting?.reorderPointUnits ?? inferReorderPoint(dailySalesVelocity, leadTimeDays, safetyStockDays);
   const recommendedOrderQuantity = recommendOrderQuantity({
-    inventoryAvailable,
+    supplyPositionUnits,
     dailySalesVelocity,
     targetStockDays,
     minOrderQuantity: input.setting?.minOrderQuantity ?? null,
@@ -49,7 +60,7 @@ export function buildInventoryReplenishmentPlan(input: {
   const issues = buildIssues({
     latestMetric,
     inventoryDays,
-    inventoryAvailable,
+    supplyPositionUnits,
     dailySalesVelocity,
     leadTimeDays,
     safetyStockDays,
@@ -62,15 +73,23 @@ export function buildInventoryReplenishmentPlan(input: {
     latestMetric,
     setting: input.setting,
     inventoryAvailable,
+    inTransitUnits,
+    localWarehouseUnits,
+    supplyPositionUnits,
     inventoryDays,
     dailySalesVelocity,
+    salesVelocity7d,
+    salesVelocity30d,
     leadTimeDays,
+    productionLeadTimeDays,
+    inboundLeadTimeDays,
     safetyStockDays,
     targetStockDays,
     reorderPointUnits,
     recommendedOrderQuantity,
     stockoutDate,
     reorderByDate,
+    expectedArrivalDate: input.setting?.expectedArrivalDate ?? null,
     level: deriveLevel(issues),
     issues,
     freshness: latestMetric ? metricFreshness(latestMetric) : input.product.freshness
@@ -80,7 +99,7 @@ export function buildInventoryReplenishmentPlan(input: {
 function buildIssues(input: {
   latestMetric: OwnedProductDailyMetric | null;
   inventoryDays: number | null;
-  inventoryAvailable: number | null;
+  supplyPositionUnits: number | null;
   dailySalesVelocity: number | null;
   leadTimeDays: number;
   safetyStockDays: number;
@@ -119,7 +138,11 @@ function buildIssues(input: {
       label: "Reorder due",
       message: `Inventory is inside the ${reorderThreshold}-day lead-time plus safety-stock window.`,
       suggestion: "Prepare a purchase order or transfer plan after checking demand and margin assumptions.",
-      evidence: [`inventory_days=${input.inventoryDays.toFixed(1)}`, `recommended_qty=${input.recommendedOrderQuantity ?? "n/a"}`]
+      evidence: [
+        `inventory_days=${input.inventoryDays.toFixed(1)}`,
+        `supply_position=${input.supplyPositionUnits ?? "n/a"}`,
+        `recommended_qty=${input.recommendedOrderQuantity ?? "n/a"}`
+      ]
     });
   }
 
@@ -138,14 +161,18 @@ function buildIssues(input: {
 }
 
 function inferDailyVelocity(metrics: OwnedProductDailyMetric[], latest: OwnedProductDailyMetric | null): number | null {
-  const units = metrics.slice(0, 14).map((metric) => metric.unitsSold).filter(isPositiveNumber);
-  if (units.length > 0) {
-    return round(units.reduce((sum, value) => sum + value, 0) / units.length);
-  }
+  const velocity = averageSalesVelocity(metrics, 14);
+  if (velocity !== null) return velocity;
   if (latest?.inventoryAvailable !== null && latest?.inventoryAvailable !== undefined && latest.inventoryDays !== null && latest.inventoryDays !== undefined && latest.inventoryDays > 0) {
     return round(latest.inventoryAvailable / latest.inventoryDays);
   }
   return null;
+}
+
+function averageSalesVelocity(metrics: OwnedProductDailyMetric[], days: number): number | null {
+  const units = metrics.slice(0, days).map((metric) => metric.unitsSold).filter(isPositiveNumber);
+  if (units.length === 0) return null;
+  return round(units.reduce((sum, value) => sum + value, 0) / units.length);
 }
 
 function inferInventoryDays(inventoryAvailable: number | null, dailySalesVelocity: number | null): number | null {
@@ -159,15 +186,15 @@ function inferReorderPoint(dailySalesVelocity: number | null, leadTimeDays: numb
 }
 
 function recommendOrderQuantity(input: {
-  inventoryAvailable: number | null;
+  supplyPositionUnits: number | null;
   dailySalesVelocity: number | null;
   targetStockDays: number;
   minOrderQuantity: number | null;
   packSize: number | null;
 }): number | null {
-  if (input.inventoryAvailable === null || input.dailySalesVelocity === null) return null;
+  if (input.supplyPositionUnits === null || input.dailySalesVelocity === null) return null;
   const targetUnits = Math.ceil(input.dailySalesVelocity * input.targetStockDays);
-  let quantity = Math.max(0, targetUnits - input.inventoryAvailable);
+  let quantity = Math.max(0, targetUnits - input.supplyPositionUnits);
   if (input.minOrderQuantity !== null && quantity > 0) {
     quantity = Math.max(quantity, input.minOrderQuantity);
   }

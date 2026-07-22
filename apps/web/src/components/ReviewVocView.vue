@@ -5,6 +5,8 @@ import { ElButton, ElDialog, ElInput, ElInputNumber, ElMessage, ElOption, ElSele
 import { MessageSquare, Plus, RefreshCw, Sparkles } from "@lucide/vue";
 import type { ReviewSentiment, ReviewVocLevel, ReviewVocSummary } from "@amazon-monitor/shared";
 import { useReviewVocStore } from "../stores/reviewVoc";
+import AgentActionTaskButton from "./AgentActionTaskButton.vue";
+import ReviewVocArtifactPanel from "./review-voc/ReviewVocArtifactPanel.vue";
 
 const props = defineProps<{ date: string }>();
 
@@ -271,12 +273,24 @@ function emptyToNull(value: string): string | null {
             <h3>Review VOC Agent</h3>
             <strong>{{ aiAnalysis.output.summary }}</strong>
             <p>{{ aiAnalysis.output.impact }}</p>
+            <ReviewVocArtifactPanel
+              v-if="aiAnalysis.output.artifacts?.reviewVoc"
+              :artifact="aiAnalysis.output.artifacts.reviewVoc"
+            />
             <ol>
               <li v-for="action in aiAnalysis.output.recommended_actions" :key="action.action">
                 <span>{{ action.priority }}</span>
                 <div>
                   <strong>{{ action.action }}</strong>
                   <small>{{ action.reason }}</small>
+                  <AgentActionTaskButton
+                    :run-id="aiAnalysis.run.id"
+                    agent-type="review_voc"
+                    :output="aiAnalysis.output"
+                    :action="action"
+                    :related-asin="selectedSummary.asin"
+                    :related-brand="selectedSummary.brand"
+                  />
                 </div>
               </li>
             </ol>

@@ -3,6 +3,7 @@ import type {
   CreateTaskInput,
   InsightEventTaskLink,
   Task,
+  TaskExecutionInput,
   TaskNote,
   TaskPriority,
   TaskSourceType,
@@ -25,6 +26,8 @@ type TaskStoreMethods = Pick<
   Store,
   | "createTask"
   | "updateTask"
+  | "submitTaskForReview"
+  | "reviewTask"
   | "getTask"
   | "listTasks"
   | "addTaskNote"
@@ -49,10 +52,11 @@ function isPriority(value: string | undefined): value is TaskPriority {
 }
 
 function isSourceType(value: string): value is TaskSourceType {
-  return value === "insight_event" || value === "rule" || value === "manual" || value === "review_recurring";
+  return value === "insight_event" || value === "ai_run" || value === "rule" || value === "manual" || value === "review_recurring";
 }
 
 function inferTaskTypeFromEvent(eventType: string): string {
+  if (eventType.includes("KEYWORD")) return "keyword";
   if (eventType.includes("PRICE")) return "price";
   if (eventType.includes("DEAL") || eventType.includes("COUPON")) return "coupon";
   if (eventType.includes("BSR") || eventType.includes("RANK")) return "competitor";
@@ -146,6 +150,18 @@ export function createTaskStore(db: DatabaseSync): TaskStoreMethods {
     listTasks(filter) {
       const where: string[] = ["1=1"];
       const params: Array<string | number> = [];
+      if (filter?.orgId !== undefined) {
+        where.push("org_id = ?");
+        params.push(filter.orgId);
+      }
+      if (filter?.sourceType !== undefined) {
+        where.push("source_type = ?");
+        params.push(filter.sourceType);
+      }
+      if (filter?.sourceId !== undefined) {
+        where.push("source_id = ?");
+        params.push(filter.sourceId);
+      }
       if (filter?.status) {
         where.push("status = ?");
         params.push(filter.status);
@@ -171,6 +187,51 @@ export function createTaskStore(db: DatabaseSync): TaskStoreMethods {
         .prepare(`SELECT * FROM tasks WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ? OFFSET ?`)
         .all(...params, limit, offset) as unknown as TaskRow[];
       return rows.map(mapTask);
+    },
+
+    submitTaskForReview(id, input) {
+      const current = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as unknown as TaskRow | undefined;
+      if (!current) {
+        throw new Error(`Task ${id} not found`);
+      }
+      if (current.status !== "in_progress") {
+        throw new Error(`Illegal task transition: ${current.status} → awaiting_review`);
+      }
+      const now = nowIso();
+      const actionTaken = input.actionTaken.trim();
+      if (!actionTaken) {
+        throw new Error("Task execution record requires an action taken");
+      }
+      const resultBeforeJson = input.resultBefore === undefined
+        ? current.result_before_json
+        : JSON.stringify(input.resultBefore);
+      const resultAfterJson = input.resultAfter === undefined
+        ? current.result_after_json
+        : JSON.stringify(input.resultAfter);
+      db.prepare(
+        `UPDATE tasks SET
+          status = 'awaiting_review', action_taken = ?, result_before_json = ?, result_after_json = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(actionTaken, resultBeforeJson, resultAfterJson, now, id);
+      return mapTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as unknown as TaskRow);
+    },
+
+    reviewTask(id, input) {
+      const current = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as unknown as TaskRow | undefined;
+      if (!current) {
+        throw new Error(`Task ${id} not found`);
+      }
+      if (current.status !== "done") {
+        throw new Error(`Illegal task transition: ${current.status} → reviewed`);
+      }
+      if (!current.action_taken?.trim()) {
+        throw new Error("Task must have an execution record before review");
+      }
+      const now = nowIso();
+      db.prepare(
+        `UPDATE tasks SET status = 'reviewed', review_result = ?, review_note = ?, reviewed_at = ?, updated_at = ? WHERE id = ?`
+      ).run(input.reviewResult, input.reviewNote ?? null, now, now, id);
+      return mapTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as unknown as TaskRow);
     },
 
     addTaskNote(input) {
@@ -216,14 +277,16 @@ export function createTaskStore(db: DatabaseSync): TaskStoreMethods {
       );
     },
 
-    listTasksForEvent(eventId) {
+    listTasksForEvent(eventId, orgId) {
+      const orgFilter = orgId === undefined ? "" : " AND t.org_id = ?";
+      const params: Array<string | number> = orgId === undefined ? [eventId] : [eventId, orgId];
       const rows = db
         .prepare(
           `SELECT t.* FROM tasks t
            JOIN insight_event_tasks iet ON iet.task_id = t.id
-           WHERE iet.event_id = ? ORDER BY t.id DESC`
+           WHERE iet.event_id = ?${orgFilter} ORDER BY t.id DESC`
         )
-        .all(eventId) as unknown as TaskRow[];
+        .all(...params) as unknown as TaskRow[];
       return rows.map(mapTask);
     },
 

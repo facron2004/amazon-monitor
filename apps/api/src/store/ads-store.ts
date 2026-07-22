@@ -7,10 +7,13 @@ import type {
   UpsertAdDailyMetricInput
 } from "@amazon-monitor/shared";
 import { buildAdsWorkflowItem, type AdsMetricHistoryContext } from "../services/ads-workflow-service.js";
-import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, type WhereBuilder } from "./sql-utils.js";
+import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, type WhereBuilder } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
-type AdsStoreMethods = Pick<Store, "upsertAdDailyMetric" | "listAdDailyMetrics" | "getAdsWorkflowSummary">;
+type AdsStoreMethods = Pick<
+  Store,
+  "upsertAdDailyMetric" | "getAdDailyMetricByIdentity" | "listAdDailyMetrics" | "getAdsWorkflowSummary"
+>;
 
 interface AdMetricRow {
   id: number;
@@ -124,6 +127,22 @@ export function createAdsStore(db: DatabaseSync): AdsStoreMethods {
       return mapAdMetric(row);
     },
 
+    getAdDailyMetricByIdentity(input) {
+      const row = db.prepare(
+        `SELECT * FROM ad_daily_metrics
+         WHERE org_id = ? AND metric_date = ? AND campaign_id = ?
+          AND ad_group_name = ? AND target_text = ? AND search_term = ?`
+      ).get(
+        input.orgId,
+        input.date,
+        input.campaignId,
+        input.adGroupName ?? "",
+        input.targetText ?? "",
+        input.searchTerm ?? ""
+      ) as unknown as AdMetricRow | undefined;
+      return row ? mapAdMetric(row) : null;
+    },
+
     listAdDailyMetrics(filter = {}) {
       return listJoinedRows(db, filter).map(({ product_sku: _sku, product_asin: _asin, ...row }) => mapAdMetric(row));
     },
@@ -155,6 +174,8 @@ function listJoinedRows(db: DatabaseSync, filter: AdsMetricListFilter): AdMetric
     whereEq("a.org_id", filter.orgId),
     whereEq("a.product_id", filter.productId),
     whereEq("a.metric_date", filter.date),
+    whereGte("a.metric_date", filter.startDate),
+    whereLte("a.metric_date", filter.endDate),
     qWhere(filter.q)
   );
   const limit = clampLimit(filter.limit ?? 200);

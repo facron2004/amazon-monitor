@@ -89,6 +89,13 @@ export function useKeywords(options: UseKeywordsOptions) {
     });
   }
 
+  async function updateKeywordPriority(keyword: KeywordMonitor, priority: KeywordMonitor["priority"]) {
+    await runErrorHandledTask(options.setError, async () => {
+      await store.updateKeywordPriority(keyword, priority, options.date.value);
+      options.setAction(`${keyword.keyword} 优先级已更新为 ${priority}`);
+    });
+  }
+
   async function deleteKeyword(keywordId: number) {
     await runErrorHandledTask(options.setError, async () => {
       await store.deleteKeyword(keywordId, options.date.value);
@@ -109,6 +116,7 @@ export function useKeywords(options: UseKeywordsOptions) {
     runCollection,
     createKeyword,
     toggleKeyword,
+    updateKeywordPriority,
     deleteKeyword
   };
 }

@@ -88,6 +88,10 @@ export function createSopStore(db: DatabaseSync): SopStoreMethods {
     listSops(filter) {
       const where: string[] = ["1=1"];
       const params: Array<string | number> = [];
+      if (filter?.orgId !== undefined) {
+        where.push("org_id = ?");
+        params.push(filter.orgId);
+      }
       if (filter?.status) {
         where.push("status = ?");
         params.push(filter.status);

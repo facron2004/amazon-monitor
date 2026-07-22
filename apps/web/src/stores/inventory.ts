@@ -8,6 +8,8 @@ export const useInventoryStore = defineStore("inventory", () => {
   const selectedProductId = ref<number | null>(null);
   const loading = ref(false);
   const saving = ref(false);
+  const creatingTaskProductId = ref<number | null>(null);
+  const taskIdsByProductId = ref<Record<number, number>>({});
   const error = ref<string | null>(null);
   const query = ref("");
   const level = ref<InventoryPlanLevel | "">("");
@@ -54,6 +56,24 @@ export const useInventoryStore = defineStore("inventory", () => {
     }
   }
 
+  async function createPlanTask(productId: number, date: string): Promise<{ created: boolean; taskId: number }> {
+    creatingTaskProductId.value = productId;
+    error.value = null;
+    try {
+      const result = await inventoryApi.createTask(productId, date);
+      taskIdsByProductId.value = {
+        ...taskIdsByProductId.value,
+        [productId]: result.task.id
+      };
+      return { created: result.created, taskId: result.task.id };
+    } catch (err) {
+      error.value = (err as Error).message;
+      throw err;
+    } finally {
+      creatingTaskProductId.value = null;
+    }
+  }
+
   function selectProduct(productId: number): void {
     selectedProductId.value = productId;
   }
@@ -64,11 +84,14 @@ export const useInventoryStore = defineStore("inventory", () => {
     selectedPlan,
     loading,
     saving,
+    creatingTaskProductId,
+    taskIdsByProductId,
     error,
     query,
     level,
     fetchPlans,
     saveSetting,
+    createPlanTask,
     selectProduct
   };
 });

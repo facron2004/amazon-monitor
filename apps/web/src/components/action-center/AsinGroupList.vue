@@ -2,9 +2,10 @@
 import { computed, ref } from "vue";
 import { AlertTriangle, Gauge, LayoutGrid, ListChecks, Radar } from "@lucide/vue";
 import { ElProgress, ElStatistic, ElTag } from "element-plus";
-import type { InsightEvent } from "@amazon-monitor/shared";
+import type { AsinWatchLevel, InsightEvent, InsightEventStatus } from "@amazon-monitor/shared";
 import type { AsinGroupedView } from "../../stores/insightEvents";
 import AsinGroupCard from "./AsinGroupCard.vue";
+import AsinLeaderboardPanel from "./AsinLeaderboardPanel.vue";
 import { buildActionAsinCaseSummary } from "../../utils/actionCenterAsinCaseSummary";
 
 const props = defineProps<{
@@ -14,6 +15,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: "select", value: InsightEvent): void;
+  (event: "watch-state", insight: InsightEvent, level: AsinWatchLevel): void;
+  (event: "status", id: string, status: InsightEventStatus): void;
 }>();
 
 const expandedAsins = ref<Set<string>>(new Set());
@@ -39,6 +42,8 @@ function toggleExpand(asin: string): void {
       </div>
       <small v-if="loading">加载中...</small>
     </div>
+
+    <AsinLeaderboardPanel :groups="groups" @select="emit('select', $event)" />
 
     <div v-if="groups.length" class="asin-summary-strip">
       <section>
@@ -79,6 +84,8 @@ function toggleExpand(asin: string): void {
         :expanded="expandedAsins.has(group.asin)"
         @select="emit('select', $event)"
         @toggle-expand="toggleExpand"
+        @watch-state="(insight, level) => emit('watch-state', insight, level)"
+        @status="(id, status) => emit('status', id, status)"
       />
     </div>
 

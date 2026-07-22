@@ -36,12 +36,17 @@ interface InventorySettingRow {
   id: number;
   product_id: number;
   lead_time_days: number;
+  production_lead_time_days: number | null;
+  inbound_lead_time_days: number | null;
   safety_stock_days: number;
   target_stock_days: number;
   min_order_quantity: number | null;
   pack_size: number | null;
   supplier_name: string | null;
   reorder_point_units: number | null;
+  in_transit_units: number | null;
+  local_warehouse_units: number | null;
+  expected_arrival_date: string | null;
   data_source: string;
   last_synced_at: string | null;
   sync_status: string;
@@ -85,18 +90,24 @@ export function createInventoryStore(db: DatabaseSync): InventoryStoreMethods {
       const now = nowIso();
       db.prepare(
         `INSERT INTO product_inventory_settings
-         (product_id, lead_time_days, safety_stock_days, target_stock_days, min_order_quantity,
-          pack_size, supplier_name, reorder_point_units, data_source, last_synced_at,
-          sync_status, sync_error, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (product_id, lead_time_days, production_lead_time_days, inbound_lead_time_days,
+          safety_stock_days, target_stock_days, min_order_quantity, pack_size, supplier_name,
+          reorder_point_units, in_transit_units, local_warehouse_units, expected_arrival_date,
+          data_source, last_synced_at, sync_status, sync_error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(product_id) DO UPDATE SET
           lead_time_days = excluded.lead_time_days,
+          production_lead_time_days = excluded.production_lead_time_days,
+          inbound_lead_time_days = excluded.inbound_lead_time_days,
           safety_stock_days = excluded.safety_stock_days,
           target_stock_days = excluded.target_stock_days,
           min_order_quantity = excluded.min_order_quantity,
           pack_size = excluded.pack_size,
           supplier_name = excluded.supplier_name,
           reorder_point_units = excluded.reorder_point_units,
+          in_transit_units = excluded.in_transit_units,
+          local_warehouse_units = excluded.local_warehouse_units,
+          expected_arrival_date = excluded.expected_arrival_date,
           data_source = excluded.data_source,
           last_synced_at = excluded.last_synced_at,
           sync_status = excluded.sync_status,
@@ -105,12 +116,17 @@ export function createInventoryStore(db: DatabaseSync): InventoryStoreMethods {
       ).run(
         input.productId,
         input.leadTimeDays ?? 21,
+        input.productionLeadTimeDays ?? null,
+        input.inboundLeadTimeDays ?? null,
         input.safetyStockDays ?? 14,
         input.targetStockDays ?? 60,
         input.minOrderQuantity ?? null,
         input.packSize ?? null,
         input.supplierName ?? null,
         input.reorderPointUnits ?? null,
+        input.inTransitUnits ?? null,
+        input.localWarehouseUnits ?? null,
+        input.expectedArrivalDate ?? null,
         input.dataSource ?? "manual",
         input.lastSyncedAt ?? now,
         input.syncStatus ?? "manual",
@@ -231,12 +247,17 @@ function mapSetting(row: InventorySettingRow): InventoryReplenishmentSetting {
     id: row.id,
     productId: row.product_id,
     leadTimeDays: row.lead_time_days,
+    productionLeadTimeDays: row.production_lead_time_days,
+    inboundLeadTimeDays: row.inbound_lead_time_days,
     safetyStockDays: row.safety_stock_days,
     targetStockDays: row.target_stock_days,
     minOrderQuantity: row.min_order_quantity,
     packSize: row.pack_size,
     supplierName: row.supplier_name,
     reorderPointUnits: row.reorder_point_units,
+    inTransitUnits: row.in_transit_units,
+    localWarehouseUnits: row.local_warehouse_units,
+    expectedArrivalDate: row.expected_arrival_date,
     dataSource: row.data_source,
     lastSyncedAt: row.last_synced_at,
     syncStatus: mapSyncStatus(row.sync_status),

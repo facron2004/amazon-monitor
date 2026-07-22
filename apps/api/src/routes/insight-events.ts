@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import {
   asinWatchLevels,
   actionEvidenceMovementFilters,
@@ -16,13 +16,16 @@ import {
   isReviewCadenceBucketMatch,
   reviewCadenceBucketKeys,
   strategyTags,
+  hasBusinessCapability,
   type InsightEvent,
   type InsightEventListParams,
-  type InsightEventTrendPoint
+  type InsightEventTrendPoint,
+  type SessionContext
 } from "@amazon-monitor/shared";
 import { generateInsightEvents } from "../insights/insight-event-generator.js";
 import { evaluateDueInsightEventReviews } from "../insights/review-evaluator.js";
 import { scheduleNextReviewDate } from "../insights/review-scheduler.js";
+import { createTaskFromEvent } from "../services/task-service.js";
 import type { Store } from "../store.js";
 import { asyncHandler, getDate, optionalNumber, optionalString } from "./http-utils.js";
 import { validateBody, validateQuery } from "./validation.js";
@@ -107,7 +110,15 @@ const watchStatePatchSchema = z.object({
 
 const topSummaryQuerySchema = z.object({
   date: dateSchema,
-  limit: z.coerce.number().int().min(1).max(20).optional()
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+  marketplace: z.string().trim().min(1).max(120).optional(),
+  categoryName: z.string().trim().min(1).max(200).optional(),
+  brand: z.string().trim().min(1).max(200).optional(),
+  assignee: z.string().trim().min(1).max(120).optional()
+});
+
+const convertEventToTaskSchema = z.object({
+  dueDate: dateSchema.nullable().optional()
 });
 
 const insightEventTrendQuerySchema = insightEventListQuerySchema.extend({
@@ -115,71 +126,119 @@ const insightEventTrendQuerySchema = insightEventListQuerySchema.extend({
   days: z.coerce.number().int().min(1).max(30).optional()
 });
 
+function requireSessionContext(request: Request): SessionContext {
+  const ctx = (request as Request & { sessionContext?: SessionContext }).sessionContext;
+  if (!ctx) {
+    throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+  }
+  return ctx;
+}
+
+function requireOperatorOrAdmin(ctx: SessionContext): void {
+  if (!hasBusinessCapability(ctx.user.role, "manage_workflow")) {
+    throw Object.assign(new Error("Forbidden: role cannot manage insight events"), { statusCode: 403 });
+  }
+}
+
 export function registerInsightEventRoutes(app: Express, store: Store): void {
-  app.get("/api/insight-events", (request, response) => {
+  const listEventsHandler = (request: Request, response: Response) => {
+    const ctx = requireSessionContext(request);
     const query = validateQuery(insightEventListQuerySchema, request.query);
-    response.json(listInsightEventsForQuery(store, query, query.date ?? getDate(request)));
-  });
+    response.json(listInsightEventsForQuery(
+      store,
+      { ...query, orgId: ctx.organization.id },
+      query.date ?? getDate(request)
+    ));
+  };
+
+  app.get("/api/insight-events", listEventsHandler);
+  app.get("/api/events", listEventsHandler);
 
   // Dashboard "今日必须关注 N 件事" feed.
   // Returns up to N actionable ASIN-level events ranked by composite score.
   // Registered before /:id so the literal segment wins over the param route.
+  app.get("/api/insight-events/top-summary/filter-options", (request, response) => {
+    const ctx = requireSessionContext(request);
+    const query = validateQuery(z.object({ date: dateSchema }), request.query);
+    response.json(store.listTopInsightFilterOptions(query.date, ctx.organization.id));
+  });
+
   app.get("/api/insight-events/top-summary", (request, response) => {
-    const query = validateQuery(topSummaryQuerySchema, request.query);
-    response.json(store.listTopInsights(query.date, query.limit ?? 5));
+    const ctx = requireSessionContext(request);
+    const { date, limit, ...filters } = validateQuery(topSummaryQuerySchema, request.query);
+    response.json(store.listTopInsights(date, limit ?? 5, filters, ctx.organization.id));
   });
 
   app.get("/api/insight-events/review-due", (request, response) => {
+    const ctx = requireSessionContext(request);
     const query = validateQuery(insightEventListQuerySchema, request.query);
     const { date, ...params } = query;
     const targetDate = date ?? getDate(request);
-    response.json(listReviewDueEventsForQuery(store, targetDate, params));
+    response.json(listReviewDueEventsForQuery(store, targetDate, {
+      ...params,
+      orgId: ctx.organization.id
+    }));
   });
 
   app.get("/api/insight-events/trend", (request, response) => {
+    const ctx = requireSessionContext(request);
     const query = validateQuery(insightEventTrendQuerySchema, request.query);
     const { date, endDate: requestedEndDate, days, limit: _limit, offset: _offset, ...filters } = query;
     const endDate = requestedEndDate ?? date ?? getDate(request);
-    response.json(buildInsightEventTrend(store, endDate, days ?? 7, filters));
+    response.json(buildInsightEventTrend(store, endDate, days ?? 7, {
+      ...filters,
+      orgId: ctx.organization.id
+    }));
   });
 
   app.get("/api/insight-events/:id/notes", (request, response) => {
+    const ctx = requireSessionContext(request);
     const id = validateEventId(request.params.id);
-    const event = store.getInsightEvent(id);
+    const event = store.getInsightEvent(id, ctx.organization.id);
     if (!event) {
       response.status(404).json({ message: "insight event not found" });
       return;
     }
-    response.json(store.listInsightEventNotes(id));
+    response.json(store.listInsightEventNotes(id, ctx.organization.id));
   });
 
   app.post("/api/insight-events/review-due/evaluate", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const body = validateBody(evaluateReviewDueSchema, request.body ?? {});
     const date = optionalString(request.query.date) ?? body.date ?? getDate(request);
-    response.json(evaluateDueInsightEventReviews(store, date));
+    response.json(evaluateDueInsightEventReviews(store, date, { orgId: ctx.organization.id }));
   });
 
   app.post("/api/insight-events/generate", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const body = validateBody(generateInsightEventsSchema, request.body ?? {});
     const date = optionalString(request.query.date) ?? body.date ?? getDate(request);
     const categoryId = optionalNumber(request.query.categoryId) ?? body.categoryId;
-    response.status(201).json(generateInsightEvents(store, date, { categoryId }));
+    response.status(201).json(generateInsightEvents(store, date, {
+      categoryId,
+      orgId: ctx.organization.id
+    }));
   }));
 
-  app.get("/api/insight-events/:id", (request, response) => {
+  const getEventHandler = (request: Request, response: Response) => {
+    const ctx = requireSessionContext(request);
     const id = validateEventId(request.params.id);
-    const event = store.getInsightEvent(id);
+    const event = store.getInsightEvent(id, ctx.organization.id);
     if (!event) {
       response.status(404).json({ message: "insight event not found" });
       return;
     }
     response.json(event);
-  });
+  };
 
   app.patch("/api/insight-events/:id/status", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateEventId(request.params.id);
     const body = validateBody(statusPatchSchema, request.body);
-    const event = store.updateInsightEventStatus(id, body.status, body.reviewDueDate);
+    const event = store.updateInsightEventStatus(id, body.status, body.reviewDueDate, ctx.organization.id);
     if (!event) {
       response.status(404).json({ message: "insight event not found" });
       return;
@@ -188,9 +247,11 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
   });
 
   app.patch("/api/insight-events/:id/note", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateEventId(request.params.id);
     const body = validateBody(notePatchSchema, request.body);
-    const event = store.updateInsightEventNote(id, body.note);
+    const event = store.updateInsightEventNote(id, body.note, ctx.organization.id);
     if (!event) {
       response.status(404).json({ message: "insight event not found" });
       return;
@@ -199,9 +260,11 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
   });
 
   app.patch("/api/insight-events/:id/assignee", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateEventId(request.params.id);
     const body = validateBody(assigneePatchSchema, request.body);
-    const event = store.updateInsightEventAssignee(id, body.assignee);
+    const event = store.updateInsightEventAssignee(id, body.assignee, ctx.organization.id);
     if (!event) {
       response.status(404).json({ message: "insight event not found" });
       return;
@@ -209,10 +272,59 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
     response.json(event);
   });
 
+  app.get("/api/insight-events/:id", getEventHandler);
+  app.get("/api/events/:id", getEventHandler);
+
+  app.post("/api/events/:id/acknowledge", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
+    const event = store.updateInsightEventStatus(validateEventId(request.params.id), "FOLLOWED", undefined, ctx.organization.id);
+    if (!event) {
+      response.status(404).json({ message: "insight event not found" });
+      return;
+    }
+    response.json(event);
+  });
+
+  app.post("/api/events/:id/ignore", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
+    const event = store.updateInsightEventStatus(validateEventId(request.params.id), "IGNORED", undefined, ctx.organization.id);
+    if (!event) {
+      response.status(404).json({ message: "insight event not found" });
+      return;
+    }
+    response.json(event);
+  });
+
+  app.post("/api/events/:id/convert-to-task", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
+    const id = validateEventId(request.params.id);
+    const event = store.getInsightEvent(id, ctx.organization.id);
+    if (!event) {
+      response.status(404).json({ message: "insight event not found" });
+      return;
+    }
+    const existingTask = store.listTasksForEvent(id, ctx.organization.id)[0];
+    if (existingTask) {
+      response.json(existingTask);
+      return;
+    }
+    const body = validateBody(convertEventToTaskSchema, request.body ?? {});
+    response.status(201).json(createTaskFromEvent(store, event, {
+      orgId: ctx.organization.id,
+      createdBy: ctx.user.id,
+      dueDate: body.dueDate ?? null
+    }));
+  });
+
   app.post("/api/insight-events/:id/watch", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateEventId(request.params.id);
     const body = validateBody(watchInsightEventSchema, request.body ?? {});
-    const event = store.getInsightEvent(id);
+    const event = store.getInsightEvent(id, ctx.organization.id);
     if (!event) {
       response.status(404).json({ message: "insight event not found" });
       return;
@@ -228,6 +340,7 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
     let updated: ReturnType<typeof store.updateInsightEventStatus> | null = null;
     store.runInTransaction(() => {
       watchState = store.upsertAsinWatchState({
+        orgId: ctx.organization.id,
         asin: event.asin!,
         watchLevel: body.watchLevel ?? "POTENTIAL",
         watchReason: body.watchReason ?? event.eventTitle,
@@ -235,15 +348,17 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
         lastEventDate: event.eventDate,
         note: body.note ?? null
       });
-      updated = store.updateInsightEventStatus(id, "WATCHING");
+      updated = store.updateInsightEventStatus(id, "WATCHING", undefined, ctx.organization.id);
     });
     response.json({ event: updated, watchState });
   });
 
   app.post("/api/insight-events/:id/review", (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateEventId(request.params.id);
     const body = validateBody(reviewSchema, request.body);
-    const current = store.getInsightEvent(id);
+    const current = store.getInsightEvent(id, ctx.organization.id);
     if (!current) {
       response.status(404).json({ message: "insight event not found" });
       return;
@@ -255,18 +370,30 @@ export function registerInsightEventRoutes(app: Express, store: Store): void {
       scoreLevel: current.scoreLevel,
       attributionTags: current.attributionTags
     }, reviewDate);
-    response.json(store.markInsightEventReviewed(id, body.result, body.note ?? null, nextReviewDueDate));
+    response.json(store.markInsightEventReviewed(
+      id,
+      body.result,
+      body.note ?? null,
+      nextReviewDueDate,
+      ctx.organization.id
+    ));
   });
 
-  app.get("/api/asin-watch-states", (_request, response) => {
-    response.json(store.listAsinWatchStates());
+  app.get("/api/asin-watch-states", (request, response) => {
+    const ctx = requireSessionContext(request);
+    response.json(store.listAsinWatchStates(ctx.organization.id));
   });
 
   app.patch("/api/asin-watch-states/:asin", (request, response) => {
+    const ctx = requireSessionContext(request);
+    if (!hasBusinessCapability(ctx.user.role, "manage_competitors")) {
+      throw Object.assign(new Error("Forbidden: role cannot manage competitors"), { statusCode: 403 });
+    }
     const asin = validateAsin(request.params.asin);
     const body = validateBody(watchStatePatchSchema, request.body);
     response.json(
       store.upsertAsinWatchState({
+        orgId: ctx.organization.id,
         asin,
         watchLevel: body.watchLevel,
         watchReason: body.watchReason ?? null,

@@ -1,8 +1,14 @@
-import { request } from "./api-base.js";
-import type { Task, TaskNote, TaskPriority, TaskStatus, TaskType } from "@amazon-monitor/shared";
+import { downloadFile, request } from "./api-base.js";
+import { isoDate, type AiRun, type InsightEvent, type Task, type TaskExecutionInput, type TaskNote, type TaskPriority, type TaskStatus, type TaskType } from "@amazon-monitor/shared";
+
+export interface TaskDetailResponse {
+  task: Task;
+  sourceEvent: InsightEvent | null;
+  sourceAiRun: AiRun | null;
+}
 
 export interface CreateTaskInput {
-  sourceType: "insight_event" | "rule" | "manual" | "review_recurring";
+  sourceType: "insight_event" | "ai_run" | "rule" | "manual" | "review_recurring";
   sourceId?: string | null;
   title: string;
   description?: string;
@@ -22,14 +28,8 @@ export interface UpdateTaskInput {
   title?: string;
   description?: string;
   priority?: TaskPriority;
-  status?: TaskStatus;
   assigneeId?: number | null;
   dueDate?: string | null;
-  actionTaken?: string | null;
-  resultBeforeJson?: string | null;
-  resultAfterJson?: string | null;
-  reviewNote?: string | null;
-  reviewResult?: Task["reviewResult"] | null;
 }
 
 export interface TaskListParams {
@@ -55,8 +55,19 @@ export function listTasks(params: TaskListParams = {}): Promise<Task[]> {
   return request<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
 }
 
+export function downloadTaskExecutionCsv(priority?: TaskPriority): Promise<void> {
+  const search = new URLSearchParams();
+  if (priority) search.set("priority", priority);
+  const query = search.toString();
+  return downloadFile(`/api/tasks/execution.csv${query ? `?${query}` : ""}`, `task-execution-${isoDate()}.csv`);
+}
+
 export function getTask(id: number): Promise<Task> {
   return request<Task>(`/api/tasks/${id}`);
+}
+
+export function getTaskDetail(id: number): Promise<TaskDetailResponse> {
+  return request<TaskDetailResponse>(`/api/tasks/${id}/detail`);
 }
 
 export function createTask(input: CreateTaskInput): Promise<Task> {
@@ -80,6 +91,13 @@ export function transitionTask(id: number, status: TaskStatus): Promise<Task> {
   });
 }
 
+export function submitTaskExecution(id: number, input: TaskExecutionInput): Promise<Task> {
+  return request<Task>(`/api/tasks/${id}/submit`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
 export function reviewTask(id: number, reviewResult: Task["reviewResult"], reviewNote?: string): Promise<Task> {
   return request<Task>(`/api/tasks/${id}/review`, {
     method: "POST",
@@ -99,7 +117,7 @@ export function addTaskNote(id: number, body: string): Promise<TaskNote> {
 }
 
 export function listTasksForEvent(eventId: string): Promise<Task[]> {
-  return request<Task[]>(`/api/insights/${eventId}/tasks`);
+  return request<Task[]>(`/api/insight-events/${encodeURIComponent(eventId)}/tasks`);
 }
 
 export function convertEventToTask(eventId: string, title: string, taskType: TaskType, priority: TaskPriority, relatedAsin?: string | null, relatedBrand?: string | null, relatedCategoryId?: number | null, aiRecommendation?: string | null): Promise<Task> {

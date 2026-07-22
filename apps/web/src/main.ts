@@ -9,6 +9,13 @@ import "./styles/responsive.css";
 import "./styles/theme-overrides.css";
 import "./styles/auth.css";
 import "./styles/dashboard.css";
+import "./styles/topbar-health.css";
+import "./styles/operations-workspace-v2.css";
+import "./styles/operations-workspace-v3.css";
+import "./styles/overview-workspace.css";
+import "./styles/overview-action-queue.css";
+import "./styles/operations-polish.css";
+import "./styles/tasks.css";
 
 const app = createApp(App);
 app.use(createPinia());

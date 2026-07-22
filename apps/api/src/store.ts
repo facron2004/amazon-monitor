@@ -1,16 +1,29 @@
 import { DatabaseSync } from "node:sqlite";
+import {
+  buildCategoryDailyKpiSnapshot,
+  buildCategorySnapshotDiff,
+  isoDateOffset,
+} from "@amazon-monitor/shared";
 import { createAdsStore } from "./store/ads-store.js";
 import { createAiRunStore } from "./store/ai-run-store.js";
-import { mapCompetitor, type CompetitorRow } from "./store/competitor-mappers.js";
+import {
+  mapCompetitor,
+  type CompetitorRow,
+} from "./store/competitor-mappers.js";
 import { openDatabase } from "./store/db.js";
 import { createBsrStore } from "./store/bsr-store.js";
 import { createCategoryInsightStore } from "./store/category-insight-store.js";
 import { createCategoryPriceStore } from "./store/category-price-store.js";
 import { createCategorySnapshotStore } from "./store/category-snapshot-store.js";
+import { createCommerceStoreStore } from "./store/commerce-store-store.js";
+import { createCompetitorStore } from "./store/competitor-store.js";
+import { loadCategorySnapshotContexts } from "./store/category-snapshot-context.js";
 import { createDashboardStore } from "./store/dashboard-store.js";
+import { createDataSourceStore } from "./store/data-source-store.js";
 import { createIdentityStore } from "./store/identity-store.js";
 import { createInventoryStore } from "./store/inventory-store.js";
 import { createKeywordSnapshotStore } from "./store/keyword-snapshot-store.js";
+import { getKeywordRankMatrix } from "./store/keyword-rank-matrix-store.js";
 import { createInsightEventStore } from "./store/insight-event-store.js";
 import { createListingHealthStore } from "./store/listing-health-store.js";
 import { createMonitorStore } from "./store/monitor-store.js";
@@ -19,8 +32,11 @@ import { createOperationalStore } from "./store/operational-store.js";
 import { createProductActivityStore } from "./store/product-activity-store.js";
 import { createProductStore } from "./store/product-store.js";
 import { createProfitStore } from "./store/profit-store.js";
+import { createPromotionStore } from "./store/promotion-store.js";
 import { createQueueStore } from "./store/queue-store.js";
+import { createReportStore } from "./store/report-store.js";
 import { createReviewVocStore } from "./store/review-voc-store.js";
+import { createRuleStore } from "./store/rule-store.js";
 import { createSopStore } from "./store/sop-store.js";
 import { createTaskStore } from "./store/task-store.js";
 import { createWorkerStore } from "./store/worker-store.js";
@@ -29,8 +45,16 @@ import type { KeywordInput, Store } from "./store/types.js";
 
 export type { KeywordInput, Store } from "./store/types.js";
 export { buildBsrRankChanges } from "./store/bsr-rank-changes.js";
-export { hasEarlierBsrHistory, previousUsableBsrDate } from "./store/bsr-history-queries.js";
-export { initSchema, configureDatabase, openDatabase, sqliteBusyTimeoutMs } from "./store/db.js";
+export {
+  hasEarlierBsrHistory,
+  previousUsableBsrDate,
+} from "./store/bsr-history-queries.js";
+export {
+  initSchema,
+  configureDatabase,
+  openDatabase,
+  sqliteBusyTimeoutMs,
+} from "./store/db.js";
 
 export function openAppStore(dbPath = "data/amazon-monitor.sqlite"): Store {
   const db = openDatabase(dbPath);
@@ -47,11 +71,14 @@ export function createStore(db: DatabaseSync): Store {
     ...createBsrStore(db),
     ...createInsightEventStore(db),
     ...createKeywordSnapshotStore(db),
+    ...createCompetitorStore(db),
     ...createDashboardStore(db),
     ...categorySnapshotStore,
     ...createCategoryPriceStore(db, categorySnapshotStore),
     ...createCategoryInsightStore(db),
     ...createProductActivityStore(db),
+    ...createCommerceStoreStore(db),
+    ...createPromotionStore(db),
     ...createProductStore(db),
     ...createAiRunStore(db),
     ...createListingHealthStore(db),
@@ -59,6 +86,9 @@ export function createStore(db: DatabaseSync): Store {
     ...createReviewVocStore(db),
     ...createInventoryStore(db),
     ...createProfitStore(db),
+    ...createRuleStore(db),
+    ...createDataSourceStore(db),
+    ...createReportStore(db),
     ...createQueueStore(db),
     ...createWorkerStore(db),
     ...createTaskStore(db),
@@ -69,6 +99,11 @@ export function createStore(db: DatabaseSync): Store {
       withTransaction(db, () => {
         db.exec(`
           DELETE FROM sessions;
+          DELETE FROM workflow_period_reports;
+          DELETE FROM workflow_daily_reports;
+          DELETE FROM data_source_sync_runs;
+          DELETE FROM data_source_configs;
+          DELETE FROM alert_rule_configs;
           DELETE FROM ai_runs;
           DELETE FROM ad_daily_metrics;
           DELETE FROM own_product_reviews;
@@ -76,7 +111,9 @@ export function createStore(db: DatabaseSync): Store {
           DELETE FROM product_profit_settings;
           DELETE FROM own_product_listing_snapshots;
           DELETE FROM own_product_daily_metrics;
+          DELETE FROM promotion_plans;
           DELETE FROM own_products;
+          DELETE FROM commerce_stores;
           DELETE FROM users;
           DELETE FROM organizations;
           DELETE FROM insight_event_tasks;
@@ -116,32 +153,142 @@ export function createStore(db: DatabaseSync): Store {
       withTransaction(db, work);
     },
 
-    getCategoryDetail(categoryId, date) {
+    getCategoryDetail(categoryId, date, orgId) {
+      const category = this.getCategoryMonitor(categoryId, orgId);
+      const snapshots = category
+        ? this.listCategorySnapshots({ orgId, categoryId, date })
+        : [];
+      const contextByProduct = loadCategorySnapshotContexts(
+        db,
+        categoryId,
+        date,
+        orgId,
+      );
+      const yesterday = isoDateOffset(date, -1);
+      const hasYesterdaySnapshot = category
+        ? this.listCategorySnapshots({
+            orgId,
+            categoryId,
+            date: yesterday,
+            limit: 1,
+          }).length > 0
+        : false;
+      const yesterdayKpiSnapshot = hasYesterdaySnapshot
+        ? buildCategoryDailyKpiSnapshot(
+            yesterday,
+            this.listCategoryActivityEvents({
+              orgId,
+              categoryId,
+              date: yesterday,
+            }),
+          )
+        : null;
       return {
-        category: this.getCategoryMonitor(categoryId),
-        snapshots: this.listCategorySnapshots({ categoryId, date }),
-        brandMatrix: this.listBrandMatrix({ categoryId, date }),
-        signals: this.listCategorySignals({ categoryId, date, limit: 200 }),
-        report: this.getCategoryReport(date, categoryId)
+        category,
+        snapshots: snapshots.map((snapshot) => ({
+          ...snapshot,
+          ...contextByProduct.get(`${snapshot.marketplace}:${snapshot.asin}`),
+        })),
+        brandMatrix: category
+          ? this.listBrandMatrix({ orgId, categoryId, date })
+          : [],
+        signals: category
+          ? this.listCategorySignals({ orgId, categoryId, date, limit: 200 })
+          : [],
+        report: category ? this.getCategoryReport(date, categoryId, orgId) : "",
+        yesterdayKpiSnapshot,
       };
     },
 
-    setKeyCompetitor(asin, isKeyCompetitor) {
-      db.prepare("UPDATE amazon_competitor_pool SET is_key_competitor = ?, updated_at = ? WHERE asin = ?").run(
-        isKeyCompetitor ? 1 : 0,
-        nowIso(),
-        asin
-      );
-      const row = db.prepare("SELECT * FROM amazon_competitor_pool WHERE asin = ?").get(asin) as CompetitorRow | undefined;
+    getCategoryDiff(categoryId, date, compareDate, orgId) {
+      if (!this.getCategoryMonitor(categoryId, orgId)) {
+        return buildCategorySnapshotDiff({
+          categoryId,
+          date,
+          compareDate,
+          current: [],
+          comparison: [],
+        });
+      }
+      return buildCategorySnapshotDiff({
+        categoryId,
+        date,
+        compareDate,
+        current: this.listCategorySnapshots({ orgId, categoryId, date }),
+        comparison: this.listCategorySnapshots({
+          orgId,
+          categoryId,
+          date: compareDate,
+        }),
+      });
+    },
+
+    addCategoryCompetitor(asin, categoryId, orgId) {
+      const normalizedAsin = asin.trim().toUpperCase();
+      const snapshot = this.listCategorySnapshots({
+        orgId,
+        categoryId,
+        asin: normalizedAsin,
+        limit: 1,
+      })[0];
+      if (!snapshot) {
+        return null;
+      }
+
+      withTransaction(db, () => {
+        this.upsertCompetitorsFromCategorySnapshots([snapshot], [], orgId);
+        db.prepare(
+          "UPDATE amazon_competitor_pool SET status = 1, updated_at = ? WHERE org_id = ? AND asin = ? AND marketplace = ?",
+        ).run(nowIso(), orgId ?? 1, snapshot.asin, snapshot.marketplace);
+      });
+      const row = db
+        .prepare(
+          "SELECT * FROM amazon_competitor_pool WHERE org_id = ? AND asin = ? AND marketplace = ?",
+        )
+        .get(orgId ?? 1, snapshot.asin, snapshot.marketplace) as
+        CompetitorRow | undefined;
       return row ? mapCompetitor(row) : null;
     },
 
-    getKeywordDetail(keywordId, date) {
-      const keyword = this.getKeyword(keywordId);
-      const snapshots = this.listSnapshots({ keywordId, date });
-      const changes = keyword ? this.listDailyChanges({ date, keyword: keyword.keyword }) : [];
-      const alerts = keyword ? this.listAlerts({ date, keyword: keyword.keyword }) : [];
+    setKeyCompetitor(asin, isKeyCompetitor, orgId) {
+      db.prepare(
+        "UPDATE amazon_competitor_pool SET is_key_competitor = ?, updated_at = ? WHERE asin = ? AND (? IS NULL OR org_id = ?)",
+      ).run(
+        isKeyCompetitor ? 1 : 0,
+        nowIso(),
+        asin,
+        orgId ?? null,
+        orgId ?? null,
+      );
+      const row = db
+        .prepare(
+          "SELECT * FROM amazon_competitor_pool WHERE asin = ? AND (? IS NULL OR org_id = ?) LIMIT 1",
+        )
+        .get(asin, orgId ?? null, orgId ?? null) as CompetitorRow | undefined;
+      return row ? mapCompetitor(row) : null;
+    },
+
+    getKeywordDetail(keywordId, date, orgId) {
+      const keyword = this.getKeyword(keywordId, orgId);
+      const snapshots = keyword
+        ? this.listSnapshots({ orgId, keywordId, date })
+        : [];
+      const changes = keyword
+        ? this.listDailyChanges({ orgId, date, keyword: keyword.keyword })
+        : [];
+      const alerts = keyword
+        ? this.listAlerts({ orgId, date, keyword: keyword.keyword })
+        : [];
       return { keyword, snapshots, changes, alerts };
-    }
+    },
+
+    getKeywordRankMatrix(organizationId, requestedDate) {
+      return getKeywordRankMatrix(
+        db,
+        organizationId,
+        requestedDate,
+        this.listKeywords({ orgId: organizationId }),
+      );
+    },
   };
 }

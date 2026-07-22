@@ -131,9 +131,59 @@ describe("inventory routes", () => {
       setting: { supplierName: "Acme Supply" },
       recommendedOrderQuantity: 780
     });
+
+    const taskResponse = await request(app)
+      .post(`/api/products/${productId}/inventory-plan/task`)
+      .set("x-amazon-monitor-session", token)
+      .send({ date: "2026-07-08" })
+      .expect(201);
+
+    expect(taskResponse.body).toMatchObject({
+      created: true,
+      task: {
+        sourceType: "rule",
+        sourceId: `inventory-plan:${productId}:2026-07-08:critical`,
+        title: "补货确认：ICE-INV-001",
+        taskType: "inventory",
+        priority: "P0",
+        dueDate: "2026-07-08",
+        relatedAsin: "B0INVICE01",
+        relatedBrand: "Acme"
+      }
+    });
+    expect(taskResponse.body.task.description).toContain("建议数量：780 件");
+    expect(taskResponse.body.task.description).toContain("供应商：Acme Supply");
+    expect(taskResponse.body.task.aiRecommendation).toContain("所有采购、价格和广告动作必须人工确认");
+
+    const repeated = await request(app)
+      .post(`/api/products/${productId}/inventory-plan/task`)
+      .set("x-amazon-monitor-session", token)
+      .send({ date: "2026-07-08" })
+      .expect(200);
+    expect(repeated.body).toMatchObject({
+      created: false,
+      task: { id: taskResponse.body.task.id }
+    });
+
+    const tasks = store.listTasks({
+      orgId: store.listOrganizations()[0].id,
+      sourceType: "rule",
+      sourceId: `inventory-plan:${productId}:2026-07-08:critical`
+    });
+    expect(tasks).toHaveLength(1);
   });
 
   it("requires authentication for inventory plans", async () => {
     await request(app).get("/api/inventory/plans").expect(401);
+  });
+
+  it("does not create a task when the plan only contains data gaps", async () => {
+    await request(app)
+      .post(`/api/products/${productId}/inventory-plan/task`)
+      .set("x-amazon-monitor-session", token)
+      .send({ date: "2026-07-08" })
+      .expect(409, {
+        message: "Inventory plan has no actionable replenishment or overstock signal"
+      });
   });
 });

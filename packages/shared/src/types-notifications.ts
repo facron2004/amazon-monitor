@@ -4,6 +4,7 @@ export type NotificationSendStatus = "success" | "failed";
 
 export interface NotificationSchedule {
   id: number;
+  orgId: number;
   name: string;
   channel: NotificationChannel;
   target: string;
@@ -29,6 +30,7 @@ export interface NotificationScheduleInput {
 
 export interface NotificationSendLog {
   id: number;
+  orgId: number;
   scheduleId: number;
   scheduleName: string;
   channel: NotificationChannel;

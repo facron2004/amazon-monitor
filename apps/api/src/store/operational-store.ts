@@ -12,8 +12,10 @@ import type { Store } from "./types.js";
 
 type OperationalStoreMethods = Pick<
   Store,
+  | "deleteDailyChangesForKeywordDate"
   | "insertDailyChanges"
   | "listDailyChanges"
+  | "deleteAlertsForKeywordDate"
   | "insertAlerts"
   | "listAlerts"
   | "updateAlertStatus"
@@ -25,16 +27,23 @@ type OperationalStoreMethods = Pick<
 
 export function createOperationalStore(db: DatabaseSync): OperationalStoreMethods {
   return {
-    insertDailyChanges(items) {
+    deleteDailyChangesForKeywordDate(keyword, date, orgId) {
+      db.prepare(
+        "DELETE FROM amazon_competitor_daily_change WHERE keyword = ? AND snapshot_date = ? AND (? IS NULL OR org_id = ?)"
+      ).run(keyword, date, orgId ?? null, orgId ?? null);
+    },
+
+    insertDailyChanges(items, orgId = 1) {
       const stmt = db.prepare(
         `INSERT INTO amazon_competitor_daily_change
-         (asin, keyword, marketplace, snapshot_date, yesterday_rank, today_rank, rank_change, yesterday_price,
+         (org_id, asin, keyword, marketplace, snapshot_date, yesterday_rank, today_rank, rank_change, yesterday_price,
           today_price, price_change, price_change_rate, yesterday_sponsored, today_sponsored, change_type, title, brand)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       withTransaction(db, () => {
         for (const item of items) {
           stmt.run(
+            orgId,
             item.asin,
             item.keyword,
             item.marketplace,
@@ -57,21 +66,32 @@ export function createOperationalStore(db: DatabaseSync): OperationalStoreMethod
     },
 
     listDailyChanges(filter = {}) {
-      const { sql: where, params } = buildWhere(whereEq("snapshot_date", filter.date), whereEq("keyword", filter.keyword));
+      const { sql: where, params } = buildWhere(
+        whereEq("org_id", filter.orgId),
+        whereEq("snapshot_date", filter.date),
+        whereEq("keyword", filter.keyword)
+      );
       return (
         db.prepare(`SELECT * FROM amazon_competitor_daily_change ${where} ORDER BY created_at DESC, id DESC`).all(...params) as unknown as ChangeRow[]
       ).map(mapChange);
     },
 
-    insertAlerts(items) {
+    deleteAlertsForKeywordDate(keyword, date, orgId) {
+      db.prepare(
+        "DELETE FROM amazon_alert_log WHERE keyword = ? AND alert_date = ? AND (? IS NULL OR org_id = ?)"
+      ).run(keyword, date, orgId ?? null, orgId ?? null);
+    },
+
+    insertAlerts(items, orgId = 1) {
       const stmt = db.prepare(
         `INSERT INTO amazon_alert_log
-         (alert_date, alert_type, alert_level, keyword, asin, title, brand, alert_content, old_value, new_value, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (org_id, alert_date, alert_type, alert_level, keyword, asin, title, brand, alert_content, old_value, new_value, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       withTransaction(db, () => {
         for (const item of items) {
           stmt.run(
+            orgId,
             item.alertDate,
             item.alertType,
             item.alertLevel,
@@ -89,7 +109,12 @@ export function createOperationalStore(db: DatabaseSync): OperationalStoreMethod
     },
 
     listAlerts(filter = {}) {
-      const { sql: where, params } = buildWhere(whereEq("alert_date", filter.date), whereEq("status", filter.status), whereEq("keyword", filter.keyword));
+      const { sql: where, params } = buildWhere(
+        whereEq("org_id", filter.orgId),
+        whereEq("alert_date", filter.date),
+        whereEq("status", filter.status),
+        whereEq("keyword", filter.keyword)
+      );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
       const pagination = clamped > 0
@@ -100,9 +125,11 @@ export function createOperationalStore(db: DatabaseSync): OperationalStoreMethod
       );
     },
 
-    updateAlertStatus(id, status) {
-      db.prepare("UPDATE amazon_alert_log SET status = ? WHERE id = ?").run(status, id);
-      const row = db.prepare("SELECT * FROM amazon_alert_log WHERE id = ?").get(id) as AlertRow | undefined;
+    updateAlertStatus(id, status, orgId) {
+      db.prepare("UPDATE amazon_alert_log SET status = ? WHERE id = ? AND (? IS NULL OR org_id = ?)")
+        .run(status, id, orgId ?? null, orgId ?? null);
+      const row = db.prepare("SELECT * FROM amazon_alert_log WHERE id = ? AND (? IS NULL OR org_id = ?)")
+        .get(id, orgId ?? null, orgId ?? null) as AlertRow | undefined;
       return row ? mapAlert(row) : null;
     },
 
@@ -110,10 +137,11 @@ export function createOperationalStore(db: DatabaseSync): OperationalStoreMethod
       const result = db
         .prepare(
           `INSERT INTO amazon_collect_task_log
-           (task_type, keyword_id, keyword, marketplace, status, start_time, end_time, page_count, success_count, fail_count, error_message, retry_count)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (org_id, task_type, keyword_id, keyword, marketplace, status, start_time, end_time, page_count, success_count, fail_count, error_message, retry_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
+          input.orgId ?? 1,
           input.taskType,
           input.keywordId,
           input.keyword,
@@ -132,28 +160,33 @@ export function createOperationalStore(db: DatabaseSync): OperationalStoreMethod
       );
     },
 
-    listTaskLogs(limit = 50, offset = 0) {
+    listTaskLogs(limit = 50, offset = 0, orgId) {
       const clamped = clampLimit(limit) || 50;
       const off = clampOffset(offset);
-      return (db.prepare("SELECT * FROM amazon_collect_task_log ORDER BY id DESC LIMIT ? OFFSET ?").all(clamped, off) as unknown as TaskLogRow[]).map(mapTaskLog);
+      const rows = orgId === undefined
+        ? db.prepare("SELECT * FROM amazon_collect_task_log ORDER BY id DESC LIMIT ? OFFSET ?").all(clamped, off)
+        : db.prepare("SELECT * FROM amazon_collect_task_log WHERE org_id = ? ORDER BY id DESC LIMIT ? OFFSET ?").all(orgId, clamped, off);
+      return (rows as unknown as TaskLogRow[]).map(mapTaskLog);
     },
 
-    saveDailyReport(date, keyword, markdown) {
+    saveDailyReport(date, keyword, markdown, orgId = 1) {
       db.prepare(
-        `INSERT INTO amazon_daily_report (report_date, keyword, markdown, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(report_date, keyword) DO UPDATE SET markdown = excluded.markdown, updated_at = excluded.updated_at`
-      ).run(date, keyword, markdown, nowIso());
+        `INSERT INTO amazon_daily_report (org_id, report_date, keyword, markdown, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(org_id, report_date, keyword) DO UPDATE SET markdown = excluded.markdown, updated_at = excluded.updated_at`
+      ).run(orgId, date, keyword, markdown, nowIso());
     },
 
-    getDailyReport(date, keyword) {
+    getDailyReport(date, keyword, orgId) {
       if (keyword) {
         const row = db
-          .prepare("SELECT markdown FROM amazon_daily_report WHERE report_date = ? AND keyword = ?")
-          .get(date, keyword) as { markdown: string } | undefined;
+          .prepare("SELECT markdown FROM amazon_daily_report WHERE report_date = ? AND keyword = ? AND (? IS NULL OR org_id = ?)")
+          .get(date, keyword, orgId ?? null, orgId ?? null) as { markdown: string } | undefined;
         return row?.markdown ?? "";
       }
-      const rows = db.prepare("SELECT markdown FROM amazon_daily_report WHERE report_date = ? ORDER BY keyword").all(date) as {
+      const rows = db.prepare(
+        "SELECT markdown FROM amazon_daily_report WHERE report_date = ? AND (? IS NULL OR org_id = ?) ORDER BY keyword"
+      ).all(date, orgId ?? null, orgId ?? null) as {
         markdown: string;
       }[];
       return rows.map((row) => row.markdown).join("\n\n---\n\n");

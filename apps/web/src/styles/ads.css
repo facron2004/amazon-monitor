@@ -45,6 +45,25 @@
   min-width: 860px;
 }
 
+.ads-table-wrap--summary {
+  overflow-x: hidden;
+}
+
+.ads-table-wrap--summary table {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.ads-table-wrap--summary th:first-child {
+  width: 48%;
+}
+
+.ads-table-wrap--summary th:last-child,
+.ads-table-wrap--summary td:last-child {
+  white-space: normal;
+}
+
 .ads-table-wrap tbody tr {
   cursor: pointer;
 }
@@ -185,4 +204,13 @@
   .ads-metrics {
     grid-template-columns: repeat(2, minmax(150px, 1fr));
   }
+}
+.ads-access-note {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  color: #536171;
+  background: #f7f9fc;
+  font-size: 13px;
 }

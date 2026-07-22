@@ -12,6 +12,9 @@ import {
   type InsightReviewResult
 } from "@amazon-monitor/shared";
 import { buildReviewPresetOptions } from "../../utils/actionCenterReviewPresets";
+import { useWriteAccess } from "../../composables/useWriteAccess";
+
+const { canWrite } = useWriteAccess();
 
 const props = defineProps<{
   event: InsightEvent;
@@ -74,25 +77,30 @@ function watchLevelValue(value: unknown): AsinWatchLevel {
 }
 
 function saveAssignee(): void {
+  if (!canWrite.value) return;
   const assignee = assigneeDraft.value.trim();
   emit("assignee", props.event.id, assignee || null);
 }
 
 function saveNote(): void {
+  if (!canWrite.value) return;
   emit("note", props.event.id, noteDraft.value);
 }
 
 function scheduleReview(): void {
+  if (!canWrite.value) return;
   if (!reviewDateDraft.value) return;
   emit("status", props.event.id, "REVIEW_PENDING", reviewDateDraft.value);
 }
 
 function schedulePresetReview(date: string): void {
+  if (!canWrite.value) return;
   reviewDateDraft.value = date;
   emit("status", props.event.id, "REVIEW_PENDING", date);
 }
 
 function updateWatchLevel(value: unknown): void {
+  if (!canWrite.value) return;
   watchLevelDraft.value = watchLevelValue(value);
   emit("watch-state", props.event, watchLevelDraft.value);
 }
@@ -105,7 +113,7 @@ function updateWatchLevel(value: unknown): void {
         <span>Action loop</span>
         <h3>跟进与复盘</h3>
       </div>
-      <ElButton size="small" plain @click="emit('watch', event.id)">
+      <ElButton size="small" plain :disabled="!canWrite" @click="emit('watch', event.id)">
         <Eye :size="14" />
         <span>观察</span>
       </ElButton>
@@ -114,6 +122,7 @@ function updateWatchLevel(value: unknown): void {
         size="small"
         type="primary"
         plain
+        :disabled="!canWrite"
         @click="emit('convert-to-task', event)"
       >
         <ClipboardList :size="14" />
@@ -129,6 +138,7 @@ function updateWatchLevel(value: unknown): void {
           placeholder="Owner name"
           maxlength="120"
           clearable
+          :disabled="!canWrite"
           @update:model-value="assigneeDraft = stringValue($event)"
           @keyup.enter="saveAssignee"
         >
@@ -136,14 +146,14 @@ function updateWatchLevel(value: unknown): void {
             <UserRound :size="14" />
           </template>
           <template #append>
-            <ElButton @click="saveAssignee">保存</ElButton>
+            <ElButton :disabled="!canWrite" @click="saveAssignee">保存</ElButton>
           </template>
         </ElInput>
       </label>
 
       <label v-if="event.asin">
         <span>竞品等级</span>
-        <ElSelect :model-value="watchLevelDraft" @update:model-value="updateWatchLevel">
+        <ElSelect :model-value="watchLevelDraft" :disabled="!canWrite" @update:model-value="updateWatchLevel">
           <ElOption v-for="option in watchOptions" :key="option.value" :label="option.label" :value="option.value" />
         </ElSelect>
       </label>
@@ -151,11 +161,11 @@ function updateWatchLevel(value: unknown): void {
 
     <div class="status-actions">
       <ElButtonGroup>
-        <ElButton @click="emit('status', event.id, 'FOLLOWED')">
+        <ElButton :disabled="!canWrite" @click="emit('status', event.id, 'FOLLOWED')">
           <CheckCircle2 :size="14" />
           <span>已跟进</span>
         </ElButton>
-        <ElButton @click="emit('status', event.id, 'IGNORED')">忽略</ElButton>
+        <ElButton :disabled="!canWrite" @click="emit('status', event.id, 'IGNORED')">忽略</ElButton>
       </ElButtonGroup>
     </div>
 
@@ -167,9 +177,10 @@ function updateWatchLevel(value: unknown): void {
           type="date"
           value-format="YYYY-MM-DD"
           placeholder="选择复盘日期"
+          :disabled="!canWrite"
           @update:model-value="reviewDateDraft = stringValue($event)"
         />
-        <ElButton type="primary" :disabled="!reviewDateDraft" @click="scheduleReview">
+        <ElButton type="primary" :disabled="!reviewDateDraft || !canWrite" @click="scheduleReview">
           <CalendarClock :size="14" />
           <span>设置复盘</span>
         </ElButton>
@@ -182,6 +193,7 @@ function updateWatchLevel(value: unknown): void {
         :key="option.key"
         size="small"
         plain
+        :disabled="!canWrite"
         @click="schedulePresetReview(option.date)"
       >
         <CalendarClock :size="14" />
@@ -195,20 +207,21 @@ function updateWatchLevel(value: unknown): void {
         :model-value="noteDraft"
         type="textarea"
         :rows="4"
+        :disabled="!canWrite"
         placeholder="记录判断依据、下一步动作或复盘观察"
         @update:model-value="noteDraft = stringValue($event)"
       />
     </label>
-    <ElButton class="save-note-button" plain @click="saveNote">
+    <ElButton class="save-note-button" plain :disabled="!canWrite" @click="saveNote">
       <Save :size="14" />
       <span>保存备注</span>
     </ElButton>
 
     <div class="review-result-row">
-      <ElSelect :model-value="reviewResult" @update:model-value="reviewResult = reviewResultValue($event)">
+      <ElSelect :model-value="reviewResult" :disabled="!canWrite" @update:model-value="reviewResult = reviewResultValue($event)">
         <ElOption v-for="option in reviewOptions" :key="option.value" :label="option.label" :value="option.value" />
       </ElSelect>
-      <ElButton type="primary" @click="emit('review', event.id, reviewResult, noteDraft)">标记复盘</ElButton>
+      <ElButton type="primary" :disabled="!canWrite" @click="emit('review', event.id, reviewResult, noteDraft)">标记复盘</ElButton>
     </div>
   </section>
 </template>

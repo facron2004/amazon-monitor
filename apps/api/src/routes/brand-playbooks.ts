@@ -1,4 +1,5 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
+import type { SessionContext } from "@amazon-monitor/shared";
 import { buildBrandPlaybookProfile } from "../insights/brand-playbook.js";
 import type { Store } from "../store.js";
 import { getDate } from "./http-utils.js";
@@ -16,8 +17,10 @@ const brandPlaybookQuerySchema = z.object({
 
 export function registerBrandPlaybookRoutes(app: Express, store: Store): void {
   app.get("/api/brand-playbooks", (request, response) => {
+    const orgId = sessionOrganizationId(request);
     const query = validateQuery(brandPlaybookQuerySchema, request.query);
     const profile = buildBrandPlaybookProfile(store, {
+      orgId,
       categoryId: query.categoryId,
       brand: query.brand,
       date: query.date ?? getDate(request),
@@ -29,4 +32,9 @@ export function registerBrandPlaybookRoutes(app: Express, store: Store): void {
     }
     response.json(profile);
   });
+}
+
+function sessionOrganizationId(request: Request): number {
+  const context = (request as Request & { sessionContext?: SessionContext }).sessionContext;
+  return context?.organization.id ?? 1;
 }

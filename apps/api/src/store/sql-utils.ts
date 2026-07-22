@@ -48,6 +48,14 @@ export function whereEq(column: string, value: unknown): WhereBuilder | null {
   return { clause: `${column} = ?`, param: value as SQLInputValue };
 }
 
+export function whereMarketplace(column: string, value: unknown): WhereBuilder | null {
+  if (value === undefined || value === null) return null;
+  return {
+    clause: `LOWER(REPLACE(${column}, 'www.', '')) = LOWER(REPLACE(?, 'www.', ''))`,
+    param: value as SQLInputValue
+  };
+}
+
 export function whereLte(column: string, value: unknown): WhereBuilder | null {
   if (value === undefined || value === null) return null;
   return { clause: `${column} <= ?`, param: value as SQLInputValue };
@@ -64,7 +72,7 @@ export function buildCalendarFilterClauses(
   toDate?: string,
   fromDate?: string
 ): { sql: string; params: SQLInputValue[] } {
-  return buildWhere(whereEq("asin", asin), whereEq("marketplace", marketplace), whereLte("snapshot_date", toDate), whereGte("snapshot_date", fromDate));
+  return buildWhere(whereEq("asin", asin), whereMarketplace("marketplace", marketplace), whereLte("snapshot_date", toDate), whereGte("snapshot_date", fromDate));
 }
 
 export function clampLimit(limit: number | undefined | null, max = 1000): number {

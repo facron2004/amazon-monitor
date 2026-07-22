@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS amazon_bestseller_rank_snapshot (
   deal_badge TEXT,
   bsr_rank INTEGER,
   bsr_category TEXT,
+  data_source TEXT NOT NULL DEFAULT 'manual',
+  last_synced_at TEXT,
+  sync_status TEXT NOT NULL DEFAULT 'manual',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_bestseller_category_date ON amazon_bestseller_rank_snapshot(category_id, snapshot_date);
@@ -37,6 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_bestseller_asin_date_rank ON amazon_bestseller_ra
 CREATE INDEX IF NOT EXISTS idx_bestseller_price_low_lookup ON amazon_bestseller_rank_snapshot(category_id, marketplace, asin, snapshot_date, current_price);
 CREATE INDEX IF NOT EXISTS idx_bestseller_snapshot_date ON amazon_bestseller_rank_snapshot(snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_bestseller_brand_date ON amazon_bestseller_rank_snapshot(brand, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_bestseller_category_asin_date ON amazon_bestseller_rank_snapshot(category_id, asin, marketplace, snapshot_date DESC);
 
 CREATE TABLE IF NOT EXISTS amazon_bsr_rank_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

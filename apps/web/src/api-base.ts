@@ -1,5 +1,14 @@
 const baseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE?.trim() || "/api");
 const DEFAULT_TIMEOUT_MS = 30_000;
+const GET_CACHE_TTL_MS = 8_000;
+
+interface CacheEntry {
+  at: number;
+  data: unknown;
+}
+
+const responseCache = new Map<string, CacheEntry>();
+const inflightRequests = new Map<string, Promise<unknown>>();
 
 export interface RequestOptions extends RequestInit {
   /** AbortSignal for request cancellation (e.g., when switching tabs) */
@@ -40,7 +49,40 @@ function resolveAuthHeaders(init?: RequestOptions): Record<string, string> {
   return headers;
 }
 
+function cacheKey(path: string, init?: RequestOptions): string | null {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET") return null;
+  return `${method} ${path}`;
+}
+
+export function clearRequestCache(prefix?: string): void {
+  if (!prefix) {
+    responseCache.clear();
+    inflightRequests.clear();
+    return;
+  }
+
+  for (const key of responseCache.keys()) {
+    if (key.includes(prefix)) responseCache.delete(key);
+  }
+  for (const key of inflightRequests.keys()) {
+    if (key.includes(prefix)) inflightRequests.delete(key);
+  }
+}
+
 export async function request<T>(path: string, init?: RequestOptions): Promise<T> {
+  const key = cacheKey(path, init);
+  if (key) {
+    const cached = responseCache.get(key);
+    if (cached && Date.now() - cached.at < GET_CACHE_TTL_MS) {
+      return cached.data as T;
+    }
+    const inflight = inflightRequests.get(key);
+    if (inflight) {
+      return inflight as Promise<T>;
+    }
+  }
+
   // Build a timeout-aware AbortSignal
   const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -57,7 +99,7 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
   }
 
   try {
-    const response = await fetch(buildRequestUrl(path), {
+    const requestPromise = fetch(buildRequestUrl(path), {
       ...init,
       credentials: init?.credentials ?? "include",
       signal: controller.signal,
@@ -66,29 +108,69 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
         ...resolveAuthHeaders(init),
         ...(init?.headers ?? {})
       }
+    }).then(async (response) => {
+      if (!response.ok) {
+        if (response.status === 401) {
+          try {
+            localStorage.removeItem("amazon_monitor_auth_token");
+            localStorage.removeItem("amazon_monitor_session");
+          } catch {
+            // ignore
+          }
+          window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
+        }
+        const error = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(error.message ?? response.statusText);
+      }
+
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      return (await response.json()) as T;
     });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        try {
-          localStorage.removeItem("amazon_monitor_auth_token");
-          localStorage.removeItem("amazon_monitor_session");
-        } catch {
-          // ignore
-        }
-        window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
-      }
-      const error = await response.json().catch(() => ({ message: response.statusText }));
-      throw new Error(error.message ?? response.statusText);
-    }
+    if (key) inflightRequests.set(key, requestPromise as Promise<unknown>);
 
-    if (response.status === 204) {
-      return undefined as T;
-    }
+    const result = await requestPromise;
+    if (key) responseCache.set(key, { at: Date.now(), data: result });
+    return result;
 
-    return (await response.json()) as T;
   } finally {
     clearTimeout(timeoutId);
+    if (key) inflightRequests.delete(key);
+  }
+}
+
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const response = await fetch(buildRequestUrl(path), {
+    credentials: "include",
+    headers: resolveAuthHeaders()
+  });
+  if (!response.ok) {
+    if (response.status === 401) {
+      try {
+        localStorage.removeItem("amazon_monitor_auth_token");
+        localStorage.removeItem("amazon_monitor_session");
+      } catch {
+        // ignore
+      }
+      window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
+    }
+    const error = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(error.message ?? response.statusText);
+  }
+
+  const blobUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    URL.revokeObjectURL(blobUrl);
   }
 }
 

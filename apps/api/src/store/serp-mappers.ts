@@ -1,5 +1,5 @@
 import { inferIceType, selectSpecificBestsellerRank } from "@amazon-monitor/shared";
-import type { IceTypeTag, ProductRanking, SerpSnapshot } from "@amazon-monitor/shared";
+import type { IceTypeTag, ProductRanking, ProductSyncStatus, SerpSnapshot } from "@amazon-monitor/shared";
 import { parseJsonArray } from "./json-utils.js";
 
 export interface SnapshotRow {
@@ -37,6 +37,9 @@ export interface SnapshotRow {
   bsr_text: string | null;
   bestseller_ranks_json: string | null;
   detail_collected_at: string | null;
+  data_source: string;
+  last_synced_at: string | null;
+  sync_status: ProductSyncStatus;
   created_at: string;
 }
 
@@ -78,6 +81,9 @@ export function mapSnapshot(row: SnapshotRow): SerpSnapshot {
     bsrText: row.bsr_text,
     bestsellerRanks,
     detailCollectedAt: row.detail_collected_at,
+    dataSource: row.data_source,
+    lastSyncedAt: row.last_synced_at,
+    syncStatus: row.sync_status,
     createdAt: row.created_at
   };
 }

@@ -37,6 +37,7 @@ describe("report routes", () => {
     initSchema(db);
     const store = createStore(db);
     const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
 
     store.upsertInsightEvent(eventFixture({
       id: "2026-06-25|category:1|asin:B0ACME0001|CORE_COMPETITOR_RISK",
@@ -98,7 +99,7 @@ describe("report routes", () => {
       evidence: { currentRank: 42 }
     }));
 
-    const weekly = await request(app)
+    const weekly = await api
       .get("/api/reports/insights/period?endDate=2026-06-25&period=weekly")
       .expect(200);
 
@@ -147,7 +148,7 @@ describe("report routes", () => {
     expect(weekly.body.markdown).toContain("Overdue review backlog: 3");
     expect(weekly.body.markdown).toContain("B0PRE00005");
 
-    const monthly = await request(app)
+    const monthly = await api
       .get("/api/reports/insights/period?endDate=2026-06-25&period=monthly")
       .expect(200);
     expect(monthly.body).toMatchObject({ period: "monthly", startDate: "2026-05-27", days: 30 });
@@ -155,7 +156,7 @@ describe("report routes", () => {
     expect(monthly.body.markdown).toContain("## Monthly Brand Tactic Summary");
     expect(monthly.body.markdown).toContain("## Monthly Category Structure Change Summary");
 
-    await request(app).get("/api/reports/insights/period?endDate=2026-06-25&period=quarterly").expect(400);
+    await api.get("/api/reports/insights/period?endDate=2026-06-25&period=quarterly").expect(400);
   });
 
   it("adds Action Center insight sections to the default daily report API", async () => {
@@ -171,16 +172,17 @@ describe("report routes", () => {
         evidence: { currentRank: 12, previousRank: 30, rankChange: 18 }
       })
     ]);
+    const api = await authenticatedAgent(app);
     store.saveDailyReport("2026-06-25", "ice maker", "# Keyword Daily Report");
 
-    const response = await request(app).get("/api/reports/daily?date=2026-06-25").expect(200);
+    const response = await api.get("/api/reports/daily?date=2026-06-25").expect(200);
 
     expect(response.body.markdown).toContain("# Keyword Daily Report");
     expect(response.body.markdown).toContain("Action Center");
     expect(response.body.markdown).toContain("B0TEST0001");
     expect(response.body.markdown).toContain("RANK_SURGE");
 
-    const keywordScoped = await request(app).get("/api/reports/daily?date=2026-06-25&keyword=ice%20maker").expect(200);
+    const keywordScoped = await api.get("/api/reports/daily?date=2026-06-25&keyword=ice%20maker").expect(200);
     expect(keywordScoped.body.markdown).toBe("# Keyword Daily Report");
   });
 
@@ -189,8 +191,9 @@ describe("report routes", () => {
       delete process.env[key];
     }
     const { app } = createReportTestApp();
+    const api = await authenticatedAgent(app);
 
-    const response = await request(app)
+    const response = await api
       .get("/api/reports/insights/period?endDate=2026-06-25&period=weekly&includeAiSummary=true")
       .expect(200);
 
@@ -224,8 +227,9 @@ describe("report routes", () => {
         scoreLevel: "S"
       })
     ]);
+    const api = await authenticatedAgent(app);
 
-    const response = await request(app)
+    const response = await api
       .get("/api/reports/insights/period?endDate=2026-06-25&period=weekly&includeAiSummary=true")
       .expect(200);
 
@@ -258,8 +262,9 @@ describe("report routes", () => {
       })
     );
     const { app } = createReportTestApp();
+    const api = await authenticatedAgent(app);
 
-    const response = await request(app)
+    const response = await api
       .get("/api/reports/insights/period?endDate=2026-06-25&period=weekly&includeAiSummary=true")
       .expect(200);
 
@@ -282,6 +287,12 @@ function createReportTestApp(events: InsightEventInput[] = []) {
     store.upsertInsightEvent(event);
   }
   return { app: createApiApp(store), store };
+}
+
+async function authenticatedAgent(app: ReturnType<typeof createApiApp>) {
+  const api = request.agent(app);
+  await api.post("/api/auth/login").send({ username: "admin", password: "admin123" }).expect(200);
+  return api;
 }
 
 function eventFixture(overrides: EventFixtureOverrides): InsightEventInput {

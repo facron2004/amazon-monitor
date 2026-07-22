@@ -1,6 +1,7 @@
 export const operationalSchemaSql = `
 CREATE TABLE IF NOT EXISTS amazon_competitor_daily_change (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL DEFAULT 1 REFERENCES organizations(id),
   asin TEXT NOT NULL,
   keyword TEXT NOT NULL,
   marketplace TEXT NOT NULL,
@@ -19,12 +20,13 @@ CREATE TABLE IF NOT EXISTS amazon_competitor_daily_change (
   brand TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_asin_keyword_date ON amazon_competitor_daily_change(asin, keyword, snapshot_date);
-CREATE INDEX IF NOT EXISTS idx_daily_change_activity_calendar ON amazon_competitor_daily_change(asin, marketplace, snapshot_date);
-CREATE INDEX IF NOT EXISTS idx_daily_change_date_keyword ON amazon_competitor_daily_change(snapshot_date, keyword, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_asin_keyword_date ON amazon_competitor_daily_change(org_id, asin, keyword, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_daily_change_activity_calendar ON amazon_competitor_daily_change(org_id, asin, marketplace, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_daily_change_date_keyword ON amazon_competitor_daily_change(org_id, snapshot_date, keyword, created_at DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS amazon_alert_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL DEFAULT 1 REFERENCES organizations(id),
   alert_date TEXT NOT NULL,
   alert_type TEXT NOT NULL,
   alert_level TEXT,
@@ -38,14 +40,15 @@ CREATE TABLE IF NOT EXISTS amazon_alert_log (
   status TEXT DEFAULT 'pending',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_alert_date ON amazon_alert_log(alert_date);
-CREATE INDEX IF NOT EXISTS idx_alert_date_status ON amazon_alert_log(alert_date, status, created_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS idx_alert_date_keyword_status ON amazon_alert_log(alert_date, keyword, status, created_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS idx_alert_asin ON amazon_alert_log(asin);
-CREATE INDEX IF NOT EXISTS idx_alert_type ON amazon_alert_log(alert_type);
+CREATE INDEX IF NOT EXISTS idx_alert_date ON amazon_alert_log(org_id, alert_date);
+CREATE INDEX IF NOT EXISTS idx_alert_date_status ON amazon_alert_log(org_id, alert_date, status, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_date_keyword_status ON amazon_alert_log(org_id, alert_date, keyword, status, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_asin ON amazon_alert_log(org_id, asin);
+CREATE INDEX IF NOT EXISTS idx_alert_type ON amazon_alert_log(org_id, alert_type);
 
 CREATE TABLE IF NOT EXISTS amazon_collect_task_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL DEFAULT 1,
   task_type TEXT,
   keyword_id INTEGER,
   keyword TEXT,
@@ -60,15 +63,17 @@ CREATE TABLE IF NOT EXISTS amazon_collect_task_log (
   retry_count INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_collect_task_log_org_id ON amazon_collect_task_log(org_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS amazon_daily_report (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL DEFAULT 1 REFERENCES organizations(id),
   report_date TEXT NOT NULL,
   keyword TEXT NOT NULL,
   markdown TEXT NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(report_date, keyword)
+  UNIQUE(org_id, report_date, keyword)
 );
 
 CREATE TABLE IF NOT EXISTS amazon_category_daily_report (

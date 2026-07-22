@@ -5,6 +5,7 @@ import type { TabKey } from "../constants/tabs";
 import { toErrorMessage } from "../utils/error-message";
 
 interface UseAppViewEffectsOptions {
+  canLoad(): boolean;
   activeTab: Ref<TabKey>;
   date: Ref<string>;
   categoriesLoading: Ref<boolean>;
@@ -42,11 +43,12 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
   }
 
   watchDebounced(options.activeTab, () => {
+    if (!options.canLoad()) return;
     options.loadCurrentView().catch(setInlineError);
   }, { debounce: 200 });
 
   watch(options.selectedKeywordId, () => {
-    if (options.activeTab.value !== "keywords") {
+    if (!options.canLoad() || options.activeTab.value !== "keywords") {
       return;
     }
 
@@ -54,7 +56,7 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
   });
 
   watch(options.selectedCategoryId, () => {
-    if (options.activeTab.value !== "categories") {
+    if (!options.canLoad() || options.activeTab.value !== "categories") {
       return;
     }
 
@@ -62,7 +64,7 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
   });
 
   watchDebounced([options.competitorSourceFilter, options.competitorTierFilter], () => {
-    if (options.activeTab.value !== "competitors") {
+    if (!options.canLoad() || options.activeTab.value !== "competitors") {
       return;
     }
 
@@ -70,13 +72,14 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
   }, { debounce: 300 });
 
   watchDebounced(options.date, () => {
+    if (!options.canLoad()) return;
     options.loadCurrentView().catch(setInlineError);
   }, { debounce: 300 });
 
   function startCategoryRefresh() {
     stopCategoryRefresh();
     categoryRefreshTimer = setInterval(() => {
-      if (options.activeTab.value !== "categories" || options.categoriesLoading.value) {
+      if (!options.canLoad() || options.activeTab.value !== "categories" || options.categoriesLoading.value) {
         return;
       }
       // Skip refresh when page is not visible
@@ -95,10 +98,6 @@ export function useAppViewEffects(options: UseAppViewEffectsOptions) {
   }
 
   onMounted(() => {
-    options.loadCurrentView().catch((error) => {
-      options.setError(toErrorMessage(error));
-    });
-
     startCategoryRefresh();
 
     // Pause/resume polling based on page visibility

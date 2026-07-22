@@ -9,6 +9,8 @@ const EVENT_TYPE_TO_TASK_TYPE: Record<string, TaskType> = {
   DEAL_ADDED: "coupon",
   DEAL_REMOVED: "coupon",
   REVIEW_SPIKE: "review",
+  RATING_DROP: "review",
+  LISTING_CHANGED: "listing",
   LOW_REVIEW_HIGH_RANK: "review",
   NEW_TOP20_ENTRY: "competitor",
   NEW_TOP50_ENTRY: "competitor",
@@ -19,7 +21,13 @@ const EVENT_TYPE_TO_TASK_TYPE: Record<string, TaskType> = {
   NEW_PRODUCT_BREAKOUT: "competitor",
   BRAND_MATRIX_SURGE: "competitor",
   BRAND_MATRIX_DROP: "competitor",
-  CORE_COMPETITOR_RISK: "competitor"
+  CORE_COMPETITOR_RISK: "competitor",
+  INVENTORY_STOCKOUT_RISK: "inventory",
+  ADS_ACOS_SPIKE: "ad",
+  REVIEW_NEGATIVE_CLUSTER: "review",
+  LISTING_HEALTH_LOW: "listing",
+  KEYWORD_PAGE_DROP: "keyword",
+  OWNED_RATING_DROP: "review"
 };
 
 const EVENT_LEVEL_TO_PRIORITY: Record<string, "P0" | "P1" | "P2" | "P3"> = {
@@ -56,7 +64,7 @@ export function createTaskFromEvent(
     sourceType: "insight_event",
     sourceId: event.id,
     title: event.eventTitle,
-    description: `${event.eventSummary}\n\n[自动从 InsightEvent ${event.id} 转化]`,
+    description: event.eventSummary,
     taskType,
     priority,
     assigneeId: input.assigneeId ?? null,
@@ -69,7 +77,7 @@ export function createTaskFromEvent(
     createdBy: input.createdBy ?? null
   });
   store.linkEventToTask(event.id, task.id);
-  store.updateInsightEventStatus(event.id, "CONVERTED_TO_TASK");
+  store.updateInsightEventStatus(event.id, "CONVERTED_TO_TASK", undefined, event.orgId);
   return task;
 }
 

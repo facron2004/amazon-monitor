@@ -3,6 +3,7 @@ import type { KeywordMonitor, SerpSnapshot } from "@amazon-monitor/shared";
 import type { KeywordMonitorForm } from "../types/keyword-monitor";
 import KeywordDetailPanel from "./KeywordDetailPanel.vue";
 import KeywordMonitorPanel from "./KeywordMonitorPanel.vue";
+import KeywordRankMatrixPanel from "./keywords/KeywordRankMatrixPanel.vue";
 
 interface Props {
   keywords: KeywordMonitor[];
@@ -18,6 +19,7 @@ interface Emits {
   (e: "run-collection", keywordId?: number): void;
   (e: "create-keyword"): void;
   (e: "toggle-keyword", keyword: KeywordMonitor): void;
+  (e: "update-keyword-priority", keyword: KeywordMonitor, priority: KeywordMonitor["priority"]): void;
   (e: "delete-keyword", keywordId: number): void;
   (e: "chart-ready", element: HTMLDivElement | null): void;
 }
@@ -28,6 +30,8 @@ const emit = defineEmits<Emits>();
 
 <template>
   <section class="view">
+    <KeywordRankMatrixPanel />
+
     <KeywordMonitorPanel
       :keywords="keywords"
       :selected-keyword-id="selectedKeywordId"
@@ -37,6 +41,7 @@ const emit = defineEmits<Emits>();
       @run-collection="emit('run-collection', $event)"
       @create-keyword="emit('create-keyword')"
       @toggle-keyword="emit('toggle-keyword', $event)"
+      @update-keyword-priority="(keyword, priority) => emit('update-keyword-priority', keyword, priority)"
       @delete-keyword="(keywordId) => emit('delete-keyword', keywordId)"
     />
 

@@ -1,21 +1,50 @@
 <script setup lang="ts">
-import { Lightbulb, ChevronRight, Flame, BadgePercent, Layers, type LucideIcon } from "@lucide/vue";
+import {
+  Lightbulb,
+  ChevronRight,
+  Flame,
+  BadgePercent,
+  Layers,
+  type LucideIcon,
+} from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { useCompetitorStore } from "../stores/competitor";
 
 const store = useCompetitorStore();
-const { competitorInsightSuggestion } = storeToRefs(store);
+const { competitorInsightSuggestion, yesterdayKpiDelta } = storeToRefs(store);
 
 function openAmazonByAsin(asin: string): void {
-  window.open(`https://www.amazon.com/dp/${asin}`, "_blank", "noopener,noreferrer");
+  window.open(
+    `https://www.amazon.com/dp/${asin}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
 }
 
-const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> = {
-  price: Flame,
-  activity: BadgePercent,
-  core: Layers,
-  neutral: Flame
-};
+const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
+  {
+    price: Flame,
+    activity: BadgePercent,
+    core: Layers,
+    neutral: Flame,
+  };
+
+function statDelta(
+  tone: "price" | "activity" | "core" | "neutral",
+): number | null {
+  if (tone === "price") return yesterdayKpiDelta.value.priceActive;
+  if (tone === "core") return yesterdayKpiDelta.value.core;
+  return null;
+}
+
+function statDeltaText(
+  tone: "price" | "activity" | "core" | "neutral",
+): string {
+  const delta = statDelta(tone);
+  if (delta === null) return "较昨日 -";
+  if (delta > 0) return `较昨日 +${delta}`;
+  return `较昨日 ${delta}`;
+}
 </script>
 
 <template>
@@ -30,11 +59,17 @@ const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
     <div class="competitor-insight-headline">
       <small>建议优先关注</small>
       <p>{{ competitorInsightSuggestion.headline }}</p>
-      <p class="competitor-insight-body">{{ competitorInsightSuggestion.body }}</p>
+      <p class="competitor-insight-body">
+        {{ competitorInsightSuggestion.body }}
+      </p>
     </div>
 
     <ul class="competitor-insight-stats">
-      <li v-for="stat in competitorInsightSuggestion.stats" :key="stat.label" :class="`is-${stat.tone}`">
+      <li
+        v-for="stat in competitorInsightSuggestion.stats"
+        :key="stat.label"
+        :class="`is-${stat.tone}`"
+      >
         <span class="competitor-insight-stat-icon">
           <component :is="TONE_ICON[stat.tone]" :size="12" />
         </span>
@@ -42,14 +77,20 @@ const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
           <strong>{{ stat.value }}</strong>
           <small>{{ stat.label }}</small>
         </div>
-        <em>较昨日 +0</em>
+        <em>{{ statDeltaText(stat.tone) }}</em>
       </li>
     </ul>
 
-    <div v-if="competitorInsightSuggestion.topItems.length" class="competitor-insight-top">
+    <div
+      v-if="competitorInsightSuggestion.topItems.length"
+      class="competitor-insight-top"
+    >
       <small>重点关注 ASIN</small>
       <ul>
-        <li v-for="item in competitorInsightSuggestion.topItems" :key="item.asin">
+        <li
+          v-for="item in competitorInsightSuggestion.topItems"
+          :key="item.asin"
+        >
           <button type="button" @click="openAmazonByAsin(item.asin)">
             <strong>{{ item.brand || "未知品牌" }}</strong>
             <small>{{ item.asin }}</small>
@@ -156,10 +197,22 @@ const TONE_ICON: Record<"price" | "activity" | "core" | "neutral", LucideIcon> =
   width: 22px;
 }
 
-.competitor-insight-stats li.is-price .competitor-insight-stat-icon { background: #fee2e2; color: #991b1b; }
-.competitor-insight-stats li.is-activity .competitor-insight-stat-icon { background: #ccfbf1; color: #0f766e; }
-.competitor-insight-stats li.is-core .competitor-insight-stat-icon { background: #ede9fe; color: #6d28d9; }
-.competitor-insight-stats li.is-neutral .competitor-insight-stat-icon { background: #f1f5f9; color: #64748b; }
+.competitor-insight-stats li.is-price .competitor-insight-stat-icon {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.competitor-insight-stats li.is-activity .competitor-insight-stat-icon {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.competitor-insight-stats li.is-core .competitor-insight-stat-icon {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.competitor-insight-stats li.is-neutral .competitor-insight-stat-icon {
+  background: #f1f5f9;
+  color: #64748b;
+}
 
 .competitor-insight-stats li strong {
   color: var(--text-primary, #0f172a);

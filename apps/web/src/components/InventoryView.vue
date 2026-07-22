@@ -2,25 +2,43 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ElButton, ElDialog, ElInput, ElMessage, ElOption, ElSelect, ElTag } from "element-plus";
-import { AlertTriangle, PackageCheck, RefreshCw, Save, Settings, Warehouse } from "@lucide/vue";
+import { AlertTriangle, ClipboardPlus, PackageCheck, RefreshCw, Save, Settings, ShieldCheck, Warehouse } from "@lucide/vue";
 import type { InventoryPlanLevel, InventoryReplenishmentPlan } from "@amazon-monitor/shared";
+import { useWriteAccess } from "../composables/useWriteAccess";
 import { useInventoryStore } from "../stores/inventory";
 
 const props = defineProps<{ date: string }>();
 
 const store = useInventoryStore();
-const { plans, selectedProductId, selectedPlan, loading, saving, error, query, level } = storeToRefs(store);
+const {
+  plans,
+  selectedProductId,
+  selectedPlan,
+  loading,
+  saving,
+  creatingTaskProductId,
+  taskIdsByProductId,
+  error,
+  query,
+  level
+} = storeToRefs(store);
+const { canWrite } = useWriteAccess("manage_workflow");
 
 const settingDialogOpen = ref(false);
 const settingForm = reactive({
   productId: 0,
   leadTimeDays: 21 as number | string,
+  productionLeadTimeDays: null as number | string | null,
+  inboundLeadTimeDays: null as number | string | null,
   safetyStockDays: 14 as number | string,
   targetStockDays: 60 as number | string,
   minOrderQuantity: null as number | string | null,
   packSize: null as number | string | null,
   supplierName: "",
-  reorderPointUnits: null as number | string | null
+  reorderPointUnits: null as number | string | null,
+  inTransitUnits: null as number | string | null,
+  localWarehouseUnits: null as number | string | null,
+  expectedArrivalDate: ""
 });
 
 const criticalCount = computed(() => plans.value.filter((plan) => plan.level === "critical").length);
@@ -28,6 +46,9 @@ const watchCount = computed(() => plans.value.filter((plan) => plan.level === "w
 const overstockCount = computed(() => plans.value.filter((plan) => plan.level === "overstock").length);
 const recommendedUnits = computed(() =>
   plans.value.reduce((sum, plan) => sum + (plan.recommendedOrderQuantity ?? 0), 0)
+);
+const selectedPlanHasAction = computed(() =>
+  selectedPlan.value?.issues.some((issue) => issue.type !== "data_gap") ?? false
 );
 
 watch(() => props.date, async (date) => {
@@ -47,12 +68,17 @@ function openSettingDialog(plan?: InventoryReplenishmentPlan | null): void {
   if (!target) return;
   settingForm.productId = target.productId;
   settingForm.leadTimeDays = target.setting?.leadTimeDays ?? target.leadTimeDays;
+  settingForm.productionLeadTimeDays = target.setting?.productionLeadTimeDays ?? null;
+  settingForm.inboundLeadTimeDays = target.setting?.inboundLeadTimeDays ?? null;
   settingForm.safetyStockDays = target.setting?.safetyStockDays ?? target.safetyStockDays;
   settingForm.targetStockDays = target.setting?.targetStockDays ?? target.targetStockDays;
   settingForm.minOrderQuantity = target.setting?.minOrderQuantity ?? null;
   settingForm.packSize = target.setting?.packSize ?? null;
   settingForm.supplierName = target.setting?.supplierName ?? "";
   settingForm.reorderPointUnits = target.setting?.reorderPointUnits ?? target.reorderPointUnits;
+  settingForm.inTransitUnits = target.setting?.inTransitUnits ?? null;
+  settingForm.localWarehouseUnits = target.setting?.localWarehouseUnits ?? null;
+  settingForm.expectedArrivalDate = target.setting?.expectedArrivalDate ?? "";
   settingDialogOpen.value = true;
 }
 
@@ -64,17 +90,33 @@ async function submitSetting(): Promise<void> {
   try {
     await store.saveSetting(settingForm.productId, {
       leadTimeDays: cleanNumber(settingForm.leadTimeDays),
+      productionLeadTimeDays: cleanNumber(settingForm.productionLeadTimeDays),
+      inboundLeadTimeDays: cleanNumber(settingForm.inboundLeadTimeDays),
       safetyStockDays: cleanNumber(settingForm.safetyStockDays),
       targetStockDays: cleanNumber(settingForm.targetStockDays),
       minOrderQuantity: cleanNumber(settingForm.minOrderQuantity),
       packSize: cleanNumber(settingForm.packSize),
       supplierName: emptyToNull(settingForm.supplierName),
       reorderPointUnits: cleanNumber(settingForm.reorderPointUnits),
+      inTransitUnits: cleanNumber(settingForm.inTransitUnits),
+      localWarehouseUnits: cleanNumber(settingForm.localWarehouseUnits),
+      expectedArrivalDate: emptyToNull(settingForm.expectedArrivalDate),
       dataSource: "manual",
       syncStatus: "manual"
     }, props.date);
     settingDialogOpen.value = false;
     ElMessage.success("Inventory settings saved.");
+  } catch (err) {
+    ElMessage.error((err as Error).message);
+  }
+}
+
+async function createReplenishmentTask(): Promise<void> {
+  const plan = selectedPlan.value;
+  if (!plan) return;
+  try {
+    const result = await store.createPlanTask(plan.productId, props.date);
+    ElMessage.success(result.created ? `库存任务 #${result.taskId} 已创建` : `库存任务 #${result.taskId} 已存在`);
   } catch (err) {
     ElMessage.error((err as Error).message);
   }
@@ -187,7 +229,7 @@ function emptyToNull(value: string): string | null {
             <thead>
               <tr>
                 <th>SKU</th>
-                <th>Stock</th>
+                 <th>Supply position</th>
                 <th>Velocity</th>
                 <th>Reorder by</th>
                 <th>Order qty</th>
@@ -208,12 +250,12 @@ function emptyToNull(value: string): string | null {
                   <small>{{ plan.productTitle }}</small>
                 </td>
                 <td>
-                  <strong>{{ formatNumber(plan.inventoryAvailable) }}</strong>
-                  <small>{{ formatDays(plan.inventoryDays) }}</small>
+                   <strong>{{ formatNumber(plan.supplyPositionUnits) }}</strong>
+                   <small>FBA {{ formatNumber(plan.inventoryAvailable) }} · {{ formatDays(plan.inventoryDays) }}</small>
                 </td>
-                <td>
-                  <strong>{{ formatNumber(plan.dailySalesVelocity, 1) }}</strong>
-                  <small>units/day</small>
+                 <td>
+                   <strong>{{ formatNumber(plan.salesVelocity7d, 1) }}</strong>
+                   <small>7d · 30d {{ formatNumber(plan.salesVelocity30d, 1) }}</small>
                 </td>
                 <td>
                   <strong>{{ plan.reorderByDate ?? "-" }}</strong>
@@ -248,17 +290,56 @@ function emptyToNull(value: string): string | null {
             </ElButton>
           </div>
 
-          <section class="inventory-detail-grid">
-            <div><span>Inventory days</span><strong>{{ formatDays(selectedPlan.inventoryDays) }}</strong></div>
-            <div><span>Available units</span><strong>{{ formatNumber(selectedPlan.inventoryAvailable) }}</strong></div>
-            <div><span>Daily velocity</span><strong>{{ formatNumber(selectedPlan.dailySalesVelocity, 1) }}</strong></div>
-            <div><span>Recommended qty</span><strong>{{ formatNumber(selectedPlan.recommendedOrderQuantity) }}</strong></div>
+           <section class="inventory-detail-grid inventory-supply-grid">
+             <div><span>Inventory days</span><strong>{{ formatDays(selectedPlan.inventoryDays) }}</strong></div>
+             <div><span>FBA available</span><strong>{{ formatNumber(selectedPlan.inventoryAvailable) }}</strong></div>
+             <div><span>In transit</span><strong>{{ formatNumber(selectedPlan.inTransitUnits) }}</strong></div>
+             <div><span>Local warehouse</span><strong>{{ formatNumber(selectedPlan.localWarehouseUnits) }}</strong></div>
+             <div class="inventory-detail-grid__emphasis"><span>Supply position</span><strong>{{ formatNumber(selectedPlan.supplyPositionUnits) }}</strong></div>
+             <div><span>7d daily velocity</span><strong>{{ formatNumber(selectedPlan.salesVelocity7d, 1) }}</strong></div>
+             <div><span>30d daily velocity</span><strong>{{ formatNumber(selectedPlan.salesVelocity30d, 1) }}</strong></div>
+             <div><span>Recommended qty</span><strong>{{ formatNumber(selectedPlan.recommendedOrderQuantity) }}</strong></div>
+             <div><span>Expected arrival</span><strong>{{ selectedPlan.expectedArrivalDate ?? "-" }}</strong></div>
+          </section>
+
+          <section v-if="selectedPlanHasAction" class="inventory-section inventory-action">
+            <div class="inventory-action__head">
+              <div>
+                <span>人工确认行动</span>
+                <h3>{{ selectedPlan.level === "overstock" ? "库存处置建议" : "补货建议" }}</h3>
+              </div>
+              <ElTag type="warning" effect="plain">不自动执行</ElTag>
+            </div>
+            <p v-if="selectedPlan.level === 'overstock'">
+              先核对销量趋势、活动计划和在途库存，再决定暂停补货、促销或清仓方案。
+            </p>
+            <p v-else>
+              建议数量 {{ formatNumber(selectedPlan.recommendedOrderQuantity) }} 件。创建任务后仍需核对供应商交期、MOQ、装箱数、在途库存和现金计划。
+            </p>
+            <div class="inventory-action__boundary">
+              <ShieldCheck :size="16" />
+              <span>任务只记录建议与证据，不会自动采购、调价或修改广告。</span>
+            </div>
+            <ElButton
+              v-if="canWrite && !taskIdsByProductId[selectedPlan.productId]"
+              type="primary"
+              :loading="creatingTaskProductId === selectedPlan.productId"
+              @click="createReplenishmentTask"
+            >
+              <template #icon><ClipboardPlus :size="14" /></template>
+              {{ selectedPlan.level === "overstock" ? "转库存处置任务" : "转补货任务" }}
+            </ElButton>
+            <ElTag v-else-if="taskIdsByProductId[selectedPlan.productId]" type="success" effect="plain">
+              已创建任务 #{{ taskIdsByProductId[selectedPlan.productId] }}
+            </ElTag>
           </section>
 
           <section class="inventory-section">
             <h3>Thresholds</h3>
             <div class="inventory-thresholds">
-              <span>Lead time</span><strong>{{ selectedPlan.leadTimeDays }} days</strong>
+               <span>Total lead time</span><strong>{{ selectedPlan.leadTimeDays }} days</strong>
+               <span>Production</span><strong>{{ formatDays(selectedPlan.productionLeadTimeDays) }}</strong>
+               <span>Inbound</span><strong>{{ formatDays(selectedPlan.inboundLeadTimeDays) }}</strong>
               <span>Safety stock</span><strong>{{ selectedPlan.safetyStockDays }} days</strong>
               <span>Target stock</span><strong>{{ selectedPlan.targetStockDays }} days</strong>
               <span>Reorder point</span><strong>{{ formatNumber(selectedPlan.reorderPointUnits) }} units</strong>
@@ -295,13 +376,18 @@ function emptyToNull(value: string): string | null {
 
     <ElDialog v-model="settingDialogOpen" title="Inventory settings" width="640px">
       <div class="inventory-setting-form">
-        <ElInput v-model.number="settingForm.leadTimeDays" placeholder="Lead time days" />
+         <ElInput v-model.number="settingForm.leadTimeDays" placeholder="Lead time days" />
+         <ElInput v-model.number="settingForm.productionLeadTimeDays" placeholder="Production lead time days" />
+         <ElInput v-model.number="settingForm.inboundLeadTimeDays" placeholder="Inbound lead time days" />
         <ElInput v-model.number="settingForm.safetyStockDays" placeholder="Safety stock days" />
         <ElInput v-model.number="settingForm.targetStockDays" placeholder="Target stock days" />
         <ElInput v-model.number="settingForm.reorderPointUnits" placeholder="Reorder point units" />
         <ElInput v-model.number="settingForm.minOrderQuantity" placeholder="Minimum order quantity" />
-        <ElInput v-model.number="settingForm.packSize" placeholder="Pack size" />
-        <ElInput v-model="settingForm.supplierName" class="wide" placeholder="Supplier name" />
+         <ElInput v-model.number="settingForm.packSize" placeholder="Pack size" />
+         <ElInput v-model.number="settingForm.inTransitUnits" placeholder="In-transit units" />
+         <ElInput v-model.number="settingForm.localWarehouseUnits" placeholder="Local warehouse units" />
+         <ElInput v-model="settingForm.expectedArrivalDate" type="date" placeholder="Expected arrival date" />
+         <ElInput v-model="settingForm.supplierName" class="wide" placeholder="Supplier name" />
       </div>
       <template #footer>
         <ElButton @click="settingDialogOpen = false">Cancel</ElButton>

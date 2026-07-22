@@ -2,12 +2,17 @@ import type { BestsellerRankSnapshot } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
 import type { CellValue } from "./excel-workbook.js";
 
-export function buildBrandTop10ChangeRows(store: Store, date: string, currentSnapshots: BestsellerRankSnapshot[]): CellValue[][] {
+export function buildBrandTop10ChangeRows(
+  store: Store,
+  date: string,
+  currentSnapshots: BestsellerRankSnapshot[],
+  orgId?: number
+): CellValue[][] {
   const rows: CellValue[][] = [];
   const categoryIds = Array.from(new Set(currentSnapshots.map((item) => item.categoryId)));
   for (const categoryId of categoryIds) {
     const today = currentSnapshots.filter((item) => item.categoryId === categoryId);
-    const previous = store.getPreviousCategorySnapshots(categoryId, date);
+    const previous = store.getPreviousCategorySnapshots(categoryId, date, orgId);
     rows.push(...buildBrandTop10RowsForCategory(date, today, previous));
   }
   return rows.sort((a, b) => {

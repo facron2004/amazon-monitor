@@ -4,11 +4,12 @@ import type { InsightScoreLevel } from "@amazon-monitor/shared";
 defineProps<{
   score: number;
   level: InsightScoreLevel;
+  compact?: boolean;
 }>();
 </script>
 
 <template>
-  <span :class="['insight-score-badge', `insight-score-badge--${level.toLowerCase()}`]">
+  <span :class="['insight-score-badge', `insight-score-badge--${level.toLowerCase()}`, { 'insight-score-badge--compact': compact }]">
     <strong>{{ score }}</strong>
     <small>{{ level }}</small>
   </span>
@@ -37,6 +38,26 @@ defineProps<{
 .insight-score-badge small {
   font-size: 11px;
   margin-top: 3px;
+}
+
+.insight-score-badge--compact {
+  width: auto;
+  min-width: 0;
+  height: 23px;
+  aspect-ratio: auto;
+  flex-direction: row;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 5px;
+}
+
+.insight-score-badge--compact strong {
+  font-size: 11px;
+}
+
+.insight-score-badge--compact small {
+  margin: 0;
+  font-size: 9px;
 }
 
 .insight-score-badge--s {

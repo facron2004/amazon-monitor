@@ -13,7 +13,7 @@ import {
   insightEventTypeLabels
 } from "@amazon-monitor/shared";
 import { inferStrategyTags } from "@amazon-monitor/shared";
-import type { CategoryInsightContext } from "./insight-event-generator.js";
+import type { InsightBuildContext } from "./insight-build-context.js";
 import { scheduleReviewDate } from "./review-scheduler.js";
 import { scoreInsightEvent, type InsightScoringInput } from "./scoring-engine.js";
 
@@ -53,6 +53,14 @@ interface BuildInsightInput {
   reviewCountBefore: number | null;
   reviewCountAfter: number | null;
   reviewCountChange: number | null;
+  ratingBefore?: number | null;
+  ratingAfter?: number | null;
+  ratingChange?: number | null;
+  titleBefore?: string | null;
+  titleAfter?: string | null;
+  imageUrlBefore?: string | null;
+  imageUrlAfter?: string | null;
+  listingChangedFields?: Array<"title" | "mainImage">;
   couponBefore: string | null;
   couponAfter: string | null;
   dealType: string | null;
@@ -64,7 +72,7 @@ interface BuildInsightInput {
   competitor: CompetitorPoolItem | null;
 }
 
-export function buildInsightEvent(context: CategoryInsightContext, input: BuildInsightInput): InsightEventInput {
+export function buildInsightEvent(context: InsightBuildContext, input: BuildInsightInput): InsightEventInput {
   const watchState = input.asin ? context.watchByAsin.get(input.asin) ?? null : null;
   const coreCompetitor = isCoreCompetitor(input.competitor, watchState);
   const daysListed = input.competitor ? daysBetween(input.competitor.firstSeenDate, context.date) + 1 : input.previousRank === null ? 1 : null;
@@ -73,12 +81,12 @@ export function buildInsightEvent(context: CategoryInsightContext, input: BuildI
   const scoring = scoreInsightEvent(buildScoringInput(input, daysListed, coreCompetitor, brandTop100ShareChange, coreCompetitorRising3Days));
   const eventLevel = promoteCoreCompetitorEventLevel(eventLevelFromScore(scoring.total), input.eventType, coreCompetitor);
   const event: InsightEventInput = {
-    id: insightEventId(context.date, context.category.id, input.asin, input.brandName, input.eventType),
+    id: insightEventId(context, input.asin, input.brandName, input.eventType),
     eventDate: context.date,
     asin: input.asin,
     brand: input.brandName,
-    categoryId: context.category.id,
-    keywordId: null,
+    categoryId: context.category?.id ?? null,
+    keywordId: context.keyword?.id ?? null,
     eventType: input.eventType,
     eventLevel,
     eventTitle: eventTitle(input),
@@ -87,8 +95,9 @@ export function buildInsightEvent(context: CategoryInsightContext, input: BuildI
     evidence: {
       sourceEventKey: input.sourceEventKey,
       sourceEventType: input.sourceEventType,
-      marketplace: context.category.marketplace,
-      categoryName: context.category.name,
+      marketplace: context.category?.marketplace ?? context.keyword?.marketplace ?? "",
+      categoryName: context.category?.name ?? null,
+      keyword: context.keyword?.keyword ?? null,
       productUrl: input.productUrl,
       imageUrl: input.imageUrl,
       title: input.title,
@@ -101,6 +110,14 @@ export function buildInsightEvent(context: CategoryInsightContext, input: BuildI
       reviewCountBefore: input.reviewCountBefore,
       reviewCountAfter: input.reviewCountAfter,
       reviewCountChange: input.reviewCountChange,
+      ratingBefore: input.ratingBefore,
+      ratingAfter: input.ratingAfter,
+      ratingChange: input.ratingChange,
+      titleBefore: input.titleBefore,
+      titleAfter: input.titleAfter,
+      imageUrlBefore: input.imageUrlBefore,
+      imageUrlAfter: input.imageUrlAfter,
+      listingChangedFields: input.listingChangedFields,
       couponBefore: input.couponBefore,
       couponAfter: input.couponAfter,
       dealType: input.dealType,
@@ -219,9 +236,12 @@ export function daysBetween(startDate: string, endDate: string): number {
   return Math.floor((end - start) / 86_400_000);
 }
 
-function insightEventId(date: string, categoryId: number, asin: string | null, brand: string | null, eventType: InsightEventType): string {
+function insightEventId(context: InsightBuildContext, asin: string | null, brand: string | null, eventType: InsightEventType): string {
   const target = asin ? `asin:${asin}` : `brand:${brand ?? "unknown"}`;
-  return [date, `category:${categoryId}`, target, eventType].join("|");
+  const source = context.category
+    ? `category:${context.category.id}`
+    : `keyword:${context.keyword?.id ?? "unknown"}`;
+  return [context.date, source, target, eventType].join("|");
 }
 
 function eventLevelFromScore(score: number): InsightEventLevel {

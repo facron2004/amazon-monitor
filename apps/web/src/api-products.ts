@@ -10,6 +10,7 @@ import { request } from "./api-base";
 
 export interface ProductListQuery {
   status?: OwnedProductStatus | "all";
+  storeId?: number;
   marketplace?: string;
   brand?: string;
   q?: string;
@@ -25,6 +26,7 @@ export type UpsertProductMetricPayload = Omit<UpsertOwnedProductDailyMetricInput
 function productListQuery(params: ProductListQuery = {}): string {
   const query = new URLSearchParams();
   if (params.status && params.status !== "all") query.set("status", params.status);
+  if (params.storeId !== undefined) query.set("storeId", String(params.storeId));
   if (params.marketplace) query.set("marketplace", params.marketplace);
   if (params.brand) query.set("brand", params.brand);
   if (params.q) query.set("q", params.q);

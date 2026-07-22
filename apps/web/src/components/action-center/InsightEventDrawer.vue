@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { ExternalLink, X } from "@lucide/vue";
 import type {
+  AiCompetitorAnalysisResponse,
   AsinWatchLevel,
   AsinWatchState,
   BrandPlaybookProfile,
@@ -10,12 +11,15 @@ import type {
   InsightEventNote,
   InsightEventStatus,
   InsightReviewResult,
-  ProductPriceHistory
+  ProductPriceHistory,
+  Task
 } from "@amazon-monitor/shared";
 import { inferInsightEventStrategyTags } from "@amazon-monitor/shared";
 import AttributionTags from "./AttributionTags.vue";
+import ActionCompetitorAgentPanel from "./ActionCompetitorAgentPanel.vue";
 import ActionEvidenceDeltaPanel from "./ActionEvidenceDeltaPanel.vue";
 import ActionImpactSnapshotPanel from "./ActionImpactSnapshotPanel.vue";
+import ActionLinkedTasksPanel from "./ActionLinkedTasksPanel.vue";
 import ActionRecommendationCard from "./ActionRecommendationCard.vue";
 import ActionNoteTimeline from "./ActionNoteTimeline.vue";
 import ActionReviewCheckpointPanel from "./ActionReviewCheckpointPanel.vue";
@@ -35,6 +39,12 @@ const props = withDefaults(defineProps<{
   brandPlaybookLoading?: boolean;
   noteHistory?: InsightEventNote[];
   noteHistoryLoading?: boolean;
+  linkedTasks?: Task[];
+  linkedTasksLoading?: boolean;
+  linkedTasksError?: string;
+  competitorAnalysis?: AiCompetitorAnalysisResponse | null;
+  competitorAnalysisLoading?: boolean;
+  competitorAnalysisError?: string;
   bsrHistory?: BsrRankHistory[];
   bsrHistoryLoading?: boolean;
   priceHistory?: ProductPriceHistory[];
@@ -44,6 +54,12 @@ const props = withDefaults(defineProps<{
   brandPlaybookLoading: false,
   noteHistory: () => [],
   noteHistoryLoading: false,
+  linkedTasks: () => [],
+  linkedTasksLoading: false,
+  linkedTasksError: "",
+  competitorAnalysis: null,
+  competitorAnalysisLoading: false,
+  competitorAnalysisError: "",
   bsrHistory: () => [],
   bsrHistoryLoading: false,
   priceHistory: () => [],
@@ -59,6 +75,7 @@ const emit = defineEmits<{
   (event: "watch-state", insight: InsightEvent, level: AsinWatchLevel): void;
   (event: "review", id: string, result: InsightReviewResult, note?: string | null): void;
   (event: "convert-to-task", insight: InsightEvent): void;
+  (event: "analyze-competitor", insight: InsightEvent): void;
 }>();
 
 const strategyTags = computed(() => props.event ? inferInsightEventStrategyTags(props.event) : []);
@@ -91,6 +108,10 @@ function emitConvertToTask(insight: InsightEvent): void {
   emit("convert-to-task", insight);
 }
 
+function emitAnalyzeCompetitor(insight: InsightEvent): void {
+  emit("analyze-competitor", insight);
+}
+
 function openProduct(): void {
   const url = props.event?.evidence.productUrl;
   if (url) {
@@ -118,6 +139,12 @@ function openProduct(): void {
     <img v-if="event.evidence.imageUrl" class="drawer-image" :src="event.evidence.imageUrl" :alt="event.eventTitle" loading="lazy" decoding="async" />
 
     <ActionRecommendationCard :event="event" :current-date="currentDate" />
+    <ActionCompetitorAgentPanel
+      :analysis="competitorAnalysis"
+      :loading="competitorAnalysisLoading"
+      :error="competitorAnalysisError"
+      @analyze="emitAnalyzeCompetitor(event)"
+    />
     <ActionReviewCheckpointPanel :event="event" :current-date="currentDate" />
     <ActionImpactSnapshotPanel :event="event" />
     <ActionEvidenceDeltaPanel :event="event" />
@@ -180,6 +207,12 @@ function openProduct(): void {
       @watch-state="emitWatchState"
       @review="emitReview"
       @convert-to-task="emitConvertToTask"
+    />
+
+    <ActionLinkedTasksPanel
+      :tasks="linkedTasks"
+      :loading="linkedTasksLoading"
+      :error="linkedTasksError"
     />
 
     <ActionNoteTimeline

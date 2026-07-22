@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, type Component } from "vue";
-import { ArrowDownRight, ArrowUpRight, Flame, KeyRound, Layers, Sparkles, TrendingDown } from "@lucide/vue";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  Flame,
+  KeyRound,
+  Layers,
+  Sparkles,
+  TrendingDown,
+} from "@lucide/vue";
 import type { CompetitorKpi } from "../utils/competitor-pool";
 
 interface Props {
@@ -28,25 +36,27 @@ const ICON_MAP: Record<CompetitorKpi["tone"], Component> = {
   core: Flame,
   new: Sparkles,
   price: TrendingDown,
-  key: KeyRound
+  key: KeyRound,
 };
 
-const TREND_HINT: Record<CompetitorKpi["tone"], { upIsGood: boolean; label: string }> = {
+const TREND_HINT: Record<
+  CompetitorKpi["tone"],
+  { upIsGood: boolean; label: string }
+> = {
   total: { upIsGood: true, label: "总竞品数 / 全部入池 ASIN" },
   core: { upIsGood: false, label: "核心分层 / 手动核心标记" },
   new: { upIsGood: false, label: "近 7 天新进" },
   price: { upIsGood: true, label: "Coupon/Deal 活动中" },
-  key: { upIsGood: false, label: "高优跟进" }
+  key: { upIsGood: false, label: "高优跟进" },
 };
 
-function trendPath(tone: CompetitorKpi["tone"]): string {
-  // 简单 SVG 折线,3 个数据点示意;真实"较昨日"由 store.yesterdayKpiDelta 决定。
-  const seed = props.kpis.findIndex((k) => k.tone === tone);
-  const base = ((seed * 37) % 24) + 6;
-  const a = base;
-  const b = base + ((seed * 13) % 12) - 6;
-  const c = a + b > 0 ? Math.max(2, b - 3) : Math.min(34, b + 3);
-  return `M0 ${40 - a} L40 ${40 - b} L80 ${40 - c}`;
+function trendPath(item: CompetitorKpi): string | null {
+  if (item.delta === null) return null;
+  const previous = item.value - item.delta;
+  if (previous === item.value) return "M0 20 L80 20";
+  const previousY = previous < item.value ? 32 : 8;
+  const currentY = previous < item.value ? 8 : 32;
+  return `M0 ${previousY} L80 ${currentY}`;
 }
 
 const items = computed(() => props.kpis);
@@ -54,7 +64,11 @@ const items = computed(() => props.kpis);
 
 <template>
   <section class="competitor-kpi-cards">
-    <article v-for="item in items" :key="item.key" :class="['kpi-card', `kpi-card--${item.tone}`]">
+    <article
+      v-for="item in items"
+      :key="item.key"
+      :class="['kpi-card', `kpi-card--${item.tone}`]"
+    >
       <span class="kpi-card-icon">
         <component :is="ICON_MAP[item.tone]" :size="17" />
       </span>
@@ -62,12 +76,21 @@ const items = computed(() => props.kpis);
       <span class="kpi-card-label">{{ item.label }}</span>
       <small :class="['kpi-card-delta', `is-${deltaTone(item.delta)}`]">
         <ArrowUpRight v-if="deltaTone(item.delta) === 'up'" :size="11" />
-        <ArrowDownRight v-else-if="deltaTone(item.delta) === 'down'" :size="11" />
+        <ArrowDownRight
+          v-else-if="deltaTone(item.delta) === 'down'"
+          :size="11"
+        />
         {{ deltaText(item.delta) }}
       </small>
       <small class="kpi-card-note">{{ TREND_HINT[item.tone].label }}</small>
-      <svg class="kpi-card-spark" viewBox="0 0 80 40" preserveAspectRatio="none" aria-hidden="true">
-        <path :d="trendPath(item.tone)" />
+      <svg
+        v-if="trendPath(item)"
+        class="kpi-card-spark"
+        viewBox="0 0 80 40"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <path :d="trendPath(item) ?? ''" />
       </svg>
     </article>
   </section>
@@ -102,11 +125,26 @@ const items = computed(() => props.kpis);
   width: 30px;
 }
 
-.kpi-card--total .kpi-card-icon { background: #dbeafe; color: #1d4ed8; }
-.kpi-card--core .kpi-card-icon { background: #fee2e2; color: #991b1b; }
-.kpi-card--new .kpi-card-icon { background: #dcfce7; color: #166534; }
-.kpi-card--price .kpi-card-icon { background: #ccfbf1; color: #0f766e; }
-.kpi-card--key .kpi-card-icon { background: #ede9fe; color: #6d28d9; }
+.kpi-card--total .kpi-card-icon {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.kpi-card--core .kpi-card-icon {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.kpi-card--new .kpi-card-icon {
+  background: #dcfce7;
+  color: #166534;
+}
+.kpi-card--price .kpi-card-icon {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.kpi-card--key .kpi-card-icon {
+  background: #ede9fe;
+  color: #6d28d9;
+}
 
 .kpi-card-value {
   color: var(--text-primary, #0f172a);
@@ -130,10 +168,18 @@ const items = computed(() => props.kpis);
   gap: 2px;
 }
 
-.kpi-card-delta.is-up { color: #166534; }
-.kpi-card-delta.is-down { color: #991b1b; }
-.kpi-card-delta.is-flat { color: var(--text-muted, #64748b); }
-.kpi-card-delta.is-none { color: var(--text-muted, #94a3b8); }
+.kpi-card-delta.is-up {
+  color: #166534;
+}
+.kpi-card-delta.is-down {
+  color: #991b1b;
+}
+.kpi-card-delta.is-flat {
+  color: var(--text-muted, #64748b);
+}
+.kpi-card-delta.is-none {
+  color: var(--text-muted, #94a3b8);
+}
 
 .kpi-card-note {
   color: var(--text-muted, #64748b);
@@ -152,11 +198,21 @@ const items = computed(() => props.kpis);
   width: 80px;
 }
 
-.kpi-card--total .kpi-card-spark { color: #1d4ed8; }
-.kpi-card--core .kpi-card-spark { color: #991b1b; }
-.kpi-card--new .kpi-card-spark { color: #166534; }
-.kpi-card--price .kpi-card-spark { color: #0f766e; }
-.kpi-card--key .kpi-card-spark { color: #6d28d9; }
+.kpi-card--total .kpi-card-spark {
+  color: #1d4ed8;
+}
+.kpi-card--core .kpi-card-spark {
+  color: #991b1b;
+}
+.kpi-card--new .kpi-card-spark {
+  color: #166534;
+}
+.kpi-card--price .kpi-card-spark {
+  color: #0f766e;
+}
+.kpi-card--key .kpi-card-spark {
+  color: #6d28d9;
+}
 
 @media (max-width: 1080px) {
   .competitor-kpi-cards {

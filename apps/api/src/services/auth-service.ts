@@ -1,5 +1,5 @@
 import type { Organization, SessionContext, User, UserRole } from "@amazon-monitor/shared";
-import { DEFAULT_SESSION_TTL_HOURS } from "@amazon-monitor/shared";
+import { DEFAULT_SESSION_TTL_HOURS, USER_ROLES } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
 
 export interface LoginResult {
@@ -62,7 +62,7 @@ export function logout(store: Store, token: string): boolean {
   return true;
 }
 
-export const ROLE_VALUES: readonly UserRole[] = ["admin", "operator", "developer"] as const;
+export const ROLE_VALUES: readonly UserRole[] = USER_ROLES;
 
 export function isRole(value: unknown): value is UserRole {
   return typeof value === "string" && (ROLE_VALUES as readonly string[]).includes(value);

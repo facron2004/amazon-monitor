@@ -1,5 +1,5 @@
 import type { Express, Request } from "express";
-import type { SessionContext } from "@amazon-monitor/shared";
+import { hasBusinessCapability, type SessionContext } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
 import { asyncHandler } from "./http-utils.js";
 import {
@@ -20,12 +20,27 @@ function requireSessionContext(req: Request): SessionContext {
   return ctx;
 }
 
+function requireOperatorOrAdmin(ctx: SessionContext): void {
+  if (!hasBusinessCapability(ctx.user.role, "manage_workflow")) {
+    throw Object.assign(new Error("Forbidden: role cannot manage SOPs"), { statusCode: 403 });
+  }
+}
+
+function requireOrganizationSop(store: Store, id: number, ctx: SessionContext) {
+  const sop = store.getSop(id);
+  if (!sop || sop.orgId !== ctx.organization.id) {
+    throw Object.assign(new Error("SOP not found"), { statusCode: 404 });
+  }
+  return sop;
+}
+
 export function registerSopRoutes(app: Express, store: Store): void {
   app.get("/api/sops", asyncHandler(async (request, response) => {
-    requireSessionContext(request);
+    const ctx = requireSessionContext(request);
     const filter = validateQuery(sopListQuerySchema, request.query);
     response.json(
       store.listSops({
+        orgId: ctx.organization.id,
         status: filter.status,
         category: filter.category,
         q: filter.q,
@@ -36,18 +51,14 @@ export function registerSopRoutes(app: Express, store: Store): void {
   }));
 
   app.get("/api/sops/:id", asyncHandler(async (request, response) => {
-    requireSessionContext(request);
+    const ctx = requireSessionContext(request);
     const id = validateIdParam(request.params.id);
-    const sop = store.getSop(id);
-    if (!sop) {
-      response.status(404).json({ message: "SOP not found" });
-      return;
-    }
-    response.json(sop);
+    response.json(requireOrganizationSop(store, id, ctx));
   }));
 
   app.post("/api/sops", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const data = validateBody(createSopSchema, request.body);
     if (data.sourceTaskId !== undefined && data.sourceTaskId !== null) {
       const sourceTask = store.getTask(data.sourceTaskId);
@@ -73,22 +84,28 @@ export function registerSopRoutes(app: Express, store: Store): void {
   }));
 
   app.patch("/api/sops/:id", asyncHandler(async (request, response) => {
-    requireSessionContext(request);
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateIdParam(request.params.id);
+    requireOrganizationSop(store, id, ctx);
     const data = validateBody(updateSopSchema, request.body);
     const sop = store.updateSop(id, data);
     response.json(sop);
   }));
 
   app.post("/api/sops/:id/publish", asyncHandler(async (request, response) => {
-    requireSessionContext(request);
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateIdParam(request.params.id);
+    requireOrganizationSop(store, id, ctx);
     response.json(store.publishSop(id));
   }));
 
   app.post("/api/sops/:id/archive", asyncHandler(async (request, response) => {
-    requireSessionContext(request);
+    const ctx = requireSessionContext(request);
+    requireOperatorOrAdmin(ctx);
     const id = validateIdParam(request.params.id);
+    requireOrganizationSop(store, id, ctx);
     response.json(store.archiveSop(id));
   }));
 }

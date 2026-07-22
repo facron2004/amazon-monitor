@@ -1,7 +1,18 @@
 import type { IceTypeTag, NullableNumber } from "./types-common.js";
-import type { BsrRankChange, BsrRankHistory, BsrSourceType, ProductRanking } from "./types-products.js";
-import type { CategorySignalLog, ProductPriceHistory, CompetitorActivityEvent } from "./types-category.js";
+import type {
+  BsrRankChange,
+  BsrRankHistory,
+  BsrSourceType,
+  ProductRanking,
+  ProductSyncStatus,
+} from "./types-products.js";
+import type {
+  CategorySignalLog,
+  ProductPriceHistory,
+  CompetitorActivityEvent,
+} from "./types-category.js";
 import type { DailyChange } from "./types-operational.js";
+import type { InsightEvent } from "./insight-events.js";
 
 export type CompetitorActionInsightType =
   | "bsr_new_entry"
@@ -48,6 +59,7 @@ export interface CompetitorActionInsightInput {
 
 export interface CompetitorPoolItem {
   id: number;
+  orgId: number;
   asin: string;
   marketplace: string;
   title: string;
@@ -57,8 +69,8 @@ export interface CompetitorPoolItem {
   firstSeenDate: string;
   lastSeenDate: string;
   appearKeywordCount: number;
-  bestRank: number;
-  latestRank: number;
+  bestRank: NullableNumber;
+  latestRank: NullableNumber;
   lowestPrice: NullableNumber;
   latestPrice: NullableNumber;
   latestReviewCount?: NullableNumber;
@@ -82,7 +94,82 @@ export interface CompetitorPoolItem {
   updatedAt: string;
 }
 
-export type CompetitorSourceType = "keyword" | "category" | "hybrid";
+export type CompetitorSourceType = "keyword" | "category" | "hybrid" | "manual";
+
+export interface CreateManualCompetitorInput {
+  asin: string;
+  marketplace: string;
+  title: string;
+  brand?: string | null;
+}
+
+export interface CompetitorDailyKpiSnapshot {
+  date: string;
+  total: number;
+  core: number;
+  new: number;
+  priceActive: number;
+  key: number;
+}
+
+export interface CompetitorDailyKpiDelta {
+  total: number | null;
+  core: number | null;
+  new: number | null;
+  priceActive: number | null;
+  key: number | null;
+}
+
+export interface CompetitorKpiComparison {
+  current: CompetitorDailyKpiSnapshot;
+  previous: CompetitorDailyKpiSnapshot | null;
+  delta: CompetitorDailyKpiDelta;
+}
+
+export type CompetitorSnapshotSource = "keyword" | "category";
+
+export interface CompetitorSnapshotEvidence {
+  id: string;
+  competitorId: number;
+  sourceType: CompetitorSnapshotSource;
+  sourceId: number;
+  sourceName: string;
+  snapshotDate: string;
+  asin: string;
+  marketplace: string;
+  title: string;
+  brand: string | null;
+  imageUrl: string;
+  productUrl: string;
+  rank: number;
+  organicRank: NullableNumber;
+  sponsoredRank: NullableNumber;
+  bsrRank: NullableNumber;
+  bsrCategory: string | null;
+  currentPrice: NullableNumber;
+  finalEstimatedPrice: NullableNumber;
+  currency: string;
+  rating: NullableNumber;
+  reviewCount: NullableNumber;
+  couponText: string | null;
+  dealBadge: string | null;
+  dataSource: string;
+  lastSyncedAt: string | null;
+  syncStatus: ProductSyncStatus;
+}
+
+export interface CompetitorCsvImportError {
+  row: number;
+  asin: string | null;
+  message: string;
+}
+
+export interface CompetitorCsvImportResult {
+  totalRows: number;
+  importedCount: number;
+  failedCount: number;
+  errors: CompetitorCsvImportError[];
+}
 
 export type CompetitorTier = "core" | "rising" | "activity" | "watch";
 
@@ -166,4 +253,5 @@ export interface ProductActivityCalendar {
   productUrl: string | null;
   summary: ProductActivityCalendarSummary;
   days: ProductActivityCalendarDay[];
+  insightEvents: InsightEvent[];
 }

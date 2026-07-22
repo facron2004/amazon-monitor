@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { KeywordMonitor, SerpSnapshot } from "@amazon-monitor/shared";
 import { formatMoney, imgFallback, validCouponText, validDealBadge } from "../utils/formatters";
+import { snapshotProvenanceLabel, snapshotSyncedAtLabel } from "../utils/snapshotProvenance";
 
 interface Props {
   selectedKeyword: KeywordMonitor | null;
@@ -12,9 +13,10 @@ interface Emits {
   (e: "chart-ready", element: HTMLDivElement | null): void;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
 const chartEl = ref<HTMLDivElement | null>(null);
+const latestSnapshot = computed(() => props.topSnapshots[0]);
 
 onMounted(() => {
   emit("chart-ready", chartEl.value);
@@ -34,6 +36,9 @@ onBeforeUnmount(() => {
     <div class="panel-head">
       <h2>{{ selectedKeyword?.keyword ?? "关键词详情" }}</h2>
       <span>{{ topSnapshots.length }} 个商品</span>
+      <small class="panel-head-meta" :title="snapshotSyncedAtLabel(latestSnapshot)">
+        {{ snapshotProvenanceLabel(latestSnapshot) }}
+      </small>
     </div>
     <div ref="chartEl" class="chart"></div>
     <div class="product-grid">

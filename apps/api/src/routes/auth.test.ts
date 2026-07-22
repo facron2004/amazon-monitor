@@ -129,7 +129,7 @@ describe("auth API (Stage 0)", () => {
     await request(app).get("/api/auth/me").expect(401);
   });
 
-  it("lets admin create a developer user via /api/users", async () => {
+  it("lets admin create legacy and PRD roles via /api/users", async () => {
     const login = await request(app)
       .post("/api/auth/login")
       .send({ username: "admin", password: "admin123" })
@@ -149,6 +149,45 @@ describe("auth API (Stage 0)", () => {
       .send({ username: "sara", password: "password-1234" })
       .expect(200);
     expect(saraLogin.body.context.user.role).toBe("developer");
+
+    const researcher = await request(app)
+      .post("/api/users")
+      .set("x-amazon-monitor-session", token)
+      .send({ username: "researcher", password: "password-1234", role: "product_researcher" })
+      .expect(201);
+    expect(researcher.body.role).toBe("product_researcher");
+  });
+
+  it("scopes the user directory and user creation to the signed-in organization", async () => {
+    const otherOrganization = store.createOrganization({ name: "Other organization" });
+    store.createUser({
+      orgId: otherOrganization.id,
+      username: "other-admin",
+      password: "OtherAdmin123!",
+      role: "admin"
+    });
+    const login = await request(app)
+      .post("/api/auth/login")
+      .send({ username: "admin", password: "admin123" })
+      .expect(200);
+    const token = login.body.token as string;
+
+    const users = await request(app)
+      .get("/api/users")
+      .set("x-amazon-monitor-session", token)
+      .expect(200);
+    expect(users.body.map((user: { username: string }) => user.username)).toEqual(["admin"]);
+
+    await request(app)
+      .post("/api/users")
+      .set("x-amazon-monitor-session", token)
+      .send({
+        orgId: otherOrganization.id,
+        username: "cross-org-user",
+        password: "CrossOrg123!",
+        role: "operator"
+      })
+      .expect(403);
   });
 
   it("forbids non-admin from creating users", async () => {

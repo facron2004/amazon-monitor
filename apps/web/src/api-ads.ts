@@ -2,7 +2,7 @@ import type {
   AdDailyMetric,
   AdsMetricListFilter,
   AdsWorkflowLevel,
-  AdsWorkflowSummary,
+  AdsWorkflowResponse,
   UpsertAdDailyMetricInput
 } from "@amazon-monitor/shared";
 import { request } from "./api-base";
@@ -20,7 +20,7 @@ export interface AdsQuery {
 
 export const adsApi = {
   fetchSummary: (query: AdsQuery = {}) =>
-    request<AdsWorkflowSummary>(`/ads/summary?${buildQuery(query).toString()}`),
+    request<AdsWorkflowResponse>(`/ads/summary?${buildQuery(query).toString()}`),
   fetchMetrics: (query: Omit<AdsQuery, "level"> = {}) =>
     request<AdDailyMetric[]>(`/ads/metrics?${buildQuery(query).toString()}`),
   upsertMetric: (payload: AdsMetricPayload) =>

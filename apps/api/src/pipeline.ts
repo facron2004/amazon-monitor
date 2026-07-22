@@ -14,12 +14,15 @@ import {
 import { PlaywrightAmazonSearchCollector, runLimitedConcurrency, type AmazonSearchCollector } from "./amazon-collector.js";
 import { abortErrorIfSignaled, throwIfAborted } from "./amazon/abort.js";
 import { intEnv } from "./amazon/config.js";
+import { resolveCollectionDataSource } from "./collection-provenance.js";
+import { generateKeywordSnapshotDiffEvents } from "./insights/keyword-snapshot-diff-generator.js";
 import { formatDuration, ts } from "./log.js";
 import type { Store } from "./store.js";
 
 export interface CollectionOptions {
   collector?: AmazonSearchCollector;
   signal?: AbortSignal;
+  dataSource?: string;
 }
 
 const defaultCollector = new PlaywrightAmazonSearchCollector();
@@ -73,18 +76,27 @@ export async function runCollectionForKeyword(
 
     // Deduplicate: same ASIN may appear across pages (organic + sponsored). Keep first occurrence (best rank).
     const seenAsins = new Set<string>();
-    const snapshots = allSnapshots.filter((s) => {
-      if (seenAsins.has(s.asin)) return false;
-      seenAsins.add(s.asin);
-      return true;
-    });
+    const collectedAt = new Date().toISOString();
+    const dataSource = resolveCollectionDataSource(options.dataSource, options.collector !== undefined);
+    const snapshots = allSnapshots
+      .filter((snapshot) => {
+        if (seenAsins.has(snapshot.asin)) return false;
+        seenAsins.add(snapshot.asin);
+        return true;
+      })
+      .map((snapshot) => ({
+        ...snapshot,
+        dataSource,
+        lastSyncedAt: collectedAt,
+        syncStatus: "success" as const
+      }));
 
     if (snapshots.length === 0) {
       throw new Error(`No Amazon search cards collected for "${keyword.keyword}".`);
     }
 
     const previous = store.getPreviousSnapshots(keyword.id, date);
-    const historyLowestPrices = store.getHistoryLowestPrices(snapshots.map((item) => item.asin));
+    const historyLowestPrices = store.getHistoryLowestPrices(snapshots.map((item) => item.asin), keyword.orgId);
 
     const analysis = analyzeDailyChanges({
       today: snapshots,
@@ -120,16 +132,20 @@ export async function runCollectionForKeyword(
           bsrChanges: store.listBsrRankChanges({ date, sourceType: "keyword_detail", sourceId: keyword.id })
         })
       });
-      store.insertDailyChanges(analysis.changes);
-      store.insertAlerts(analysis.alerts);
-      store.upsertCompetitorsFromSnapshots(snapshots);
-      store.saveDailyReport(date, keyword.keyword, report);
+      store.deleteDailyChangesForKeywordDate(keyword.keyword, date, keyword.orgId);
+      store.insertDailyChanges(analysis.changes, keyword.orgId);
+      store.deleteAlertsForKeywordDate(keyword.keyword, date, keyword.orgId);
+      store.insertAlerts(analysis.alerts, keyword.orgId);
+      store.upsertCompetitorsFromSnapshots(snapshots, keyword.orgId);
+      generateKeywordSnapshotDiffEvents(store, keyword, date, snapshots, previous);
+      store.saveDailyReport(date, keyword.keyword, report, keyword.orgId);
     });
 
     const totalMs = Date.now() - t0;
     console.log(`[${ts()}] [Pipeline] ✓ Keyword "${keyword.keyword}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)}`);
 
     const log = store.insertTaskLog({
+      orgId: keyword.orgId,
       taskType: "keyword_collect",
       keywordId: keyword.id,
       keyword: keyword.keyword,
@@ -153,6 +169,7 @@ export async function runCollectionForKeyword(
     const totalMs = Date.now() - t0;
     console.error(`[${ts()}] [Pipeline] ✗ Keyword "${keyword.keyword}" FAILED after ${formatDuration(totalMs)}: ${error instanceof Error ? error.message : String(error)}`);
     const log = store.insertTaskLog({
+      orgId: keyword.orgId,
       taskType: "keyword_collect",
       keywordId: keyword.id,
       keyword: keyword.keyword,

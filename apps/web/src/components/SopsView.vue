@@ -5,9 +5,12 @@ import { ElButton, ElCard, ElDialog, ElInput, ElMessage, ElOption, ElSelect, ElT
 import { Archive, Edit3, FileText, Loader2, Plus, RefreshCw, Send } from "@lucide/vue";
 import { sopCategories, sopCategoryLabels, sopStatuses, sopStatusLabels, type Sop, type SopStatus } from "@amazon-monitor/shared";
 import { useSopStore } from "../stores/sops.js";
+import { useWriteAccess } from "../composables/useWriteAccess";
+import ReadOnlyNotice from "./ReadOnlyNotice.vue";
 
 const store = useSopStore();
 const { sops, loading, error } = storeToRefs(store);
+const { canWrite } = useWriteAccess();
 
 const filterStatus = ref<SopStatus | "all">("all");
 const filterCategory = ref<Sop["category"] | "all">("all");
@@ -48,6 +51,7 @@ async function refresh(): Promise<void> {
 onMounted(refresh);
 
 function openNew(): void {
+  if (!canWrite.value) return;
   newTitle.value = "";
   newCategory.value = "general";
   newBody.value = "";
@@ -56,6 +60,7 @@ function openNew(): void {
 }
 
 async function createNew(): Promise<void> {
+  if (!canWrite.value) return;
   if (!newTitle.value.trim() || !newBody.value.trim()) {
     ElMessage.warning("请填写标题和正文");
     return;
@@ -78,6 +83,7 @@ async function createNew(): Promise<void> {
 }
 
 async function publish(s: Sop): Promise<void> {
+  if (!canWrite.value) return;
   try {
     await store.publish(s.id);
     ElMessage.success("已发布");
@@ -87,6 +93,7 @@ async function publish(s: Sop): Promise<void> {
 }
 
 async function archive(s: Sop): Promise<void> {
+  if (!canWrite.value) return;
   try {
     await store.archive(s.id);
     ElMessage.success("已归档");
@@ -119,12 +126,14 @@ function openDetail(s: Sop): void {
           <template #icon><RefreshCw :size="14" /></template>
           刷新
         </ElButton>
-        <ElButton type="primary" @click="openNew">
+        <ElButton type="primary" :disabled="!canWrite" @click="openNew">
           <template #icon><Plus :size="14" /></template>
           新建 SOP
         </ElButton>
       </div>
     </header>
+
+    <ReadOnlyNotice v-if="!canWrite" />
 
     <p v-if="error" class="sops-view__error">{{ error }}</p>
 
@@ -146,11 +155,11 @@ function openDetail(s: Sop): void {
           <ElTag v-for="t in s.tags" :key="t" size="small" effect="plain">{{ t }}</ElTag>
         </footer>
         <div class="sops-view__actions" @click.stop>
-          <ElButton v-if="s.status === 'draft'" size="small" type="primary" @click="publish(s)">
+          <ElButton v-if="s.status === 'draft'" size="small" type="primary" :disabled="!canWrite" @click="publish(s)">
             <template #icon><Send :size="12" /></template>
             发布
           </ElButton>
-          <ElButton v-if="s.status === 'published'" size="small" type="warning" @click="archive(s)">
+          <ElButton v-if="s.status === 'published'" size="small" type="warning" :disabled="!canWrite" @click="archive(s)">
             <template #icon><Archive :size="12" /></template>
             归档
           </ElButton>
@@ -167,7 +176,7 @@ function openDetail(s: Sop): void {
       <ElInput v-model="newBody" type="textarea" :rows="10" placeholder="正文（支持 Markdown）" />
       <template #footer>
         <ElButton @click="newOpen = false">取消</ElButton>
-        <ElButton type="primary" :loading="saving" @click="createNew">创建</ElButton>
+        <ElButton type="primary" :loading="saving" :disabled="!canWrite" @click="createNew">创建</ElButton>
       </template>
     </ElDialog>
 

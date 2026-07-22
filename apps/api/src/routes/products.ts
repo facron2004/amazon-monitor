@@ -33,6 +33,7 @@ export function registerProductRoutes(app: Express, store: Store): void {
     const query = validateQuery(productListQuerySchema, request.query);
     response.json(store.listProducts({
       orgId: ctx.organization.id,
+      storeId: query.storeId,
       status: query.status as OwnedProductStatus | undefined,
       marketplace: query.marketplace,
       brand: query.brand,
@@ -47,9 +48,11 @@ export function registerProductRoutes(app: Express, store: Store): void {
     const ctx = requireSessionContext(request);
     requireOperatorOrAdmin(ctx);
     const data = validateBody(createOwnedProductSchema, request.body);
+    ensureStoreAssignment(store, data.storeId, ctx.organization.id, data.marketplace, true);
     try {
       const product = store.createProduct({
         orgId: ctx.organization.id,
+        storeId: data.storeId ?? null,
         marketplace: data.marketplace,
         sku: data.sku,
         asin: data.asin,
@@ -168,6 +171,29 @@ export function registerProductRoutes(app: Express, store: Store): void {
       return;
     }
     const data = validateBody(updateOwnedProductSchema, request.body);
+    const marketplace = data.marketplace ?? product.marketplace;
+    const storeId = data.storeId !== undefined ? data.storeId : product.storeId;
+    ensureStoreAssignment(store, storeId, ctx.organization.id, marketplace, data.storeId !== undefined && data.storeId !== product.storeId);
     response.json(store.updateProduct(id, data));
   }));
+}
+
+function ensureStoreAssignment(
+  store: Store,
+  storeId: number | null | undefined,
+  orgId: number,
+  marketplace: string,
+  requireActive: boolean
+): void {
+  if (storeId == null) return;
+  const commerceStore = store.getCommerceStore(storeId);
+  if (!commerceStore || commerceStore.orgId !== orgId) {
+    throw Object.assign(new Error("Store not found"), { statusCode: 404 });
+  }
+  if (commerceStore.marketplace.toLowerCase() !== marketplace.toLowerCase()) {
+    throw Object.assign(new Error("Product marketplace must match the assigned store"), { statusCode: 400 });
+  }
+  if (requireActive && commerceStore.status !== "active") {
+    throw Object.assign(new Error("Cannot assign products to a paused store"), { statusCode: 409 });
+  }
 }

@@ -9,19 +9,19 @@ import {
 import { cleanEnvValue } from "./env.js";
 import { escapeHtml } from "./text-utils.js";
 
-export function buildNotificationContent(store: Store, date: string, summary?: DashboardSummary): string {
-  const report = store.getDailyReport(date);
-  const categoryReport = store.getCategoryReport(date);
+export function buildNotificationContent(store: Store, date: string, summary?: DashboardSummary, orgId = 1): string {
+  const report = store.getDailyReport(date, undefined, orgId);
+  const categoryReport = store.getCategoryReport(date, undefined, orgId);
   const combinedReport = [categoryReport, report].filter((item) => item.trim()).join("\n\n---\n\n");
-  const insightData = collectDailyInsightReportData(store, date);
+  const insightData = collectDailyInsightReportData(store, date, orgId);
   if (combinedReport.trim()) {
-    return appendBsrPromoTextSummary(appendDailyInsightReportMarkdown(combinedReport, insightData), store, date);
+    return appendBsrPromoTextSummary(appendDailyInsightReportMarkdown(combinedReport, insightData), store, date, orgId);
   }
 
-  const dashSummary = summary ?? store.getDashboardSummary(date);
-  const alerts = store.listAlerts({ date, limit: 10 });
-  const categorySignals = store.listCategorySignals({ date, limit: 10 });
-  const bsrPromoLines = bsrPromoItems(store, date, 10).map(
+  const dashSummary = summary ?? store.getDashboardSummary(date, orgId);
+  const alerts = store.listAlerts({ orgId, date, limit: 10 });
+  const categorySignals = store.listCategorySignals({ orgId, date, limit: 10 });
+  const bsrPromoLines = bsrPromoItems(store, date, 10, orgId).map(
     (item) => `- #${item.rank} ${item.categoryName} ${item.asin}: ${promoText(item)}`
   );
   return [
@@ -51,8 +51,14 @@ export function buildNotificationContent(store: Store, date: string, summary?: D
   ].join("\n");
 }
 
-export function buildFeishuNotificationContent(store: Store, date: string, summary?: DashboardSummary, excelUrl = buildReportExcelDownloadUrl(date)): string {
-  const content = buildNotificationContent(store, date, summary);
+export function buildFeishuNotificationContent(
+  store: Store,
+  date: string,
+  summary?: DashboardSummary,
+  excelUrl = buildReportExcelDownloadUrl(date),
+  orgId = 1
+): string {
+  const content = buildNotificationContent(store, date, summary, orgId);
   return [
     content,
     "",
@@ -72,12 +78,12 @@ export function buildReportExcelDownloadUrl(date: string, env: NodeJS.ProcessEnv
   return `${normalizedBaseUrl}/api/reports/daily.xlsx?date=${encodeURIComponent(date)}`;
 }
 
-export function buildNotificationSummaryHtmlContent(store: Store, date: string, summary?: DashboardSummary): string {
-  const dashSummary = summary ?? store.getDashboardSummary(date);
-  const alerts = store.listAlerts({ date, limit: 5 });
-  const categorySignals = store.listCategorySignals({ date, limit: 5 });
-  const bsrPromos = bsrPromoItems(store, date, 8);
-  const insightData = collectDailyInsightReportData(store, date);
+export function buildNotificationSummaryHtmlContent(store: Store, date: string, summary?: DashboardSummary, orgId = 1): string {
+  const dashSummary = summary ?? store.getDashboardSummary(date, orgId);
+  const alerts = store.listAlerts({ orgId, date, limit: 5 });
+  const categorySignals = store.listCategorySignals({ orgId, date, limit: 5 });
+  const bsrPromos = bsrPromoItems(store, date, 8, orgId);
+  const insightData = collectDailyInsightReportData(store, date, orgId);
   const rows = [
     ["启用关键词", dashSummary.activeKeywordCount],
     ["启用类目", dashSummary.activeCategoryCount],
@@ -167,17 +173,17 @@ export function buildNotificationSummaryHtmlContent(store: Store, date: string, 
 </html>`;
 }
 
-function appendBsrPromoTextSummary(content: string, store: Store, date: string): string {
-  const lines = bsrPromoItems(store, date, 10).map((item) => `- #${item.rank} ${item.categoryName} ${item.asin}: ${promoText(item)}`);
+function appendBsrPromoTextSummary(content: string, store: Store, date: string, orgId: number): string {
+  const lines = bsrPromoItems(store, date, 10, orgId).map((item) => `- #${item.rank} ${item.categoryName} ${item.asin}: ${promoText(item)}`);
   if (!lines.length) {
     return content;
   }
   return [content, "", "## BSR Coupon / Deal", ...lines].join("\n");
 }
 
-function bsrPromoItems(store: Store, date: string, limit: number): BestsellerRankSnapshot[] {
+function bsrPromoItems(store: Store, date: string, limit: number, orgId: number): BestsellerRankSnapshot[] {
   return store
-    .listCategorySnapshots({ date, limit: 2000 })
+    .listCategorySnapshots({ orgId, date, limit: 2000 })
     .filter((item) => promoText(item) !== null)
     .sort((a, b) => a.rank - b.rank)
     .slice(0, limit);

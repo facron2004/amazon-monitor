@@ -17,6 +17,7 @@ interface Emits {
   (e: "run-collection", keywordId?: number): void;
   (e: "create-keyword"): void;
   (e: "toggle-keyword", keyword: KeywordMonitor): void;
+  (e: "update-keyword-priority", keyword: KeywordMonitor, priority: KeywordMonitor["priority"]): void;
   (e: "delete-keyword", keywordId: number): void;
 }
 
@@ -40,6 +41,11 @@ function confirmDelete(): void {
   }
   closeDeleteConfirm();
 }
+
+function updatePriority(keyword: KeywordMonitor, event: Event): void {
+  const priority = (event.target as HTMLSelectElement).value as KeywordMonitor["priority"];
+  emit("update-keyword-priority", keyword, priority);
+}
 </script>
 
 <template>
@@ -54,6 +60,12 @@ function confirmDelete(): void {
     <form class="keyword-form" @submit.prevent="emit('create-keyword')">
       <input v-model="keywordForm.keyword" placeholder="关键词" />
       <input v-model="keywordForm.marketplace" placeholder="amazon.com" />
+      <select v-model="keywordForm.priority" aria-label="关键词优先级">
+        <option value="S">S 核心成交词</option>
+        <option value="A">A 高流量词</option>
+        <option value="B">B 长尾转化词</option>
+        <option value="C">C 观察词</option>
+      </select>
       <input v-model="keywordForm.zipCode" placeholder="邮编" />
       <input v-model="keywordForm.categoryTag" placeholder="类目标记" />
       <input v-model.number="keywordForm.crawlPages" type="number" min="1" max="10" />
@@ -68,6 +80,7 @@ function confirmDelete(): void {
           <tr>
             <th>关键词</th>
             <th>站点</th>
+            <th>优先级</th>
             <th>邮编</th>
             <th>分类</th>
             <th>页数</th>
@@ -79,6 +92,19 @@ function confirmDelete(): void {
           <tr v-for="keyword in keywords" :key="keyword.id" :class="{ selected: selectedKeywordId === keyword.id }">
             <td class="clickable-cell" @click="emit('update:selected-keyword-id', keyword.id)">{{ keyword.keyword }}</td>
             <td>{{ keyword.marketplace }}</td>
+            <td>
+              <select
+                class="keyword-priority-select"
+                :value="keyword.priority"
+                :aria-label="`${keyword.keyword} 优先级`"
+                @change="updatePriority(keyword, $event)"
+              >
+                <option value="S">S</option>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+              </select>
+            </td>
             <td>{{ keyword.zipCode }}</td>
             <td>{{ keyword.categoryTag || "未分组" }}</td>
             <td>{{ keyword.crawlPages }}</td>

@@ -1,4 +1,4 @@
-import type { AlertLog, DailyChange } from "@amazon-monitor/shared";
+import type { AlertLog } from "@amazon-monitor/shared";
 import { request } from "./api-base";
 
 export const alertApi = {
@@ -7,6 +7,5 @@ export const alertApi = {
     request<AlertLog>(`/alerts/${id}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status })
-    }),
-  changes: (date: string) => request<DailyChange[]>(`/changes?date=${date}`)
+    })
 };

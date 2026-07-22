@@ -1,7 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import type { SerpProductInput } from "@amazon-monitor/shared";
+import type { BestSellerProductInput, SerpProductInput } from "@amazon-monitor/shared";
 import type { AmazonSearchCollector, CollectedSearchPage } from "./amazon-collector.js";
+import { runCategoryCollectionForMonitor, type AmazonBestSellerCollector } from "./category-pipeline.js";
 import { runCollectionForKeyword } from "./pipeline.js";
 import { createStore, initSchema } from "./store.js";
 
@@ -16,6 +17,14 @@ class ControlledAmazonSearchCollector implements AmazonSearchCollector {
         url: "https://www.amazon.com/s?k=cordless+leaf+blower&page=1"
       }
     ];
+  }
+}
+
+class ControlledBestSellerCollector implements AmazonBestSellerCollector {
+  constructor(private readonly productsByDate: Record<string, BestSellerProductInput[]>) {}
+
+  async collect(_category: Parameters<AmazonBestSellerCollector["collect"]>[0], date: string) {
+    return [{ pageNo: 1, products: this.productsByDate[date] ?? [], url: "https://www.amazon.com/gp/bestsellers/appliances" }];
   }
 }
 
@@ -52,6 +61,8 @@ describe("collection pipeline", () => {
     const snapshots = store.listSnapshots({ date: "2026-05-17", keywordId: keyword.id });
     expect(snapshots).toHaveLength(2);
     expect(snapshots[0].bsrRank).toBe(12);
+    expect(snapshots[0]).toMatchObject({ dataSource: "collector", syncStatus: "success" });
+    expect(snapshots[0].lastSyncedAt).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
     expect(snapshots[0].bestsellerRanks[0]).toMatchObject({ rank: 12, category: "Leaf Blowers" });
     expect(snapshots[0].iceType).toBe("unknown");
     expect(snapshots[1].iceType).toBe("bullet");
@@ -114,6 +125,102 @@ describe("collection pipeline", () => {
     expect(store.listTaskLogs()[0].status).toBe("failed");
   });
 
+  it("creates idempotent Listing and rating evidence for keyword-only competitors", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const keyword = store.createKeyword({
+      keyword: "countertop ice maker",
+      marketplace: "amazon.com",
+      crawlPages: 1,
+      status: "enabled"
+    });
+    const before = {
+      ...product("B0KEYONLY1", "Acme Countertop Ice Maker", 109.99, null, false),
+      imageUrl: "https://images.example.com/B0KEYONLY1-old.jpg?size=500",
+      rating: 4.7
+    };
+    const after = {
+      ...product("B0KEYONLY1", "Acme Pro Countertop Ice Maker", 109.99, null, false),
+      imageUrl: "https://images.example.com/B0KEYONLY1-new.jpg?size=500",
+      rating: 4.4
+    };
+    const collector = new ControlledAmazonSearchCollector({
+      "2026-05-16": [before],
+      "2026-05-17": [after]
+    });
+
+    await runCollectionForKeyword(store, keyword.id, "2026-05-16", { collector });
+    await runCollectionForKeyword(store, keyword.id, "2026-05-17", { collector });
+    await runCollectionForKeyword(store, keyword.id, "2026-05-17", { collector });
+
+    const listingEvents = store.listInsightEvents({
+      orgId: keyword.orgId,
+      date: "2026-05-17",
+      asin: "B0KEYONLY1",
+      eventType: "LISTING_CHANGED"
+    });
+    const ratingEvents = store.listInsightEvents({
+      orgId: keyword.orgId,
+      date: "2026-05-17",
+      asin: "B0KEYONLY1",
+      eventType: "RATING_DROP"
+    });
+
+    expect(listingEvents).toHaveLength(1);
+    expect(listingEvents[0]).toMatchObject({ keywordId: keyword.id, categoryId: null });
+    expect(listingEvents[0].evidence).toMatchObject({
+      keyword: "countertop ice maker",
+      titleBefore: "Acme Countertop Ice Maker",
+      titleAfter: "Acme Pro Countertop Ice Maker",
+      imageUrlBefore: "https://images.example.com/B0KEYONLY1-old.jpg?size=500",
+      imageUrlAfter: "https://images.example.com/B0KEYONLY1-new.jpg?size=500",
+      listingChangedFields: ["title", "mainImage"]
+    });
+    expect(ratingEvents).toHaveLength(1);
+    expect(ratingEvents[0]).toMatchObject({ keywordId: keyword.id, categoryId: null });
+    expect(ratingEvents[0].evidence).toMatchObject({ ratingBefore: 4.7, ratingAfter: 4.4, ratingChange: -0.3 });
+
+    db.close();
+  });
+
+  it("deduplicates snapshot changes when keyword and category collectors see the same ASIN", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const keyword = store.createKeyword({ keyword: "countertop ice maker", marketplace: "amazon.com", crawlPages: 1, status: "enabled" });
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/gp/bestsellers/appliances",
+      crawlTopN: 1,
+      status: "enabled"
+    });
+    const keywordCollector = new ControlledAmazonSearchCollector({
+      "2026-05-16": [{ ...product("B0CROSS001", "Acme Ice Maker", 109.99, null, false), rating: 4.7 }],
+      "2026-05-17": [{ ...product("B0CROSS001", "Acme Pro Ice Maker", 109.99, null, false), rating: 4.4 }]
+    });
+    const categoryCollector = new ControlledBestSellerCollector({
+      "2026-05-16": [categoryProduct("B0CROSS001", "Acme Ice Maker", 4.7)],
+      "2026-05-17": [categoryProduct("B0CROSS001", "Acme Pro Ice Maker", 4.4)]
+    });
+
+    await runCollectionForKeyword(store, keyword.id, "2026-05-16", { collector: keywordCollector });
+    await runCategoryCollectionForMonitor(store, category.id, "2026-05-16", { collector: categoryCollector });
+    await runCollectionForKeyword(store, keyword.id, "2026-05-17", { collector: keywordCollector });
+    await runCategoryCollectionForMonitor(store, category.id, "2026-05-17", { collector: categoryCollector });
+
+    const events = store.listInsightEvents({ orgId: keyword.orgId, date: "2026-05-17", asin: "B0CROSS001", limit: 100 });
+    expect(events.filter((event) => event.eventType === "LISTING_CHANGED")).toHaveLength(1);
+    expect(events.filter((event) => event.eventType === "RATING_DROP")).toHaveLength(1);
+    expect(events.find((event) => event.eventType === "LISTING_CHANGED")).toMatchObject({
+      categoryId: category.id,
+      keywordId: null
+    });
+
+    db.close();
+  });
+
   it("passes abort signals to the collector and skips failure writes after abort", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
@@ -165,5 +272,26 @@ function product(asin: string, title: string, currentPrice: number, couponText: 
     bsrText: asin === "B0ACME600F" ? "#1,234 in Patio, Lawn & Garden" : null,
     bestsellerRanks: asin === "B0ACME600F" ? [{ rank: 12, category: "Leaf Blowers", url: "https://www.amazon.com/gp/bestsellers/lawn-garden/123" }] : [],
     detailCollectedAt: "2026-05-17T00:00:00.000Z"
+  };
+}
+
+function categoryProduct(asin: string, title: string, rating: number): BestSellerProductInput {
+  return {
+    rank: 1,
+    asin,
+    title,
+    brand: "Acme",
+    imageUrl: `https://example.com/${asin}-${title.includes("Pro") ? "new" : "old"}.jpg`,
+    productUrl: `https://www.amazon.com/dp/${asin}`,
+    currentPrice: 109.99,
+    originalPrice: null,
+    couponText: null,
+    currency: "$",
+    rating,
+    reviewCount: 500,
+    isPrime: true,
+    dealBadge: null,
+    bsrRank: 1,
+    bsrCategory: "Ice Makers"
   };
 }

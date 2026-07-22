@@ -1,4 +1,5 @@
 import type {
+  ProductProfitActionTaskResponse,
   ProductProfitPlan,
   ProductProfitPlanFilter,
   ProductProfitSetting,
@@ -20,6 +21,11 @@ export const profitApi = {
     request<ProductProfitPlan[]>(`/profit/plans?${buildQuery(query).toString()}`),
   getPlan: (productId: number, date?: string) =>
     request<ProductProfitPlan>(`/products/${productId}/profit-plan${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  createActionTask: (productId: number, actionKind: string, date?: string) =>
+    request<ProductProfitActionTaskResponse>(`/products/${productId}/profit-plan/task`, {
+      method: "POST",
+      body: JSON.stringify({ actionKind, date })
+    }),
   upsertSetting: (productId: number, payload: ProfitSettingPayload) =>
     request<ProfitSettingResponse>(`/products/${productId}/profit-setting`, {
       method: "POST",

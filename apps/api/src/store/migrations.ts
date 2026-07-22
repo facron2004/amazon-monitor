@@ -53,6 +53,11 @@ export {
 export { parseJsonArray } from "./json-utils.js";
 export { inferIceType } from "@amazon-monitor/shared";
 export { ensureColumn, runStoreMigrationOnce, backfillProductPriceHistoryPromos, SCHEMA_VERSION, getSchemaVersion, setSchemaVersion } from "./migration-utils.js";
+export { migrateInsightOrganizationScope } from "./insight-migrations.js";
+export { migrateCompetitorPoolOrganizationScope } from "./competitor-migrations.js";
+export { migrateKeywordOperationalOrganizationScope } from "./operational-scope-migrations.js";
+export { migrateNotificationOrganizationScope } from "./notification-migrations.js";
+export { migrateSnapshotProvenance } from "./snapshot-provenance-migrations.js";
 export {
   backfillBsrRankHistory,
   listBsrRankHistoryRows,
@@ -83,3 +88,11 @@ export {
   upsertCompetitorActionInsights,
   listActivityEventRows
 } from "./action-insight-migrations.js";
+
+export {
+  dedupeKeywordSerpSnapshots,
+  ensureKeywordSerpSnapshotUniqueIndex,
+  dedupeCompetitorDailyChanges,
+  ensureCompetitorDailyChangeUniqueIndex,
+  migrateKeywordAndDailyChangeUniqueness
+} from "./keyword-dedupe-migrations.js";

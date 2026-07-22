@@ -1,4 +1,4 @@
-import type { SessionContext } from "@amazon-monitor/shared";
+import type { SessionContext, User } from "@amazon-monitor/shared";
 import { request } from "./api-base";
 
 export interface LoginResponse {
@@ -36,4 +36,8 @@ export async function fetchMe(token?: string | null): Promise<SessionContext> {
   return request<SessionContext>("/api/auth/me", {
     headers: sessionHeaders(token)
   });
+}
+
+export function listUsers(): Promise<User[]> {
+  return request<User[]>("/api/users");
 }

@@ -112,11 +112,33 @@ describe("listing health routes", () => {
       priority: "P0",
       needs_human_approval: true
     });
+    expect(analysis.body.output.artifacts.listingRewrite).toMatchObject({
+      proposedTitle: expect.stringContaining("Nugget Ice Maker"),
+      bullets: expect.arrayContaining([
+        expect.objectContaining({
+          copy: expect.stringContaining("cleaning"),
+          evidence: ["Review highlight: cleaning"]
+        })
+      ]),
+      imageBriefs: expect.arrayContaining([
+        expect.objectContaining({ evidence: "Review highlight: cleaning" })
+      ]),
+      aPlusModules: expect.arrayContaining([
+        expect.objectContaining({ module: "FAQ and operating guidance" })
+      ]),
+      riskNotes: expect.arrayContaining([
+        expect.stringContaining("human approval")
+      ])
+    });
     expect(analysis.body.run).toMatchObject({
       agentType: "listing_optimizer",
       status: "success",
-      model: "deterministic-listing-optimizer-v1"
+      model: "deterministic-listing-optimizer-v2"
     });
-    expect(store.listAiRuns({ agentType: "listing_optimizer" })).toHaveLength(1);
+    const persistedRuns = store.listAiRuns({ agentType: "listing_optimizer" });
+    expect(persistedRuns).toHaveLength(1);
+    expect(persistedRuns[0]?.output?.artifacts?.listingRewrite?.proposedTitle).toBe(
+      analysis.body.output.artifacts.listingRewrite.proposedTitle
+    );
   });
 });

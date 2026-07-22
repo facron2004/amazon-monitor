@@ -10,13 +10,13 @@ export interface DailyInsightReportData {
   reviewedEvents: InsightEvent[];
 }
 
-export function collectDailyInsightReportData(store: Store, date: string): DailyInsightReportData {
+export function collectDailyInsightReportData(store: Store, date: string, orgId = 1): DailyInsightReportData {
   const reviewedEvents = store
-    .listInsightEvents({ limit: 1000 })
+    .listInsightEvents({ orgId, limit: 1000 })
     .filter((event) => event.reviewResult !== null && event.updatedAt.slice(0, 10) === date);
   return {
-    insightEvents: store.listInsightEvents({ date, limit: 1000 }),
-    reviewDueEvents: store.listReviewDueEvents(date),
+    insightEvents: store.listInsightEvents({ orgId, date, limit: 1000 }),
+    reviewDueEvents: store.listReviewDueEvents(date, { orgId }),
     reviewedEvents
   };
 }

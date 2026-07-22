@@ -95,10 +95,18 @@ export interface AdsWorkflowSummary {
   items: AdsWorkflowItem[];
 }
 
+export interface AdsWorkflowResponse extends Omit<AdsWorkflowSummary, "totalSpend" | "totalSales"> {
+  accessLevel: "full" | "summary";
+  totalSpend: number | null;
+  totalSales: number | null;
+}
+
 export interface AdsMetricListFilter {
   orgId?: number;
   productId?: number;
   date?: string;
+  startDate?: string;
+  endDate?: string;
   q?: string;
   level?: AdsWorkflowLevel;
   limit?: number;

@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { loadEnv } from "./notifier.js";
 
 loadEnv();
@@ -48,7 +48,7 @@ const verboseLog = process.env.AMAZON_WORKER_VERBOSE_LOG !== "false";
 
 let running = true;
 
-type CollectJobRef = { taskType: "keyword" | "category"; targetId: number; date: string };
+type CollectJobRef = { orgId?: number; taskType: "keyword" | "category"; targetId: number; date: string };
 type CollectJobRunner = (store: any, job: CollectJobRef, options?: { signal?: AbortSignal }) => Promise<CollectTaskLog>;
 
 export async function startWorker(storeInstance?: any) {
@@ -81,7 +81,26 @@ export async function startWorker(storeInstance?: any) {
   // Most recent job status observed by any lane — surfaced via the API
   // heartbeat so the UI can show "last job failed" alongside the green dot.
   let lastJob: { id: number; status: "pending" | "processing" | "completed" | "failed" } | null = null;
-  let lastHeartbeatAt = Date.now();
+
+  function writeHeartbeat(): void {
+    try {
+      store.recordWorkerHeartbeat({
+        workerId,
+        pid: process.pid,
+        host: hostname(),
+        startedAt: workerStartedAt,
+        version: appVersion,
+        lastJobId: lastJob?.id ?? null,
+        lastStatus: lastJob?.status ?? null
+      });
+    } catch (err) {
+      console.error(`[${ts()}] [Worker] recordWorkerHeartbeat failed:`, err);
+    }
+    logHeartbeatIfVerbose(activeJobs);
+  }
+
+  writeHeartbeat();
+  const heartbeatTimer = setInterval(writeHeartbeat, heartbeatIntervalMs);
 
   async function workerLane(laneId: number): Promise<void> {
     while (running) {
@@ -119,36 +138,17 @@ export async function startWorker(storeInstance?: any) {
       }
 
       if (running) {
-        // Gate the DB heartbeat write by heartbeatIntervalMs (default 5s)
-        // instead of writing on every poll (default 2s). The previous code
-        // wrote to amazon_worker_heartbeat on every iteration, causing
-        // unnecessary SQLite writer-lock contention when the queue is idle
-        // and the poll interval is short.
-        const heartbeatNow = Date.now();
-        if (heartbeatNow - lastHeartbeatAt >= heartbeatIntervalMs) {
-          lastHeartbeatAt = heartbeatNow;
-          try {
-            store.recordWorkerHeartbeat({
-              workerId,
-              pid: process.pid,
-              host: hostname(),
-              startedAt: workerStartedAt,
-              version: appVersion,
-              lastJobId: lastJob?.id ?? null,
-              lastStatus: lastJob?.status ?? null
-            });
-          } catch (err) {
-            console.error(`[${ts()}] [Worker:${laneId}] recordWorkerHeartbeat failed:`, err);
-          }
-          logHeartbeatIfVerbose(activeJobs);
-        }
         await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       }
     }
   }
 
   const lanes = Array.from({ length: workerConcurrency }, (_, i) => workerLane(i + 1));
-  await Promise.all(lanes);
+  try {
+    await Promise.all(lanes);
+  } finally {
+    clearInterval(heartbeatTimer);
+  }
 }
 
 /**
@@ -188,7 +188,7 @@ export async function runJobWithTimeout(
   }
 }
 
-async function runCollectJob(store: any, job: { taskType: "keyword" | "category"; targetId: number; date: string }, options?: { signal?: AbortSignal }): Promise<CollectTaskLog> {
+async function runCollectJob(store: ReturnType<typeof openAppStore>, job: CollectJobRef, options?: { signal?: AbortSignal }): Promise<CollectTaskLog> {
   if (options?.signal?.aborted) {
     throw new Error(`Collect job aborted before start (timeout of ${formatDuration(jobTimeoutMs)})`);
   }
@@ -197,7 +197,10 @@ async function runCollectJob(store: any, job: { taskType: "keyword" | "category"
     return runCollectionForKeyword(store, job.targetId, job.date, { signal: options?.signal });
   }
   if (job.taskType === "category") {
-    return runCategoryCollectionForMonitor(store, job.targetId, job.date, { signal: options?.signal });
+    return runCategoryCollectionForMonitor(store, job.targetId, job.date, {
+      signal: options?.signal,
+      organizationId: job.orgId ?? 1
+    });
   }
   throw new Error(`Unknown task type: ${job.taskType}`);
 }
@@ -224,12 +227,8 @@ export async function stopWorker(): Promise<void> {
 }
 
 // If run directly from CLI
-const isDirectRun = process.argv[1] && (
-  process.argv[1].endsWith("worker.ts") ||
-  process.argv[1].endsWith("worker.js") ||
-  process.argv[1].includes("/worker") ||
-  process.argv[1].includes("\\worker")
-);
+const workerEntryName = process.argv[1] ? basename(process.argv[1]) : "";
+const isDirectRun = workerEntryName === "worker.ts" || workerEntryName === "worker.js";
 
 if (isDirectRun) {
   startWorker().catch((err) => {

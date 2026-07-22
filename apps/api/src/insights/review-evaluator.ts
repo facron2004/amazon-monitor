@@ -7,6 +7,7 @@ import type {
 } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
 import { scheduleNextReviewDate } from "./review-scheduler.js";
+import { canonicalImageUrl, normalizeListingText } from "./listing-diff.js";
 
 interface ReviewDecision {
   result: InsightReviewResult;
@@ -46,6 +47,7 @@ const dropAsinEventTypes: ReadonlySet<InsightEvent["eventType"]> = new Set([
 
 export interface EvaluateDueReviewOptions {
   categoryId?: number;
+  orgId?: number;
 }
 
 export function evaluateDueInsightEventReviews(store: Store, date: string, options: EvaluateDueReviewOptions = {}): InsightEvent[] {
@@ -68,7 +70,13 @@ export function evaluateDueInsightEventReviews(store: Store, date: string, optio
           scoreLevel: event.scoreLevel,
           attributionTags: event.attributionTags
         }, date);
-        const updated = store.markInsightEventReviewed(event.id, decision.result, decision.reason, nextReviewDueDate);
+        const updated = store.markInsightEventReviewed(
+          event.id,
+          decision.result,
+          decision.reason,
+          nextReviewDueDate,
+          options.orgId
+        );
         if (updated) {
           reviewed.push(updated);
         }
@@ -88,7 +96,7 @@ export function evaluateInsightEventReview(store: Store, event: InsightEvent, da
     };
   }
 
-  const snapshots = store.listCategorySnapshots({ date, categoryId: event.categoryId, limit: 1000 });
+  const snapshots = store.listCategorySnapshots({ orgId: event.orgId, date, categoryId: event.categoryId, limit: 1000 });
   if (snapshots.length === 0) {
     return {
       result: "UNCLEAR",
@@ -98,7 +106,7 @@ export function evaluateInsightEventReview(store: Store, event: InsightEvent, da
 
   if (event.asin) {
     const snapshot = snapshots.find((item) => item.asin === event.asin) ?? null;
-    const price = store.listProductPriceHistory({ date, categoryId: event.categoryId, asin: event.asin, limit: 1 })[0] ?? null;
+    const price = store.listProductPriceHistory({ orgId: event.orgId, date, categoryId: event.categoryId, asin: event.asin, limit: 1 })[0] ?? null;
     const decision = evaluateAsinEvent(event, snapshot, price);
     return {
       result: decision.result,
@@ -107,7 +115,7 @@ export function evaluateInsightEventReview(store: Store, event: InsightEvent, da
   }
 
   if (event.brand) {
-    const brand = store.listBrandMatrix({ date, categoryId: event.categoryId }).find((item) => item.brand === event.brand) ?? null;
+    const brand = store.listBrandMatrix({ orgId: event.orgId, date, categoryId: event.categoryId }).find((item) => item.brand === event.brand) ?? null;
     const decision = evaluateBrandEvent(event, brand);
     return {
       result: decision.result,
@@ -129,6 +137,12 @@ function evaluateAsinEvent(
   if (!snapshot) {
     return evaluateMissingAsin(event);
   }
+  if (event.eventType === "RATING_DROP") {
+    return evaluateRatingDrop(event, snapshot);
+  }
+  if (event.eventType === "LISTING_CHANGED") {
+    return evaluateListingChange(event, snapshot);
+  }
   if (dropAsinEventTypes.has(event.eventType)) {
     return evaluateDropAsinEvent(event, snapshot);
   }
@@ -139,6 +153,42 @@ function evaluateAsinEvent(
     result: "UNCLEAR",
     reason: `unsupported ASIN event type ${event.eventType}`
   };
+}
+
+function evaluateRatingDrop(event: InsightEvent, snapshot: BestsellerRankSnapshot): ReviewDecision {
+  const before = event.evidence.ratingBefore;
+  const after = event.evidence.ratingAfter;
+  const current = snapshot.rating;
+  if (before == null || after == null || current == null) {
+    return { result: "UNCLEAR", reason: "rating evidence is incomplete on the review snapshot" };
+  }
+  if (current >= before) {
+    return { result: "REVERTED", reason: `rating recovered to ${current.toFixed(1)} from event level ${after.toFixed(1)}` };
+  }
+  if (current <= after) {
+    return { result: "CONTINUING", reason: `rating remains at or below event level ${after.toFixed(1)}` };
+  }
+  return { result: "CONTINUING", reason: `rating partially recovered to ${current.toFixed(1)} but remains below ${before.toFixed(1)}` };
+}
+
+function evaluateListingChange(event: InsightEvent, snapshot: BestsellerRankSnapshot): ReviewDecision {
+  const fields = event.evidence.listingChangedFields ?? [];
+  if (fields.length === 0) {
+    return { result: "UNCLEAR", reason: "Listing change fields are missing from event evidence" };
+  }
+  const matchesAfter = fields.every((field) => field === "title"
+    ? normalizeListingText(snapshot.title) === normalizeListingText(event.evidence.titleAfter)
+    : canonicalImageUrl(snapshot.imageUrl) === canonicalImageUrl(event.evidence.imageUrlAfter));
+  if (matchesAfter) {
+    return { result: "CONTINUING", reason: `Listing change remains active for ${fields.join(", ")}` };
+  }
+  const matchesBefore = fields.every((field) => field === "title"
+    ? normalizeListingText(snapshot.title) === normalizeListingText(event.evidence.titleBefore)
+    : canonicalImageUrl(snapshot.imageUrl) === canonicalImageUrl(event.evidence.imageUrlBefore));
+  if (matchesBefore) {
+    return { result: "REVERTED", reason: `Listing reverted to the pre-event ${fields.join(", ")}` };
+  }
+  return { result: "UNCLEAR", reason: `Listing changed again after the original ${fields.join(", ")} event` };
 }
 
 function evaluateMissingAsin(event: InsightEvent): ReviewDecision {

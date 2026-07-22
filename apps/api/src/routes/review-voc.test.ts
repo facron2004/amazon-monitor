@@ -137,12 +137,39 @@ describe("review VOC routes", () => {
       priority: "P0",
       needs_human_approval: true
     });
+    expect(analysis.body.output.artifacts.reviewVoc).toMatchObject({
+      supplierActions: expect.arrayContaining([
+        expect.objectContaining({
+          topic: "quality",
+          action: expect.stringContaining("corrective"),
+          evidence: expect.stringContaining("negative")
+        })
+      ]),
+      supportDrafts: expect.arrayContaining([
+        expect.objectContaining({ scenario: "quality complaint" })
+      ]),
+      productOpportunities: expect.arrayContaining([
+        expect.objectContaining({ opportunity: expect.stringContaining("failure") })
+      ]),
+      competitorPainComparison: expect.arrayContaining([
+        expect.objectContaining({
+          topic: "quality",
+          competitorEvidence: null,
+          conclusion: expect.stringContaining("unavailable")
+        })
+      ]),
+      riskNotes: expect.arrayContaining([
+        expect.stringContaining("Human review")
+      ])
+    });
     expect(analysis.body.run).toMatchObject({
       agentType: "review_voc",
       status: "success",
-      model: "deterministic-review-voc-v1"
+      model: "deterministic-review-voc-v2"
     });
-    expect(store.listAiRuns({ agentType: "review_voc" })).toHaveLength(1);
+    const runs = store.listAiRuns({ agentType: "review_voc" });
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.output?.artifacts?.reviewVoc?.supplierActions[0]?.topic).toBe("quality");
   });
 });
 

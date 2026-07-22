@@ -40,11 +40,11 @@ function startCron() {
       const date = isoDate();
       const keywords = store.listKeywords({ status: "enabled" });
       for (const k of keywords) {
-        store.pushJob("keyword", k.id, date);
+        store.pushJob("keyword", k.id, date, k.orgId);
       }
-      const categories = store.listCategoryMonitors().filter((c) => c.status === "enabled");
+      const categories = store.listCategoryMonitors({ status: "enabled" });
       for (const c of categories) {
-        store.pushJob("category", c.id, date);
+        store.pushJob("category", c.id, date, c.orgId);
       }
     }),
     { timezone: "Asia/Shanghai", name: "daily-collection", noOverlap: true }

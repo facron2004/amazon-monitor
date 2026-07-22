@@ -467,6 +467,7 @@ function createKeywordMonitor(): KeywordMonitor {
     id: 1,
     keyword: "ice maker",
     marketplace: "amazon.com",
+    priority: "C",
     zipCode: "97201",
     language: "en_US",
     categoryTag: null,

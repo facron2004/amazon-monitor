@@ -1,11 +1,15 @@
 import { defineStore } from "pinia";
 import {
+  deriveAsinDualScore,
   inferInsightEventStrategyTags,
   isActionStageMatch,
   type ActionStageFilter,
+  type AiActionFeedbackValue,
   type AiDailyBriefResponse,
   type AttributionTag,
-  type StrategyTag
+  type StrategyTag,
+  type TopInsightFilterOptions,
+  type TopInsightFilters
 } from "@amazon-monitor/shared";
 import type {
   AsinWatchLevel,
@@ -24,6 +28,7 @@ import type {
 } from "@amazon-monitor/shared";
 import { insightEventApi, type InsightEventQuery, type InsightEventTrendQuery } from "../api-insight-events";
 import { aiApi } from "../api-ai";
+import { replaceAiActionFeedback } from "../utils/ai-action-feedback";
 import {
   isActionEvidenceMovementMatch,
   type ActionEvidenceMovementFilter
@@ -40,6 +45,8 @@ import {
 export type InsightEventSort = InsightEventSortKey;
 export type ActionCenterColumnKey = "todo" | "mid" | "closed";
 export type ActionWorkView = "columns" | "cases";
+export type TopSummaryFilters = Required<TopInsightFilters>;
+export type TopSummaryFilterKey = keyof TopSummaryFilters;
 
 export interface InsightEventFilters {
   date: string;
@@ -67,6 +74,9 @@ export const useInsightEventsStore = defineStore("insightEvents", {
   state: () => ({
     events: [] as InsightEvent[],
     topSummary: [] as InsightEvent[],
+    topSummaryDate: "",
+    topSummaryFilters: createTopSummaryFilters(),
+    topSummaryFilterOptions: createTopSummaryFilterOptions(),
     dailyBrief: null as AiDailyBriefResponse | null,
     selectedEvent: null as InsightEvent | null,
     activeColumn: null as ActionCenterColumnKey | null,
@@ -88,6 +98,7 @@ export const useInsightEventsStore = defineStore("insightEvents", {
     priceHistoryLoading: false,
     topSummaryLoading: false,
     dailyBriefLoading: false,
+    dailyBriefFeedbackLoadingKey: null as string | null,
     error: "",
     filters: {
       date: "",
@@ -147,9 +158,14 @@ export const useInsightEventsStore = defineStore("insightEvents", {
       this.topSummaryLoading = true;
       this.error = "";
       try {
-        const result = await insightEventApi.fetchTopInsights(date, 5, { signal });
+        const [result, filterOptions] = await Promise.all([
+          insightEventApi.fetchTopInsights(date, this.topSummaryFilters, 5, { signal }),
+          insightEventApi.fetchTopInsightFilterOptions(date, { signal })
+        ]);
         if (signal?.aborted) return;
+        this.topSummaryDate = date;
         this.topSummary = result;
+        this.topSummaryFilterOptions = filterOptions;
       } catch (error) {
         if (signal?.aborted) return;
         this.error = error instanceof Error ? error.message : String(error);
@@ -160,18 +176,57 @@ export const useInsightEventsStore = defineStore("insightEvents", {
         }
       }
     },
+    async setTopSummaryFilter(key: TopSummaryFilterKey, value: string) {
+      this.topSummaryFilters[key] = value;
+      if (this.topSummaryDate) {
+        await this.loadTopSummary(this.topSummaryDate);
+      }
+    },
+    async clearTopSummaryFilters() {
+      this.topSummaryFilters = createTopSummaryFilters();
+      if (this.topSummaryDate) {
+        await this.loadTopSummary(this.topSummaryDate);
+      }
+    },
     async generateDailyBrief(date: string) {
       this.dailyBriefLoading = true;
       this.error = "";
       try {
         const result = await aiApi.generateDailyBrief(date);
         this.dailyBrief = result;
-        this.topSummary = result.topEvents;
+        if (hasActiveTopSummaryFilters(this.topSummaryFilters)) {
+          await this.loadTopSummary(date);
+        } else {
+          this.topSummary = result.topEvents;
+        }
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
         throw error;
       } finally {
         this.dailyBriefLoading = false;
+      }
+    },
+    async setDailyBriefActionFeedback(actionIndex: number, value: AiActionFeedbackValue) {
+      const brief = this.dailyBrief;
+      if (!brief || this.dailyBriefFeedbackLoadingKey !== null) return;
+      const loadingKey = `${brief.run.id}:${actionIndex}`;
+      this.dailyBriefFeedbackLoadingKey = loadingKey;
+      this.error = "";
+      try {
+        const feedback = await aiApi.setActionFeedback(brief.run.id, actionIndex, value);
+        if (this.dailyBrief?.run.id === brief.run.id) {
+          this.dailyBrief.run.actionFeedback = replaceAiActionFeedback(
+            this.dailyBrief.run.actionFeedback,
+            feedback
+          );
+        }
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        if (this.dailyBriefFeedbackLoadingKey === loadingKey) {
+          this.dailyBriefFeedbackLoadingKey = null;
+        }
       }
     },
     async loadEventDetail(id: string) {
@@ -420,6 +475,28 @@ export const useInsightEventsStore = defineStore("insightEvents", {
   }
 });
 
+function createTopSummaryFilters(): TopSummaryFilters {
+  return {
+    marketplace: "",
+    categoryName: "",
+    brand: "",
+    assignee: ""
+  };
+}
+
+function createTopSummaryFilterOptions(): TopInsightFilterOptions {
+  return {
+    marketplaces: [],
+    categoryNames: [],
+    brands: [],
+    assignees: []
+  };
+}
+
+function hasActiveTopSummaryFilters(filters: TopSummaryFilters): boolean {
+  return Object.values(filters).some(Boolean);
+}
+
 export function filterAndSortEvents(events: InsightEvent[], watchStates: AsinWatchState[], filters: InsightEventFilters): InsightEvent[] {
   const coreAsins = new Set(watchStates.filter((state) => state.watchLevel === "CORE").map((state) => state.asin));
   const assignee = filters.unassignedOnly ? "" : filters.assignee.trim();
@@ -471,6 +548,12 @@ export interface AsinGroupedView {
   watchLevel: AsinWatchLevel | null;
   /** Highest score in the group (== representative.scoreTotal after dedupe) */
   scoreTotal: number;
+  /** 0-100 opportunity score derived from ranking/product/promo breakdown */
+  opportunityScore: number;
+  /** 0-100 risk score derived from brand/risk breakdown */
+  riskScore: number;
+  opportunityReasons: string[];
+  riskReasons: string[];
 }
 
 /**
@@ -508,6 +591,7 @@ export function groupEventsByAsin(
       "P2"
     );
     const watch = watchByAsin.get(asin) ?? null;
+    const dual = deriveAsinDualScore(representative.scoreBreakdown);
     result.push({
       asin,
       representative,
@@ -516,7 +600,11 @@ export function groupEventsByAsin(
       strategyTags,
       topLevel,
       watchLevel: watch?.watchLevel ?? null,
-      scoreTotal: representative.scoreTotal
+      scoreTotal: representative.scoreTotal,
+      opportunityScore: dual.opportunityScore,
+      riskScore: dual.riskScore,
+      opportunityReasons: dual.opportunityReasons,
+      riskReasons: dual.riskReasons
     });
   }
 

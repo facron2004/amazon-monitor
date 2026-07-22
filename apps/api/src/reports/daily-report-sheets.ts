@@ -5,7 +5,7 @@ import { buildDailyBsrSheets } from "./daily-bsr-sheets.js";
 import { buildDailyCoreSheets } from "./daily-core-sheets.js";
 import { buildDailyInsightSheets } from "./insight-report.js";
 
-export function buildReportSheets(store: Store, date: string): WorkbookSheet[] {
-  const data = collectDailyReportData(store, date);
+export function buildReportSheets(store: Store, date: string, orgId?: number): WorkbookSheet[] {
+  const data = collectDailyReportData(store, date, orgId);
   return [...buildDailyCoreSheets(data, date), ...buildDailyBsrSheets(data), ...buildDailyInsightSheets(data)];
 }

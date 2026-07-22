@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { CalendarClock, ExternalLink, RotateCw } from "@lucide/vue";
 import { ElButton, ElEmpty, ElProgress, ElStatistic, ElTable, ElTableColumn, ElTag } from "element-plus";
 import type { InsightEvent } from "@amazon-monitor/shared";
+import { useWriteAccess } from "../../composables/useWriteAccess";
 import {
   buildReviewCadenceSummary,
   type ReviewCadenceBucket,
@@ -23,6 +24,8 @@ const emit = defineEmits<{
   (event: "evaluate-review-due"): void;
   (event: "select", value: InsightEvent): void;
 }>();
+
+const { canWrite } = useWriteAccess();
 
 const summary = computed(() => buildReviewCadenceSummary(props.events, props.reviewDueEvents, props.currentDate));
 const maxBucketScore = computed(() => Math.max(1, ...summary.value.buckets.map((bucket) => bucket.totalScore)));
@@ -78,7 +81,7 @@ function isReviewCadenceRow(row: unknown): row is ReviewCadenceRow {
           <ExternalLink :size="14" />
           <span>聚焦到期</span>
         </ElButton>
-        <ElButton type="primary" :loading="reviewing" :disabled="dueNowCount === 0" @click="emit('evaluate-review-due')">
+        <ElButton type="primary" :loading="reviewing" :disabled="dueNowCount === 0 || !canWrite" @click="emit('evaluate-review-due')">
           <RotateCw :size="14" />
           <span>自动复盘</span>
         </ElButton>

@@ -3,10 +3,13 @@ import type { AsinWatchLevel, AsinWatchState, CompetitorFolder, CompetitorPoolIt
 import type { CompetitorSourceFilter, CompetitorTierFilter } from "../constants/competitors";
 import type { CompetitorInsightSuggestion, CompetitorKpi } from "../utils/competitor-pool";
 import CompetitorActivityCalendarPanel from "./CompetitorActivityCalendarPanel.vue";
+import CompetitorAddButton from "./CompetitorAddButton.vue";
 import CompetitorDrawerPanel from "./CompetitorDrawerPanel.vue";
 import CompetitorPoolInsightPanel from "./CompetitorPoolInsightPanel.vue";
 import CompetitorPoolKpiCards from "./CompetitorPoolKpiCards.vue";
 import CompetitorPoolPanel from "./CompetitorPoolPanel.vue";
+import ReadOnlyNotice from "./ReadOnlyNotice.vue";
+import { useWriteAccess } from "../composables/useWriteAccess";
 
 interface Props {
   competitorFolders: CompetitorFolder[];
@@ -39,10 +42,15 @@ interface Emits {
 
 defineProps<Props>();
 const emit = defineEmits<Emits>();
+const { canWrite: canManageCompetitors } = useWriteAccess("manage_competitors");
 </script>
 
 <template>
   <section class="view competitors-view">
+    <ReadOnlyNotice v-if="!canManageCompetitors" />
+    <div v-if="canManageCompetitors" class="competitors-view-actions">
+      <CompetitorAddButton />
+    </div>
     <div class="competitors-view-kpis">
       <CompetitorPoolKpiCards :kpis="competitorKpis" />
     </div>
@@ -96,6 +104,11 @@ const emit = defineEmits<Emits>();
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.competitors-view-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .competitors-view-body {

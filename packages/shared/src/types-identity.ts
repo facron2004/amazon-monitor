@@ -1,18 +1,54 @@
 /**
  * Identity types (Stage 0)
  *
- * Multi-tenant user accounts with three roles:
- * - admin: full access, can manage users/organizations
- * - operator: operations role (default for current operator workflows)
- * - developer: product research / selection role (Stage 3-4 surface)
- *
- * Stage 0 only needs the bare models; rich permission matrices are wired in
- * Stage 5 (PermissionGate + role middleware).
+ * Multi-tenant roles follow the PRD permission matrix. `developer` remains as
+ * a read-only compatibility role for existing accounts.
  */
 
-export type UserRole = "admin" | "operator" | "developer";
+export const USER_ROLES = [
+  "admin",
+  "manager",
+  "operator",
+  "ads_operator",
+  "product_researcher",
+  "viewer",
+  "developer"
+] as const;
 
-export const USER_ROLES: readonly UserRole[] = ["admin", "operator", "developer"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const businessCapabilities = [
+  "manage_users",
+  "manage_workflow",
+  "assign_tasks",
+  "manage_competitors",
+  "view_ads",
+  "view_ads_details",
+  "manage_ads",
+  "view_profit",
+  "view_profit_details",
+  "manage_profit",
+  "manage_collection",
+  "manage_rules",
+  "manage_data_sources",
+  "manage_reports"
+] as const;
+
+export type BusinessCapability = (typeof businessCapabilities)[number];
+
+const roleCapabilities: Record<UserRole, readonly BusinessCapability[]> = {
+  admin: businessCapabilities,
+  manager: ["manage_workflow", "assign_tasks", "manage_competitors", "view_ads", "view_ads_details", "manage_ads", "view_profit", "view_profit_details", "manage_profit", "manage_collection", "manage_rules", "manage_reports"],
+  operator: ["manage_workflow", "manage_competitors", "view_ads", "view_profit", "manage_collection", "manage_reports"],
+  ads_operator: ["manage_workflow", "view_ads", "view_ads_details", "manage_ads", "manage_reports"],
+  product_researcher: ["manage_workflow", "manage_competitors", "view_profit", "manage_reports"],
+  viewer: [],
+  developer: []
+};
+
+export function hasBusinessCapability(role: UserRole, capability: BusinessCapability): boolean {
+  return roleCapabilities[role].includes(capability);
+}
 
 export interface Organization {
   id: number;

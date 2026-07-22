@@ -1,6 +1,11 @@
 import type { Express, Request } from "express";
-import type { InventoryPlanLevel, SessionContext } from "@amazon-monitor/shared";
+import { hasBusinessCapability, type InventoryPlanLevel, type SessionContext } from "@amazon-monitor/shared";
 import { z } from "zod";
+import {
+  buildInventoryPlanTask,
+  hasActionableInventoryEvidence,
+  inventoryPlanTaskSourceId
+} from "../services/inventory-task-service.js";
 import type { Store } from "../store.js";
 import { asyncHandler } from "./http-utils.js";
 import { validateBody, validateIdParam, validateQuery } from "./validation.js";
@@ -19,16 +24,25 @@ const inventoryQuerySchema = z.object({
 
 const inventorySettingSchema = z.object({
   leadTimeDays: z.number().min(0).max(365).nullable().optional(),
+  productionLeadTimeDays: z.number().min(0).max(365).nullable().optional(),
+  inboundLeadTimeDays: z.number().min(0).max(365).nullable().optional(),
   safetyStockDays: z.number().min(0).max(365).nullable().optional(),
   targetStockDays: z.number().min(1).max(730).nullable().optional(),
   minOrderQuantity: z.number().int().min(0).nullable().optional(),
   packSize: z.number().int().min(1).nullable().optional(),
   supplierName: z.string().max(200).nullable().optional(),
   reorderPointUnits: z.number().int().min(0).nullable().optional(),
+  inTransitUnits: z.number().int().min(0).nullable().optional(),
+  localWarehouseUnits: z.number().int().min(0).nullable().optional(),
+  expectedArrivalDate: isoDateSchema.nullable().optional(),
   dataSource: z.string().max(80).optional(),
   lastSyncedAt: z.string().max(80).nullable().optional(),
   syncStatus: productSyncStatusSchema.optional(),
   syncError: z.string().max(1000).nullable().optional()
+});
+
+const inventoryTaskSchema = z.object({
+  date: isoDateSchema.optional()
 });
 
 function requireSessionContext(request: Request): SessionContext {
@@ -42,6 +56,12 @@ function requireSessionContext(request: Request): SessionContext {
 function requireOperatorOrAdmin(ctx: SessionContext): void {
   if (ctx.user.role !== "admin" && ctx.user.role !== "operator") {
     throw Object.assign(new Error("Forbidden: only operator or admin can manage inventory settings"), { statusCode: 403 });
+  }
+}
+
+function requireWorkflowManagement(ctx: SessionContext): void {
+  if (!hasBusinessCapability(ctx.user.role, "manage_workflow")) {
+    throw Object.assign(new Error("Forbidden: role cannot create inventory tasks"), { statusCode: 403 });
   }
 }
 
@@ -73,6 +93,40 @@ export function registerInventoryRoutes(app: Express, store: Store): void {
     response.json(plan);
   }));
 
+  app.post("/api/products/:id/inventory-plan/task", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireWorkflowManagement(ctx);
+    const id = validateIdParam(request.params.id);
+    const data = validateBody(inventoryTaskSchema, request.body);
+    const plan = store.getInventoryPlan(id, { orgId: ctx.organization.id, date: data.date });
+    if (!plan) {
+      response.status(404).json({ message: "Inventory plan not found" });
+      return;
+    }
+    if (!hasActionableInventoryEvidence(plan)) {
+      response.status(409).json({ message: "Inventory plan has no actionable replenishment or overstock signal" });
+      return;
+    }
+
+    const sourceId = inventoryPlanTaskSourceId(plan);
+    const existingTask = store.listTasks({
+      orgId: ctx.organization.id,
+      sourceType: "rule",
+      sourceId,
+      limit: 1
+    })[0];
+    if (existingTask && existingTask.status !== "cancelled") {
+      response.json({ created: false, task: existingTask });
+      return;
+    }
+
+    const task = store.createTask(buildInventoryPlanTask(plan, {
+      orgId: ctx.organization.id,
+      createdBy: ctx.user.id
+    }));
+    response.status(201).json({ created: true, task });
+  }));
+
   app.post("/api/products/:id/inventory-setting", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
     requireOperatorOrAdmin(ctx);
@@ -82,12 +136,17 @@ export function registerInventoryRoutes(app: Express, store: Store): void {
     const setting = store.upsertInventorySetting({
       productId: id,
       leadTimeDays: data.leadTimeDays ?? null,
+      productionLeadTimeDays: data.productionLeadTimeDays ?? null,
+      inboundLeadTimeDays: data.inboundLeadTimeDays ?? null,
       safetyStockDays: data.safetyStockDays ?? null,
       targetStockDays: data.targetStockDays ?? null,
       minOrderQuantity: data.minOrderQuantity ?? null,
       packSize: data.packSize ?? null,
       supplierName: emptyToNull(data.supplierName),
       reorderPointUnits: data.reorderPointUnits ?? null,
+      inTransitUnits: data.inTransitUnits ?? null,
+      localWarehouseUnits: data.localWarehouseUnits ?? null,
+      expectedArrivalDate: data.expectedArrivalDate ?? null,
       dataSource: data.dataSource,
       lastSyncedAt: data.lastSyncedAt ?? null,
       syncStatus: data.syncStatus,

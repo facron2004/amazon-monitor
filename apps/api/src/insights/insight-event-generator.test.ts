@@ -29,18 +29,30 @@ describe("generateInsightEvents", () => {
     });
     const collector = new ControlledBestSellerCollector({
       "2026-06-18": [
-        product(1, "B0STEADY01", "Steady Ice Maker", "Steady", 199, null, null, 500),
-        product(2, "B0PRICE001", "Acme Ice Maker", "Acme", 220, null, null, 600),
+        product(1, "B0STEADY01", "Steady Ice Maker", "Steady", 199, null, null, 500, {
+          rating: 4.7,
+          imageUrl: "https://images.example.com/B0STEADY01.jpg?size=500"
+        }),
+        product(2, "B0PRICE001", "Acme Ice Maker", "Acme", 220, null, null, 600, {
+          rating: 4.7,
+          imageUrl: "https://images.example.com/B0PRICE001-old.jpg?size=500"
+        }),
         product(3, "B0ACME003", "Acme Quiet Ice Maker", "Acme", 160, null, null, 480),
         product(4, "B0OLD00002", "Legacy Ice Maker", "Old", 150, null, null, 360),
         product(5, "B0OLD00001", "Old Ice Maker", "Old", 180, null, null, 700)
       ],
       "2026-06-19": [
-        product(1, "B0PRICE001", "Acme Ice Maker", "Acme", 180, "Save $20", "Limited Time Deal", 640),
+        product(1, "B0PRICE001", "Acme Pro Ice Maker", "Acme", 180, "Save $20", "Limited Time Deal", 640, {
+          rating: 4.4,
+          imageUrl: "https://images.example.com/B0PRICE001-new.jpg?size=500"
+        }),
         product(2, "B0NEW00001", "New Mini Ice Maker", "NewBrand", 99, null, null, 42),
         product(3, "B0ACME002", "Acme Compact Ice Maker", "Acme", 130, "Save $10", null, 390),
         product(4, "B0ACME003", "Acme Quiet Ice Maker", "Acme", 160, null, null, 480),
-        product(5, "B0STEADY01", "Steady Ice Maker", "Steady", 199, null, null, 500)
+        product(5, "B0STEADY01", " steady   ice maker ", "Steady", 199, null, null, 500, {
+          rating: 4.6,
+          imageUrl: "https://images.example.com/B0STEADY01.jpg?size=1000"
+        })
       ]
     });
 
@@ -62,6 +74,8 @@ describe("generateInsightEvents", () => {
         "PRICE_DROP",
         "COUPON_ADDED",
         "DEAL_ADDED",
+        "RATING_DROP",
+        "LISTING_CHANGED",
         "PRICE_NEW_LOW",
         "LOW_REVIEW_HIGH_RANK",
         "NEW_PRODUCT_BREAKOUT",
@@ -73,6 +87,18 @@ describe("generateInsightEvents", () => {
     const target = store.listInsightEvents({ date: "2026-06-19", asin: "B0PRICE001", eventType: "PRICE_DROP" })[0];
     expect(target.evidence.priceBefore).toBe(220);
     expect(target.evidence.priceAfter).toBe(180);
+    const ratingDrop = store.listInsightEvents({ date: "2026-06-19", asin: "B0PRICE001", eventType: "RATING_DROP" })[0];
+    expect(ratingDrop.evidence).toMatchObject({ ratingBefore: 4.7, ratingAfter: 4.4, ratingChange: -0.3 });
+    const listingChanged = store.listInsightEvents({ date: "2026-06-19", asin: "B0PRICE001", eventType: "LISTING_CHANGED" })[0];
+    expect(listingChanged.evidence).toMatchObject({
+      titleBefore: "Acme Ice Maker",
+      titleAfter: "Acme Pro Ice Maker",
+      imageUrlBefore: "https://images.example.com/B0PRICE001-old.jpg?size=500",
+      imageUrlAfter: "https://images.example.com/B0PRICE001-new.jpg?size=500",
+      listingChangedFields: ["title", "mainImage"]
+    });
+    expect(store.listInsightEvents({ date: "2026-06-19", asin: "B0STEADY01", eventType: "RATING_DROP" })).toEqual([]);
+    expect(store.listInsightEvents({ date: "2026-06-19", asin: "B0STEADY01", eventType: "LISTING_CHANGED" })).toEqual([]);
     const breakout = store.listInsightEvents({ date: "2026-06-19", asin: "B0NEW00001", eventType: "NEW_PRODUCT_BREAKOUT" })[0];
     expect(breakout).toMatchObject({
       reviewDueDate: "2026-06-22",
@@ -130,6 +156,8 @@ describe("generateInsightEvents", () => {
     store.updateInsightEventStatus(target.id, "FOLLOWED");
     generateInsightEvents(store, "2026-06-19", { categoryId: category.id });
     expect(store.listInsightEvents({ date: "2026-06-19", asin: "B0PRICE001", eventType: "PRICE_DROP" })).toHaveLength(1);
+    expect(store.listInsightEvents({ date: "2026-06-19", asin: "B0PRICE001", eventType: "RATING_DROP" })).toHaveLength(1);
+    expect(store.listInsightEvents({ date: "2026-06-19", asin: "B0PRICE001", eventType: "LISTING_CHANGED" })).toHaveLength(1);
     expect(store.getInsightEvent(target.id)).toMatchObject({ status: "FOLLOWED" });
   });
 
@@ -248,7 +276,8 @@ function product(
   currentPrice: number,
   couponText: string | null,
   dealBadge: string | null,
-  reviewCount: number
+  reviewCount: number,
+  overrides: Partial<BestSellerProductInput> = {}
 ): BestSellerProductInput {
   return {
     rank,
@@ -266,7 +295,8 @@ function product(
     isPrime: true,
     dealBadge,
     bsrRank: rank,
-    bsrCategory: "Ice Makers"
+    bsrCategory: "Ice Makers",
+    ...overrides
   };
 }
 

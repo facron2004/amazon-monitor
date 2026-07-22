@@ -24,6 +24,88 @@
       "ApiKeyAuth": []
     }
   ],
+  "components": {
+    "schemas": {
+      "TaskMetricEntries": {
+        "type": "array",
+        "maxItems": 20,
+        "items": {
+          "type": "object",
+          "required": ["label", "value"],
+          "properties": {
+            "label": { "type": "string" },
+            "value": { "type": "string" },
+            "unit": { "type": "string", "nullable": true }
+          }
+        }
+      },
+      "DashboardOperations": {
+        "type": "object",
+        "required": [
+          "date",
+          "activeProductCount",
+          "productMetricCount",
+          "inventoryRiskSkuCount",
+          "openTaskCount",
+          "lastSyncedAt",
+          "marketplaces"
+        ],
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "activeProductCount": { "type": "integer", "minimum": 0 },
+          "productMetricCount": { "type": "integer", "minimum": 0 },
+          "inventoryRiskSkuCount": { "type": "integer", "minimum": 0 },
+          "openTaskCount": { "type": "integer", "minimum": 0 },
+          "lastSyncedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "marketplaces": {
+            "type": "array",
+            "description": "Financial metrics remain separated by marketplace so unlike currencies are never summed.",
+            "items": {
+              "type": "object",
+              "required": [
+                "marketplace",
+                "metricProductCount",
+                "salesAmount",
+                "previousSalesAmount",
+                "orders",
+                "adSpend",
+                "acos",
+                "grossMargin",
+                "sevenDaySales"
+              ],
+              "properties": {
+                "marketplace": { "type": "string" },
+                "metricProductCount": { "type": "integer", "minimum": 0 },
+                "salesAmount": { "type": "number", "nullable": true },
+                "previousSalesAmount": { "type": "number", "nullable": true },
+                "orders": { "type": "number", "nullable": true },
+                "adSpend": { "type": "number", "nullable": true },
+                "acos": { "type": "number", "nullable": true },
+                "grossMargin": { "type": "number", "nullable": true },
+                "sevenDaySales": {
+                  "type": "array",
+                  "minItems": 7,
+                  "maxItems": 7,
+                  "items": {
+                    "type": "object",
+                    "required": ["date", "salesAmount"],
+                    "properties": {
+                      "date": { "type": "string", "format": "date" },
+                      "salesAmount": { "type": "number", "nullable": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "paths": {
     "/health": {
       "get": {
@@ -49,7 +131,7 @@
     },
     "/dashboard/summary": {
       "get": {
-        "summary": "Get Dashboard Summary metrics",
+        "summary": "Get collection and organization-scoped operations overview metrics",
         "parameters": [
           {
             "name": "date",
@@ -60,7 +142,631 @@
           }
         ],
         "responses": {
-          "200": { "description": "Dashboard summary details" }
+          "200": {
+            "description": "Dashboard summary with marketplace-separated business metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["operations"],
+                  "properties": {
+                    "operations": {
+                      "$ref": "#/components/schemas/DashboardOperations"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" }
+        }
+      }
+    },
+    "/dashboard/today-actions": {
+      "get": {
+        "summary": "List the highest-priority actions for the selected day",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 5
+            }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Ranked action list" },
+          "401": { "description": "Authentication required" }
+        }
+      }
+    },
+    "/dashboard/events-feed": {
+      "get": {
+        "summary": "List the dashboard event feed for the selected day",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Event feed" },
+          "401": { "description": "Authentication required" }
+        }
+      }
+    },
+    "/ai/runs": {
+      "get": {
+        "summary": "List persisted AI Agent runs",
+        "parameters": [
+          {
+            "name": "agentType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "daily_operator",
+                "competitor_analyst",
+                "listing_optimizer",
+                "ads_analyst",
+                "review_voc",
+                "report_writer"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["success", "failed"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Filtered AI Agent run history" },
+          "400": { "description": "Invalid filter" },
+          "401": { "description": "Authentication required" }
+        }
+      }
+    },
+    "/ai/runs/{id}/actions/{actionIndex}/feedback": {
+      "put": {
+        "summary": "Record the current user's feedback for one AI recommended action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "actionIndex",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["value"],
+                "properties": {
+                  "value": { "type": "string", "enum": ["up", "down"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Saved or updated action feedback" },
+          "400": {
+            "description": "Invalid run, action index, or feedback value"
+          },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Workflow management capability required" },
+          "404": {
+            "description": "AI run not found in the current organization"
+          }
+        }
+      }
+    },
+    "/rules/run": {
+      "post": {
+        "summary": "Evaluate enabled organization rules for a business date",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["date"],
+                "properties": {
+                  "date": { "type": "string", "format": "date" },
+                  "ruleIds": {
+                    "type": "array",
+                    "maxItems": 10,
+                    "items": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rule evaluation result and generated Insight Events"
+          },
+          "400": { "description": "Invalid date or rule ids" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Rule management capability required" }
+        }
+      }
+    },
+    "/data-sources": {
+      "get": {
+        "summary": "List configured data sources and sync status",
+        "parameters": [
+          {
+            "name": "sourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "amazon_sp_api",
+                "amazon_ads_api",
+                "public_crawler",
+                "csv_import",
+                "erp_wms",
+                "manual"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["not_connected", "connected", "attention", "disabled"]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 200 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Configured data sources" },
+          "400": { "description": "Invalid filter" },
+          "401": { "description": "Authentication required" }
+        }
+      },
+      "post": {
+        "summary": "Create a data source configuration",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "sourceType"],
+                "properties": {
+                  "name": { "type": "string", "maxLength": 200 },
+                  "sourceType": { "type": "string" },
+                  "marketplace": { "type": "string", "nullable": true },
+                  "status": { "type": "string" },
+                  "syncStatus": { "type": "string" },
+                  "lastSyncedAt": { "type": "string", "nullable": true },
+                  "lastSuccessAt": { "type": "string", "nullable": true },
+                  "syncError": { "type": "string", "nullable": true },
+                  "ownerId": { "type": "integer", "nullable": true },
+                  "notes": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Data source created" },
+          "400": { "description": "Invalid payload" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Operator or admin required" },
+          "409": { "description": "Duplicate data source name" }
+        }
+      }
+    },
+    "/data-sources/{id}": {
+      "patch": {
+        "summary": "Update a data source configuration or sync state",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Data source updated" },
+          "400": { "description": "Invalid payload" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Operator or admin required" },
+          "404": { "description": "Data source not found" }
+        }
+      }
+    },
+    "/data-sources/{id}/runs": {
+      "get": {
+        "summary": "List recent synchronization runs for a data source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["pending", "success", "partial", "failed"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization-scoped synchronization run history"
+          },
+          "400": { "description": "Invalid query parameters" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Data source not found" }
+        }
+      }
+    },
+    "/data-sources/{id}/import/products": {
+      "post": {
+        "summary": "Import owned product and daily metric rows from CSV or Excel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["format", "content"],
+                    "properties": {
+                      "format": { "type": "string", "enum": ["csv"] },
+                      "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000000
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": ["format", "contentBase64"],
+                    "properties": {
+                      "format": { "type": "string", "enum": ["xlsx"] },
+                      "contentBase64": {
+                        "type": "string",
+                        "format": "byte",
+                        "minLength": 1,
+                        "maxLength": 7000000
+                      },
+                      "fileName": { "type": "string", "maxLength": 255 }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "Legacy CSV request retained for compatibility",
+                    "required": ["csv"],
+                    "properties": {
+                      "csv": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000000
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File processed with row-level import results"
+          },
+          "400": {
+            "description": "Malformed CSV/Excel file or invalid headers"
+          },
+          "401": { "description": "Authentication required" },
+          "403": {
+            "description": "Data source management capability required"
+          },
+          "404": { "description": "Data source not found" },
+          "409": {
+            "description": "Data source is disabled or is not a file-import source"
+          }
+        }
+      }
+    },
+    "/data-sources/{id}/import/ads": {
+      "post": {
+        "summary": "Import Ads performance rows from CSV or Excel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["format", "content"],
+                    "properties": {
+                      "format": { "type": "string", "enum": ["csv"] },
+                      "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000000
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": ["format", "contentBase64"],
+                    "properties": {
+                      "format": { "type": "string", "enum": ["xlsx"] },
+                      "contentBase64": {
+                        "type": "string",
+                        "format": "byte",
+                        "minLength": 1,
+                        "maxLength": 7000000
+                      },
+                      "fileName": { "type": "string", "maxLength": 255 }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "Legacy CSV request retained for compatibility",
+                    "required": ["csv"],
+                    "properties": {
+                      "csv": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000000
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File processed with row-level import results"
+          },
+          "400": {
+            "description": "Malformed CSV/Excel file or invalid headers"
+          },
+          "401": { "description": "Authentication required" },
+          "403": {
+            "description": "Data source management capability required"
+          },
+          "404": { "description": "Data source not found" },
+          "409": {
+            "description": "Data source is disabled or is not a file-import source"
+          }
+        }
+      }
+    },
+    "/data-sources/{id}/import/costs": {
+      "post": {
+        "summary": "Import product cost assumptions from CSV or Excel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["format", "content"],
+                    "properties": {
+                      "format": { "type": "string", "enum": ["csv"] },
+                      "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000000
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": ["format", "contentBase64"],
+                    "properties": {
+                      "format": { "type": "string", "enum": ["xlsx"] },
+                      "contentBase64": {
+                        "type": "string",
+                        "format": "byte",
+                        "minLength": 1,
+                        "maxLength": 7000000
+                      },
+                      "fileName": { "type": "string", "maxLength": 255 }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "Legacy CSV request retained for compatibility",
+                    "required": ["csv"],
+                    "properties": {
+                      "csv": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000000
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cost file processed with row-level import results"
+          },
+          "400": {
+            "description": "Malformed file, invalid headers, or invalid cost values"
+          },
+          "401": { "description": "Authentication required" },
+          "403": {
+            "description": "Data source management capability required"
+          },
+          "404": { "description": "Data source or owned SKU not found" },
+          "409": {
+            "description": "Data source is disabled or is not a file-import source"
+          }
+        }
+      }
+    },
+    "/data-sources/{id}/import/inventory": {
+      "post": {
+        "summary": "Import inventory and purchasing assumptions from CSV or Excel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/paths/~1data-sources~1{id}~1import~1costs/post/requestBody"
+        },
+        "responses": {
+          "200": {
+            "description": "Inventory file processed with row-level import results"
+          },
+          "400": {
+            "description": "Malformed file, invalid headers, or invalid planning values"
+          },
+          "401": { "description": "Authentication required" },
+          "403": {
+            "description": "Data source management capability required"
+          },
+          "404": { "description": "Data source or owned SKU not found" },
+          "409": {
+            "description": "Data source is disabled or is not a file-import source"
+          }
         }
       }
     },
@@ -84,7 +790,7 @@
           "201": { "description": "AI daily brief persisted to ai_runs" },
           "400": { "description": "Invalid date" },
           "401": { "description": "Authentication required" },
-          "403": { "description": "Operator or admin required" }
+          "403": { "description": "Workflow management capability required" }
         }
       }
     },
@@ -108,7 +814,67 @@
         },
         "responses": {
           "201": { "description": "Listing analysis persisted to ai_runs" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Workflow management capability required" },
           "404": { "description": "Listing health item not found" }
+        }
+      }
+    },
+    "/ai/analyze-competitor": {
+      "post": {
+        "summary": "Generate a Competitor Analyst Agent analysis",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["eventId"],
+                "properties": {
+                  "eventId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Competitor analysis persisted to ai_runs" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Competitor management capability required" },
+          "404": { "description": "Insight event not found" }
+        }
+      }
+    },
+    "/ai/research-product": {
+      "post": {
+        "summary": "Generate a Product Research Agent analysis",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["categoryId"],
+                "properties": {
+                  "categoryId": { "type": "integer", "minimum": 1 },
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Product research analysis persisted to ai_runs"
+          },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Competitor management capability required" },
+          "404": { "description": "Category not found" }
         }
       }
     },
@@ -131,7 +897,7 @@
         "responses": {
           "201": { "description": "Ads analysis persisted to ai_runs" },
           "401": { "description": "Authentication required" },
-          "403": { "description": "Operator or admin required" }
+          "403": { "description": "Ads management capability required" }
         }
       }
     },
@@ -155,7 +921,39 @@
         },
         "responses": {
           "201": { "description": "Review VOC analysis persisted to ai_runs" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Workflow management capability required" },
           "404": { "description": "Review VOC summary not found" }
+        }
+      }
+    },
+    "/ai/create-report": {
+      "post": {
+        "summary": "Generate a Report Writer Agent markdown report",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string", "format": "date" },
+                  "reportType": {
+                    "type": "string",
+                    "enum": ["daily", "weekly", "monthly"],
+                    "default": "daily"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Report Writer output and markdown persisted to ai_runs"
+          },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Report management capability required" }
         }
       }
     },
@@ -163,10 +961,22 @@
       "get": {
         "summary": "List owned SKU Listing health scores",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Listing health list" }
@@ -177,12 +987,35 @@
       "get": {
         "summary": "List owned SKU inventory replenishment plans",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["healthy", "watch", "critical", "overstock"] } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["healthy", "watch", "critical", "overstock"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Inventory replenishment plan list" },
@@ -195,12 +1028,35 @@
       "get": {
         "summary": "List owned SKU profit and price safety plans",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["healthy", "watch", "risk", "data_gap"] } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["healthy", "watch", "risk", "data_gap"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Profit safety plan list" },
@@ -213,12 +1069,32 @@
       "get": {
         "summary": "List owned SKU Review VOC summaries",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Review VOC summary list" }
@@ -229,15 +1105,40 @@
       "get": {
         "summary": "Summarize Ads workflow diagnostics",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["healthy", "watch", "risk", "scale"] } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["healthy", "watch", "risk", "scale"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
-          "200": { "description": "Ads workflow summary with diagnostic items" },
+          "200": {
+            "description": "Ads workflow summary with diagnostic items"
+          },
           "404": { "description": "Product not found" }
         }
       }
@@ -246,11 +1147,27 @@
       "get": {
         "summary": "List Ads daily metrics",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Ads daily metric list" },
@@ -267,7 +1184,11 @@
                 "type": "object",
                 "required": ["date", "campaignId", "campaignName"],
                 "properties": {
-                  "productId": { "type": "integer", "nullable": true, "minimum": 1 },
+                  "productId": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 1
+                  },
                   "date": { "type": "string", "format": "date" },
                   "campaignId": { "type": "string" },
                   "campaignName": { "type": "string" },
@@ -275,19 +1196,43 @@
                   "targetText": { "type": "string", "nullable": true },
                   "searchTerm": { "type": "string", "nullable": true },
                   "matchType": { "type": "string", "nullable": true },
-                  "impressions": { "type": "integer", "nullable": true, "minimum": 0 },
-                  "clicks": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "impressions": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "clicks": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
                   "spend": { "type": "number", "nullable": true, "minimum": 0 },
                   "sales": { "type": "number", "nullable": true, "minimum": 0 },
-                  "orders": { "type": "integer", "nullable": true, "minimum": 0 },
-                  "unitsSold": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "orders": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "unitsSold": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
                   "acos": { "type": "number", "nullable": true, "minimum": 0 },
                   "roas": { "type": "number", "nullable": true, "minimum": 0 },
                   "cpc": { "type": "number", "nullable": true, "minimum": 0 },
                   "ctr": { "type": "number", "nullable": true, "minimum": 0 },
                   "cvr": { "type": "number", "nullable": true, "minimum": 0 },
-                  "budget": { "type": "number", "nullable": true, "minimum": 0 },
-                  "budgetUsageRate": { "type": "number", "nullable": true, "minimum": 0 }
+                  "budget": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "budgetUsageRate": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0
+                  }
                 }
               }
             }
@@ -300,17 +1245,278 @@
         }
       }
     },
+    "/stores": {
+      "get": {
+        "summary": "List organization store accounts",
+        "parameters": [
+          {
+            "name": "marketplace",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["active", "paused"] }
+          },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Organization store accounts" },
+          "401": { "description": "Authentication required" }
+        }
+      },
+      "post": {
+        "summary": "Create an organization store account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "marketplace", "sellerId"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "platform": { "type": "string", "enum": ["amazon"] },
+                  "marketplace": { "type": "string" },
+                  "sellerId": { "type": "string" },
+                  "authStatus": {
+                    "type": "string",
+                    "enum": [
+                      "not_connected",
+                      "connected",
+                      "attention",
+                      "expired"
+                    ]
+                  },
+                  "status": { "type": "string", "enum": ["active", "paused"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Store account created" },
+          "403": { "description": "Store management capability required" },
+          "409": {
+            "description": "Seller account already exists for this marketplace"
+          }
+        }
+      }
+    },
+    "/stores/{id}": {
+      "patch": {
+        "summary": "Update an organization store account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Store account updated" },
+          "403": { "description": "Store management capability required" },
+          "404": { "description": "Store account not found" },
+          "409": {
+            "description": "Marketplace cannot change while products are assigned"
+          }
+        }
+      }
+    },
+    "/promotions": {
+      "get": {
+        "summary": "List organization promotion plans with date-derived monitoring state",
+        "parameters": [
+          {
+            "name": "asOf",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "storeId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["planned", "ready", "completed", "cancelled"]
+            }
+          },
+          {
+            "name": "fromDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "toDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          { "name": "q", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Promotion plan workspace" },
+          "401": { "description": "Authentication required" }
+        }
+      },
+      "post": {
+        "summary": "Create a promotion plan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "type",
+                  "marketplace",
+                  "startDate",
+                  "endDate"
+                ],
+                "properties": {
+                  "storeId": { "type": "integer", "nullable": true },
+                  "productId": { "type": "integer", "nullable": true },
+                  "name": { "type": "string" },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "prime_day",
+                      "black_friday",
+                      "cyber_monday",
+                      "deal",
+                      "coupon",
+                      "seasonal",
+                      "custom"
+                    ]
+                  },
+                  "marketplace": { "type": "string" },
+                  "startDate": { "type": "string", "format": "date" },
+                  "endDate": { "type": "string", "format": "date" },
+                  "status": {
+                    "type": "string",
+                    "enum": ["planned", "ready", "completed", "cancelled"]
+                  },
+                  "targetPrice": { "type": "number", "nullable": true },
+                  "budget": { "type": "number", "nullable": true },
+                  "inventoryTarget": { "type": "integer", "nullable": true },
+                  "notes": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Promotion plan created" },
+          "403": { "description": "Workflow management capability required" }
+        }
+      }
+    },
+    "/promotions/{id}": {
+      "patch": {
+        "summary": "Update a promotion plan",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Promotion plan updated" },
+          "404": { "description": "Promotion plan not found" }
+        }
+      }
+    },
+    "/promotions/{id}/tasks": {
+      "post": {
+        "summary": "Idempotently create a preparation or review task for a promotion plan",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["preparation", "review"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Existing linked task returned" },
+          "201": { "description": "Task created and linked" }
+        }
+      }
+    },
     "/products": {
       "get": {
         "summary": "List owned SKU business objects with latest metrics and scores",
         "parameters": [
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active", "paused", "archived"] } },
-          { "name": "marketplace", "in": "query", "schema": { "type": "string" } },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["active", "paused", "archived"]
+            }
+          },
+          {
+            "name": "storeId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "marketplace",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
           { "name": "brand", "in": "query", "schema": { "type": "string" } },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Owned SKU list" },
@@ -327,6 +1533,11 @@
                 "type": "object",
                 "required": ["marketplace", "sku", "asin", "title"],
                 "properties": {
+                  "storeId": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 1
+                  },
                   "marketplace": { "type": "string" },
                   "sku": { "type": "string" },
                   "asin": { "type": "string" },
@@ -335,7 +1546,10 @@
                   "imageUrl": { "type": "string", "nullable": true },
                   "category": { "type": "string", "nullable": true },
                   "ownerId": { "type": "integer", "nullable": true },
-                  "status": { "type": "string", "enum": ["active", "paused", "archived"] }
+                  "status": {
+                    "type": "string",
+                    "enum": ["active", "paused", "archived"]
+                  }
                 }
               }
             }
@@ -352,8 +1566,17 @@
       "get": {
         "summary": "Get owned SKU detail with recent metrics and scores",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
         ],
         "responses": {
           "200": { "description": "Owned SKU detail" },
@@ -363,7 +1586,12 @@
       "patch": {
         "summary": "Update owned SKU metadata",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "responses": {
           "200": { "description": "Updated owned SKU" },
@@ -376,11 +1604,32 @@
       "get": {
         "summary": "List owned SKU daily metrics",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Owned SKU daily metrics" },
@@ -390,7 +1639,12 @@
       "post": {
         "summary": "Upsert owned SKU daily metric",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "responses": {
           "201": { "description": "Metric created or replaced" },
@@ -403,8 +1657,17 @@
       "get": {
         "summary": "Get owned SKU inventory replenishment plan",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
         ],
         "responses": {
           "200": { "description": "Inventory replenishment plan" },
@@ -412,11 +1675,52 @@
         }
       }
     },
+    "/products/{id}/inventory-plan/task": {
+      "post": {
+        "summary": "Create an approval-gated task from an actionable inventory plan",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "An existing task for the same product, evidence date, and signal was returned"
+          },
+          "201": {
+            "description": "Inventory task created with plan evidence and human-approval boundary"
+          },
+          "403": { "description": "Role cannot manage workflow tasks" },
+          "404": { "description": "Inventory plan not found" },
+          "409": { "description": "Inventory plan has no actionable signal" }
+        }
+      }
+    },
     "/products/{id}/inventory-setting": {
       "post": {
         "summary": "Create or update owned SKU inventory replenishment settings",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -425,16 +1729,52 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "leadTimeDays": { "type": "number", "nullable": true, "minimum": 0, "maximum": 365 },
-                  "safetyStockDays": { "type": "number", "nullable": true, "minimum": 0, "maximum": 365 },
-                  "targetStockDays": { "type": "number", "nullable": true, "minimum": 1, "maximum": 730 },
-                  "minOrderQuantity": { "type": "integer", "nullable": true, "minimum": 0 },
-                  "packSize": { "type": "integer", "nullable": true, "minimum": 1 },
+                  "leadTimeDays": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 365
+                  },
+                  "safetyStockDays": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 365
+                  },
+                  "targetStockDays": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 1,
+                    "maximum": 730
+                  },
+                  "minOrderQuantity": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "packSize": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 1
+                  },
                   "supplierName": { "type": "string", "nullable": true },
-                  "reorderPointUnits": { "type": "integer", "nullable": true, "minimum": 0 },
+                  "reorderPointUnits": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
                   "dataSource": { "type": "string" },
                   "lastSyncedAt": { "type": "string", "nullable": true },
-                  "syncStatus": { "type": "string", "enum": ["pending", "success", "partial", "failed", "manual"] },
+                  "syncStatus": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "success",
+                      "partial",
+                      "failed",
+                      "manual"
+                    ]
+                  },
                   "syncError": { "type": "string", "nullable": true }
                 }
               }
@@ -442,7 +1782,9 @@
           }
         },
         "responses": {
-          "201": { "description": "Inventory setting saved with refreshed plan" },
+          "201": {
+            "description": "Inventory setting saved with refreshed plan"
+          },
           "403": { "description": "Operator or admin required" },
           "404": { "description": "Product not found" }
         }
@@ -452,8 +1794,17 @@
       "get": {
         "summary": "Get owned SKU profit and price safety plan",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
         ],
         "responses": {
           "200": { "description": "Profit safety plan" },
@@ -461,11 +1812,62 @@
         }
       }
     },
+    "/products/{id}/profit-plan/task": {
+      "post": {
+        "summary": "Create an approval-gated price or promotion review task from a safe profit scenario",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["actionKind"],
+                "properties": {
+                  "date": { "type": "string", "format": "date" },
+                  "actionKind": {
+                    "type": "string",
+                    "enum": ["target_margin", "coupon_10", "coupon_15", "deal"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "An existing task for the same product, evidence date, and action was returned"
+          },
+          "201": {
+            "description": "Price action review task created with safety, Ads, inventory, and evidence-gap context"
+          },
+          "403": {
+            "description": "Role cannot view profit plans or manage workflow tasks"
+          },
+          "404": { "description": "Profit plan not found" },
+          "409": {
+            "description": "Selected scenario is outside the configured guardrails"
+          }
+        }
+      }
+    },
     "/products/{id}/profit-setting": {
       "post": {
         "summary": "Create or update owned SKU profit cost assumptions",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -474,18 +1876,67 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "purchaseCost": { "type": "number", "nullable": true, "minimum": 0 },
-                  "inboundFreight": { "type": "number", "nullable": true, "minimum": 0 },
-                  "fbaFee": { "type": "number", "nullable": true, "minimum": 0 },
-                  "referralFeeRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
-                  "storageFee": { "type": "number", "nullable": true, "minimum": 0 },
-                  "returnLossRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
-                  "targetMarginRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
-                  "minimumMarginRate": { "type": "number", "nullable": true, "minimum": 0, "maximum": 1 },
-                  "dealFee": { "type": "number", "nullable": true, "minimum": 0 },
+                  "purchaseCost": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "inboundFreight": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "fbaFee": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "referralFeeRate": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "storageFee": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "returnLossRate": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "targetMarginRate": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "minimumMarginRate": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "dealFee": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0
+                  },
                   "dataSource": { "type": "string" },
                   "lastSyncedAt": { "type": "string", "nullable": true },
-                  "syncStatus": { "type": "string", "enum": ["pending", "success", "partial", "failed", "manual"] },
+                  "syncStatus": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "success",
+                      "partial",
+                      "failed",
+                      "manual"
+                    ]
+                  },
                   "syncError": { "type": "string", "nullable": true }
                 }
               }
@@ -503,7 +1954,12 @@
       "post": {
         "summary": "Upsert owned SKU Listing snapshot for health inspection",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -515,10 +1971,22 @@
                 "properties": {
                   "date": { "type": "string", "format": "date" },
                   "title": { "type": "string" },
-                  "bulletPoints": { "type": "array", "items": { "type": "string" } },
-                  "imageUrls": { "type": "array", "items": { "type": "string" } },
-                  "coreKeywords": { "type": "array", "items": { "type": "string" } },
-                  "reviewHighlights": { "type": "array", "items": { "type": "string" } },
+                  "bulletPoints": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "imageUrls": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "coreKeywords": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "reviewHighlights": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
                   "qaGaps": { "type": "array", "items": { "type": "string" } }
                 }
               }
@@ -536,10 +2004,27 @@
       "get": {
         "summary": "Get owned SKU Review VOC summary",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
         ],
         "responses": {
           "200": { "description": "Review VOC summary" },
@@ -551,13 +2036,38 @@
       "get": {
         "summary": "List owned SKU review evidence",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "startDate", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
           { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "Product review evidence list" },
@@ -567,7 +2077,12 @@
       "post": {
         "summary": "Create or update owned SKU review evidence",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -585,8 +2100,16 @@
                   "reviewerName": { "type": "string", "nullable": true },
                   "variant": { "type": "string", "nullable": true },
                   "verifiedPurchase": { "type": "boolean" },
-                  "helpfulVotes": { "type": "integer", "nullable": true, "minimum": 0 },
-                  "sentiment": { "type": "string", "enum": ["positive", "neutral", "negative"], "nullable": true },
+                  "helpfulVotes": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "sentiment": {
+                    "type": "string",
+                    "enum": ["positive", "neutral", "negative"],
+                    "nullable": true
+                  },
                   "topics": { "type": "array", "items": { "type": "string" } }
                 }
               }
@@ -594,7 +2117,9 @@
           }
         },
         "responses": {
-          "201": { "description": "Review evidence saved with refreshed VOC summary" },
+          "201": {
+            "description": "Review evidence saved with refreshed VOC summary"
+          },
           "403": { "description": "Operator or admin required" },
           "404": { "description": "Product not found" }
         }
@@ -604,8 +2129,17 @@
       "get": {
         "summary": "Get deterministic owned SKU risk score",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
         ],
         "responses": {
           "200": { "description": "Risk score" },
@@ -617,8 +2151,17 @@
       "get": {
         "summary": "Get deterministic owned SKU opportunity score",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
         ],
         "responses": {
           "200": { "description": "Opportunity score" },
@@ -661,7 +2204,8 @@
           "404": { "description": "Category not found" }
         }
       }
-    },    "/keywords": {
+    },
+    "/keywords": {
       "get": {
         "summary": "List monitored keywords",
         "responses": {
@@ -680,8 +2224,23 @@
                 "properties": {
                   "keyword": { "type": "string" },
                   "marketplace": { "type": "string", "default": "amazon.com" },
-                  "folderName": { "type": "string" },
-                  "status": { "type": "string", "enum": ["enabled", "disabled"], "default": "enabled" }
+                  "priority": {
+                    "type": "string",
+                    "enum": ["S", "A", "B", "C"],
+                    "default": "C"
+                  },
+                  "categoryTag": { "type": "string", "nullable": true },
+                  "crawlPages": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 3
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["enabled", "disabled"],
+                    "default": "enabled"
+                  }
                 }
               }
             }
@@ -692,11 +2251,59 @@
         }
       }
     },
+    "/keywords/rank-matrix": {
+      "get": {
+        "summary": "Get the cross-keyword rank matrix for owned and monitored competitor ASINs",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rank matrix using the latest snapshot at or before the requested date plus exact previous-day and seven-day references"
+          },
+          "400": { "description": "Invalid date" },
+          "401": { "description": "Authentication required" }
+        }
+      }
+    },
     "/keywords/{id}": {
+      "put": {
+        "summary": "Update keyword monitor using the PRD-compatible method",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "additionalProperties": true }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Keyword updated" },
+          "404": { "description": "Keyword not found" }
+        }
+      },
       "patch": {
         "summary": "Update keyword monitor",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -707,8 +2314,20 @@
                 "properties": {
                   "keyword": { "type": "string" },
                   "marketplace": { "type": "string" },
-                  "folderName": { "type": "string" },
-                  "status": { "type": "string", "enum": ["enabled", "disabled"] }
+                  "priority": {
+                    "type": "string",
+                    "enum": ["S", "A", "B", "C"]
+                  },
+                  "categoryTag": { "type": "string", "nullable": true },
+                  "crawlPages": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["enabled", "disabled"]
+                  }
                 }
               }
             }
@@ -721,7 +2340,12 @@
       "delete": {
         "summary": "Delete keyword monitor",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "responses": {
           "204": { "description": "Deleted successfully" }
@@ -732,11 +2356,43 @@
       "get": {
         "summary": "Get keyword details, snapshots, changes, and alerts",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "required": false, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
         ],
         "responses": {
           "200": { "description": "Detail information of keyword" }
+        }
+      }
+    },
+    "/keywords/{id}/history": {
+      "get": {
+        "summary": "Get keyword history and supporting change evidence",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Keyword detail with history" },
+          "404": { "description": "Keyword not found" }
         }
       }
     },
@@ -762,7 +2418,11 @@
                   "categoryUrl": { "type": "string" },
                   "categoryPath": { "type": "string" },
                   "crawlTopN": { "type": "integer", "default": 100 },
-                  "status": { "type": "string", "enum": ["enabled", "disabled"], "default": "enabled" }
+                  "status": {
+                    "type": "string",
+                    "enum": ["enabled", "disabled"],
+                    "default": "enabled"
+                  }
                 }
               }
             }
@@ -777,7 +2437,12 @@
       "patch": {
         "summary": "Update category monitor",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -791,7 +2456,10 @@
                   "categoryUrl": { "type": "string" },
                   "categoryPath": { "type": "string" },
                   "crawlTopN": { "type": "integer" },
-                  "status": { "type": "string", "enum": ["enabled", "disabled"] }
+                  "status": {
+                    "type": "string",
+                    "enum": ["enabled", "disabled"]
+                  }
                 }
               }
             }
@@ -804,7 +2472,12 @@
       "delete": {
         "summary": "Delete category monitor",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "responses": {
           "204": { "description": "Deleted successfully" }
@@ -813,13 +2486,54 @@
     },
     "/categories/{id}/detail": {
       "get": {
-        "summary": "Get category detail details, snapshots, brand matrix, and signals",
+        "summary": "Get category detail, snapshots with rank history, brand matrix, and signals",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
-          { "name": "date", "in": "query", "required": false, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
         ],
         "responses": {
           "200": { "description": "Detail information of category" }
+        }
+      }
+    },
+    "/categories/{id}/diff": {
+      "get": {
+        "summary": "Compare category bestseller snapshots across two dates",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "compareDate",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Category snapshot differences including rank, price, promotion, and review changes"
+          },
+          "400": { "description": "Invalid or non-historical comparison date" }
         }
       }
     },
@@ -833,7 +2547,10 @@
                 "type": "object",
                 "required": ["date"],
                 "properties": {
-                  "keywordId": { "type": "integer", "description": "If provided, only collects this keyword; otherwise, collects all." },
+                  "keywordId": {
+                    "type": "integer",
+                    "description": "If provided, only collects this keyword; otherwise, collects all."
+                  },
                   "date": { "type": "string", "format": "date" }
                 }
               }
@@ -849,7 +2566,12 @@
       "post": {
         "summary": "Trigger category collection",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "content": {
@@ -885,7 +2607,9 @@
           }
         },
         "responses": {
-          "200": { "description": "Collection run task logs for all categories" }
+          "200": {
+            "description": "Collection run task logs for all categories"
+          }
         }
       }
     },
@@ -893,12 +2617,36 @@
       "get": {
         "summary": "List product price history",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
-          { "name": "marketplace", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 100 } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "asin",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          },
+          {
+            "name": "marketplace",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 100 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of price history items" },
@@ -910,30 +2658,197 @@
       "get": {
         "summary": "List raw category activity events",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
-          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
-          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "asin",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          {
+            "name": "eventType",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of raw category activity events" }
         }
       }
     },
+    "/bsr/categories": {
+      "get": {
+        "summary": "List BSR category monitors",
+        "responses": { "200": { "description": "Configured BSR categories" } }
+      }
+    },
+    "/bsr/snapshots": {
+      "get": {
+        "summary": "List BSR Top100 category snapshots",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          { "name": "asin", "in": "query", "schema": { "type": "string" } },
+          { "name": "brand", "in": "query", "schema": { "type": "string" } },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": { "200": { "description": "BSR category snapshots" } }
+      }
+    },
+    "/bsr/diff": {
+      "get": {
+        "summary": "Compare two BSR category snapshot dates",
+        "parameters": [
+          {
+            "name": "categoryId",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "compareDate",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "BSR snapshot diff" },
+          "400": { "description": "Invalid comparison range" },
+          "404": { "description": "Category not found" }
+        }
+      }
+    },
+    "/bsr/brand-matrix": {
+      "get": {
+        "summary": "List BSR brand matrix snapshots",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          { "name": "brand", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Brand matrix snapshots" } }
+      }
+    },
+    "/bsr/new-risers": {
+      "get": {
+        "summary": "List new entries and fast-rising BSR products",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": { "200": { "description": "New and rising products" } }
+      }
+    },
     "/bsr/history": {
       "get": {
         "summary": "List BSR rank history for Action Center charts",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
-          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "sourceType",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["category_bestseller", "keyword_detail"]
+            }
+          },
+          {
+            "name": "sourceId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "category", "in": "query", "schema": { "type": "string" } },
-          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "asin",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of BSR rank history points" }
@@ -944,13 +2859,40 @@
       "get": {
         "summary": "List BSR snapshot quality diagnostics",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
-          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "sourceType",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["category_bestseller", "keyword_detail"]
+            }
+          },
+          {
+            "name": "sourceId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "category", "in": "query", "schema": { "type": "string" } },
-          { "name": "qualityStatus", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "qualityStatus",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of BSR snapshot quality records" }
@@ -961,13 +2903,40 @@
       "get": {
         "summary": "List BSR rank change events",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
-          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "sourceType",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["category_bestseller", "keyword_detail"]
+            }
+          },
+          {
+            "name": "sourceId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "category", "in": "query", "schema": { "type": "string" } },
-          { "name": "includeUnchanged", "in": "query", "schema": { "type": "boolean", "default": false } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "includeUnchanged",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of BSR rank change events" }
@@ -978,18 +2947,147 @@
       "get": {
         "summary": "List competitor action insights",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "sourceType", "in": "query", "schema": { "type": "string", "enum": ["category_bestseller", "keyword_detail"] } },
-          { "name": "sourceId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "sourceType",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["category_bestseller", "keyword_detail"]
+            }
+          },
+          {
+            "name": "sourceId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
           { "name": "category", "in": "query", "schema": { "type": "string" } },
-          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
-          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
-          { "name": "insightType", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "asin",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          {
+            "name": "insightType",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of competitor action insights" }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "summary": "List workflow events using the PRD-compatible resource name",
+        "responses": {
+          "200": { "description": "Organization-scoped event list" }
+        }
+      }
+    },
+    "/events/{id}": {
+      "get": {
+        "summary": "Get an event",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Event detail" },
+          "404": { "description": "Event not found" }
+        }
+      }
+    },
+    "/events/{id}/acknowledge": {
+      "post": {
+        "summary": "Acknowledge an event",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Event marked as followed" },
+          "404": { "description": "Event not found" }
+        }
+      }
+    },
+    "/events/{id}/ignore": {
+      "post": {
+        "summary": "Ignore an event",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Event ignored" },
+          "404": { "description": "Event not found" }
+        }
+      }
+    },
+    "/events/{id}/convert-to-task": {
+      "post": {
+        "summary": "Convert an event to a task idempotently",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dueDate": {
+                    "type": "string",
+                    "format": "date",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Existing linked task" },
+          "201": { "description": "Task created" },
+          "404": { "description": "Event not found" }
         }
       }
     },
@@ -997,29 +3095,160 @@
       "get": {
         "summary": "List Action Center insight events",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "reviewedOnDate", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] } },
-          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["P0", "P1", "P2"] } },
-          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
-          { "name": "reviewResult", "in": "query", "schema": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] } },
-          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "keywordId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
-          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
-          { "name": "assignee", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 120 } },
-          { "name": "attributionTag", "in": "query", "schema": { "type": "string" } },
-          { "name": "evidenceMovement", "in": "query", "schema": { "type": "string" } },
-          { "name": "reviewCadence", "in": "query", "schema": { "type": "string" } },
-          { "name": "actionStage", "in": "query", "schema": { "type": "string", "enum": ["reviewDue", "unassigned", "ready", "watching", "scheduled", "closed"] } },
-          { "name": "scoreDriver", "in": "query", "schema": { "type": "string" } },
-          { "name": "strategyTag", "in": "query", "schema": { "type": "string" } },
-          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["score", "level", "rankChange", "reviewChange", "createdAt"], "default": "score" } },
-          { "name": "unassignedOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "coreOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "newBreakoutOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "reviewedOnDate",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TODO",
+                "WATCHING",
+                "FOLLOWED",
+                "IGNORED",
+                "REVIEW_PENDING",
+                "REVIEWED"
+              ]
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["P0", "P1", "P2"] }
+          },
+          {
+            "name": "eventType",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "reviewResult",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CONFIRMED",
+                "REVERTED",
+                "CONTINUING",
+                "FAILED",
+                "UNCLEAR"
+              ]
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "keywordId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          {
+            "name": "asin",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 120 }
+          },
+          {
+            "name": "attributionTag",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "evidenceMovement",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "reviewCadence",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "actionStage",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "reviewDue",
+                "unassigned",
+                "ready",
+                "watching",
+                "scheduled",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "scoreDriver",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "strategyTag",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "score",
+                "level",
+                "rankChange",
+                "reviewChange",
+                "createdAt"
+              ],
+              "default": "score"
+            }
+          },
+          {
+            "name": "unassignedOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "coreOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "newBreakoutOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of Action Center insight events" },
@@ -1031,8 +3260,22 @@
       "get": {
         "summary": "List top Action Center events for the dashboard feed",
         "parameters": [
-          { "name": "date", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 } }
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 5
+            }
+          }
         ],
         "responses": {
           "200": { "description": "Top ranked Action Center insight events" },
@@ -1044,29 +3287,160 @@
       "get": {
         "summary": "List Action Center events due for review",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "reviewedOnDate", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] } },
-          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["P0", "P1", "P2"] } },
-          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
-          { "name": "reviewResult", "in": "query", "schema": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] } },
-          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "keywordId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
-          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
-          { "name": "assignee", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 120 } },
-          { "name": "attributionTag", "in": "query", "schema": { "type": "string" } },
-          { "name": "evidenceMovement", "in": "query", "schema": { "type": "string" } },
-          { "name": "reviewCadence", "in": "query", "schema": { "type": "string" } },
-          { "name": "actionStage", "in": "query", "schema": { "type": "string", "enum": ["reviewDue", "unassigned", "ready", "watching", "scheduled", "closed"] } },
-          { "name": "scoreDriver", "in": "query", "schema": { "type": "string" } },
-          { "name": "strategyTag", "in": "query", "schema": { "type": "string" } },
-          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["score", "level", "rankChange", "reviewChange", "createdAt"], "default": "score" } },
-          { "name": "unassignedOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "coreOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "newBreakoutOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "reviewedOnDate",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TODO",
+                "WATCHING",
+                "FOLLOWED",
+                "IGNORED",
+                "REVIEW_PENDING",
+                "REVIEWED"
+              ]
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["P0", "P1", "P2"] }
+          },
+          {
+            "name": "eventType",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "reviewResult",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CONFIRMED",
+                "REVERTED",
+                "CONTINUING",
+                "FAILED",
+                "UNCLEAR"
+              ]
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "keywordId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          {
+            "name": "asin",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 120 }
+          },
+          {
+            "name": "attributionTag",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "evidenceMovement",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "reviewCadence",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "actionStage",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "reviewDue",
+                "unassigned",
+                "ready",
+                "watching",
+                "scheduled",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "scoreDriver",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "strategyTag",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "score",
+                "level",
+                "rankChange",
+                "reviewChange",
+                "createdAt"
+              ],
+              "default": "score"
+            }
+          },
+          {
+            "name": "unassignedOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "coreOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "newBreakoutOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
         ],
         "responses": {
           "200": { "description": "List of events due for review" },
@@ -1078,29 +3452,165 @@
       "get": {
         "summary": "List Action Center trend points for charts",
         "parameters": [
-          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "days", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 30, "default": 7 } },
-          { "name": "reviewedOnDate", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] } },
-          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["P0", "P1", "P2"] } },
-          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
-          { "name": "reviewResult", "in": "query", "schema": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] } },
-          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "keywordId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
-          { "name": "brand", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
-          { "name": "asin", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 30 } },
-          { "name": "assignee", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 120 } },
-          { "name": "attributionTag", "in": "query", "schema": { "type": "string" } },
-          { "name": "evidenceMovement", "in": "query", "schema": { "type": "string" } },
-          { "name": "reviewCadence", "in": "query", "schema": { "type": "string" } },
-          { "name": "actionStage", "in": "query", "schema": { "type": "string", "enum": ["reviewDue", "unassigned", "ready", "watching", "scheduled", "closed"] } },
-          { "name": "scoreDriver", "in": "query", "schema": { "type": "string" } },
-          { "name": "strategyTag", "in": "query", "schema": { "type": "string" } },
-          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["score", "level", "rankChange", "reviewChange", "createdAt"], "default": "score" } },
-          { "name": "unassignedOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "coreOnly", "in": "query", "schema": { "type": "boolean" } },
-          { "name": "newBreakoutOnly", "in": "query", "schema": { "type": "boolean" } }
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 7
+            }
+          },
+          {
+            "name": "reviewedOnDate",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TODO",
+                "WATCHING",
+                "FOLLOWED",
+                "IGNORED",
+                "REVIEW_PENDING",
+                "REVIEWED"
+              ]
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["P0", "P1", "P2"] }
+          },
+          {
+            "name": "eventType",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "reviewResult",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CONFIRMED",
+                "REVERTED",
+                "CONTINUING",
+                "FAILED",
+                "UNCLEAR"
+              ]
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "keywordId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          {
+            "name": "asin",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 120 }
+          },
+          {
+            "name": "attributionTag",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "evidenceMovement",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "reviewCadence",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "actionStage",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "reviewDue",
+                "unassigned",
+                "ready",
+                "watching",
+                "scheduled",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "scoreDriver",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "strategyTag",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "score",
+                "level",
+                "rankChange",
+                "reviewChange",
+                "createdAt"
+              ],
+              "default": "score"
+            }
+          },
+          {
+            "name": "unassignedOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "coreOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "newBreakoutOnly",
+            "in": "query",
+            "schema": { "type": "boolean" }
+          }
         ],
         "responses": {
           "200": { "description": "Action Center trend points" },
@@ -1112,7 +3622,11 @@
       "post": {
         "summary": "Evaluate due Action Center reviews",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
         ],
         "requestBody": {
           "content": {
@@ -1136,8 +3650,16 @@
       "post": {
         "summary": "Generate Action Center insight events for a date",
         "parameters": [
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "categoryId", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          }
         ],
         "requestBody": {
           "content": {
@@ -1162,7 +3684,12 @@
       "get": {
         "summary": "Get one Action Center insight event",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "responses": {
           "200": { "description": "Action Center insight event" },
@@ -1174,7 +3701,12 @@
       "get": {
         "summary": "List note history for one Action Center insight event",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "responses": {
           "200": { "description": "Action Center insight event note history" },
@@ -1186,7 +3718,12 @@
       "patch": {
         "summary": "Update Action Center event status",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1196,8 +3733,22 @@
                 "type": "object",
                 "required": ["status"],
                 "properties": {
-                  "status": { "type": "string", "enum": ["TODO", "WATCHING", "FOLLOWED", "IGNORED", "REVIEW_PENDING", "REVIEWED"] },
-                  "reviewDueDate": { "type": "string", "format": "date", "nullable": true }
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "TODO",
+                      "WATCHING",
+                      "FOLLOWED",
+                      "IGNORED",
+                      "REVIEW_PENDING",
+                      "REVIEWED"
+                    ]
+                  },
+                  "reviewDueDate": {
+                    "type": "string",
+                    "format": "date",
+                    "nullable": true
+                  }
                 }
               }
             }
@@ -1214,7 +3765,12 @@
       "patch": {
         "summary": "Update Action Center event note",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1241,7 +3797,12 @@
       "patch": {
         "summary": "Update Action Center event owner",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1251,7 +3812,11 @@
                 "type": "object",
                 "required": ["assignee"],
                 "properties": {
-                  "assignee": { "type": "string", "maxLength": 120, "nullable": true }
+                  "assignee": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "nullable": true
+                  }
                 }
               }
             }
@@ -1268,7 +3833,12 @@
       "post": {
         "summary": "Add an ASIN from an insight event to the watch list",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "requestBody": {
           "content": {
@@ -1276,16 +3846,29 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "watchLevel": { "type": "string", "enum": ["CORE", "NORMAL", "POTENTIAL", "IGNORED"] },
-                  "watchReason": { "type": "string", "maxLength": 500, "nullable": true },
-                  "note": { "type": "string", "maxLength": 5000, "nullable": true }
+                  "watchLevel": {
+                    "type": "string",
+                    "enum": ["CORE", "NORMAL", "POTENTIAL", "IGNORED"]
+                  },
+                  "watchReason": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 5000,
+                    "nullable": true
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Updated insight event and ASIN watch state" },
+          "200": {
+            "description": "Updated insight event and ASIN watch state"
+          },
           "400": { "description": "Invalid input" },
           "404": { "description": "Insight event not found" }
         }
@@ -1295,7 +3878,12 @@
       "post": {
         "summary": "Record an Action Center event review result",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1306,8 +3894,21 @@
                 "required": ["result"],
                 "properties": {
                   "date": { "type": "string", "format": "date" },
-                  "result": { "type": "string", "enum": ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] },
-                  "note": { "type": "string", "maxLength": 5000, "nullable": true }
+                  "result": {
+                    "type": "string",
+                    "enum": [
+                      "CONFIRMED",
+                      "REVERTED",
+                      "CONTINUING",
+                      "FAILED",
+                      "UNCLEAR"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 5000,
+                    "nullable": true
+                  }
                 }
               }
             }
@@ -1332,7 +3933,12 @@
       "patch": {
         "summary": "Create or update an ASIN watch state",
         "parameters": [
-          { "name": "asin", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 30 } }
+          {
+            "name": "asin",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1342,11 +3948,26 @@
                 "type": "object",
                 "required": ["watchLevel"],
                 "properties": {
-                  "watchLevel": { "type": "string", "enum": ["CORE", "NORMAL", "POTENTIAL", "IGNORED"] },
-                  "watchReason": { "type": "string", "maxLength": 500, "nullable": true },
-                  "note": { "type": "string", "maxLength": 5000, "nullable": true },
+                  "watchLevel": {
+                    "type": "string",
+                    "enum": ["CORE", "NORMAL", "POTENTIAL", "IGNORED"]
+                  },
+                  "watchReason": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 5000,
+                    "nullable": true
+                  },
                   "firstWatchDate": { "type": "string", "format": "date" },
-                  "lastEventDate": { "type": "string", "format": "date", "nullable": true }
+                  "lastEventDate": {
+                    "type": "string",
+                    "format": "date",
+                    "nullable": true
+                  }
                 }
               }
             }
@@ -1359,12 +3980,28 @@
       }
     },
     "/competitors": {
+      "post": {
+        "summary": "Add an ASIN to the competitor pool manually",
+        "responses": {
+          "201": { "description": "Competitor added" },
+          "400": { "description": "Invalid competitor input" },
+          "403": { "description": "Insufficient permission" }
+        }
+      },
       "get": {
         "summary": "List tracked competitors pool",
         "parameters": [
-          { "name": "keywordId", "in": "query", "schema": { "type": "integer" } },
+          {
+            "name": "keywordId",
+            "in": "query",
+            "schema": { "type": "integer" }
+          },
           { "name": "keyword", "in": "query", "schema": { "type": "string" } },
-          { "name": "sourceType", "in": "query", "schema": { "type": "string" } },
+          {
+            "name": "sourceType",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
           { "name": "tier", "in": "query", "schema": { "type": "string" } }
         ],
         "responses": {
@@ -1372,11 +4009,193 @@
         }
       }
     },
+    "/competitors/kpis": {
+      "get": {
+        "summary": "Capture today's organization-scoped competitor KPIs and compare them with yesterday's verified snapshot",
+        "responses": {
+          "200": {
+            "description": "Current snapshot, optional exact previous-day snapshot, and nullable KPI deltas"
+          }
+        }
+      }
+    },
+    "/competitors/import/csv": {
+      "post": {
+        "summary": "Import competitors from CSV",
+        "description": "Accepts text/csv with asin, marketplace, title, and optional brand columns. Valid rows are imported and row-level validation errors are returned.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/csv": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Import result with successful and failed row counts"
+          },
+          "400": { "description": "Invalid CSV structure" },
+          "403": { "description": "Insufficient permission" }
+        }
+      }
+    },
+    "/competitors/import": {
+      "post": {
+        "summary": "Import competitors from CSV using the PRD-compatible path",
+        "description": "Accepts text/csv with asin, marketplace, title, and optional brand columns.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/csv": { "schema": { "type": "string", "format": "binary" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Import result with successful and failed row counts"
+          },
+          "400": { "description": "Invalid CSV structure" },
+          "403": { "description": "Insufficient permission" }
+        }
+      }
+    },
+    "/competitors/{id}": {
+      "get": {
+        "summary": "Get one organization-scoped competitor by numeric id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Competitor detail" },
+          "404": { "description": "Competitor not found" }
+        }
+      }
+    },
+    "/competitors/{id}/snapshots": {
+      "get": {
+        "summary": "List keyword and category source snapshots for a competitor",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Source-preserving competitor snapshot evidence"
+          },
+          "404": { "description": "Competitor not found" }
+        }
+      }
+    },
+    "/competitors/{id}/timeline": {
+      "get": {
+        "summary": "Get the unified competitor activity timeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "limitDays",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 180,
+              "default": 90
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Price, rank, promotion, Review, Listing, signal, and event timeline"
+          },
+          "404": { "description": "Competitor not found" }
+        }
+      }
+    },
+    "/competitors/from-category": {
+      "post": {
+        "summary": "Add or restore a category Best Sellers product in the competitor pool",
+        "description": "Idempotently creates the competitor from its latest category snapshot or restores an ignored competitor to active status.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["asin", "categoryId"],
+                "properties": {
+                  "asin": { "type": "string", "pattern": "^[A-Z0-9]{10}$" },
+                  "categoryId": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Category competitor added or restored" },
+          "400": { "description": "Invalid input" },
+          "403": { "description": "Insufficient permission" },
+          "404": { "description": "Category product snapshot not found" }
+        }
+      }
+    },
     "/competitors/{asin}/key": {
       "patch": {
         "summary": "Update key competitor status for an ASIN",
         "parameters": [
-          { "name": "asin", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "asin",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1414,7 +4233,12 @@
       "patch": {
         "summary": "Update alert status (e.g. marked as read/resolved)",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1447,6 +4271,141 @@
         }
       }
     },
+    "/reports/daily/generate": {
+      "post": {
+        "summary": "Generate and archive a complete organization daily operations report",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["date"],
+                "properties": {
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Versioned daily report archive" },
+          "400": { "description": "Invalid report date" },
+          "403": { "description": "Operator or admin role required" }
+        }
+      }
+    },
+    "/reports/daily/archive": {
+      "get": {
+        "summary": "Get the archived daily report for one date",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archived report or null when the date has not been generated"
+          }
+        }
+      }
+    },
+    "/reports/daily/readiness": {
+      "get": {
+        "summary": "Explain daily report data gaps and route each gap to a data source or collector action",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily report coverage readiness and actionable data-gap attribution"
+          },
+          "401": { "description": "Signed-in user required" }
+        }
+      }
+    },
+    "/reports/daily/history": {
+      "get": {
+        "summary": "List versioned organization daily report history",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 30
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily report history with pagination metadata"
+          }
+        }
+      }
+    },
+    "/reports/daily.md": {
+      "get": {
+        "summary": "Download an archived daily report as Markdown",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Markdown report download",
+            "content": {
+              "text/markdown": { "schema": { "type": "string" } }
+            }
+          },
+          "404": { "description": "Daily report archive not found" }
+        }
+      }
+    },
+    "/reports/daily.pdf": {
+      "get": {
+        "summary": "Download an archived daily operations report as PDF",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Print-ready PDF generated from the archived report version",
+            "content": {
+              "application/pdf": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "403": { "description": "Report management capability required" },
+          "404": { "description": "Daily report archive not found" }
+        }
+      }
+    },
     "/reports/daily.xlsx": {
       "get": {
         "summary": "Download daily report Excel file",
@@ -1465,18 +4424,485 @@
         }
       }
     },
+    "/reports/period/generate": {
+      "post": {
+        "summary": "Generate and archive an organization-scoped weekly or monthly operations report",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["period", "endDate"],
+                "properties": {
+                  "period": { "type": "string", "enum": ["weekly", "monthly"] },
+                  "endDate": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Versioned weekly or monthly report archive"
+          },
+          "400": { "description": "Invalid report period or date" },
+          "403": { "description": "Report management capability required" }
+        }
+      }
+    },
+    "/reports/period/archive": {
+      "get": {
+        "summary": "Get one archived weekly or monthly operations report",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "enum": ["weekly", "monthly"] }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Period report archive or null when the window has not been generated"
+          }
+        }
+      }
+    },
+    "/reports/period/history": {
+      "get": {
+        "summary": "List organization-scoped weekly or monthly report history",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["weekly", "monthly"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 30
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Period report history with pagination metadata"
+          }
+        }
+      }
+    },
+    "/reports/period.md": {
+      "get": {
+        "summary": "Download an archived weekly or monthly operations report as Markdown",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "enum": ["weekly", "monthly"] }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Markdown report download",
+            "content": {
+              "text/markdown": { "schema": { "type": "string" } }
+            }
+          },
+          "403": { "description": "Report management capability required" },
+          "404": { "description": "Period report archive not found" }
+        }
+      }
+    },
+    "/reports/period.pdf": {
+      "get": {
+        "summary": "Download an archived weekly or monthly operations report as PDF",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "enum": ["weekly", "monthly"] }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Print-ready PDF generated from the archived report version",
+            "content": {
+              "application/pdf": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "403": { "description": "Report management capability required" },
+          "404": { "description": "Period report archive not found" }
+        }
+      }
+    },
     "/reports/insights/period": {
       "get": {
         "summary": "Get weekly or monthly evidence-backed insight report",
         "parameters": [
-          { "name": "endDate", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
-          { "name": "period", "in": "query", "schema": { "type": "string", "enum": ["weekly", "monthly"], "default": "weekly" } },
-          { "name": "includeAiSummary", "in": "query", "description": "Set to true to request an optional OpenAI-compatible Responses API summary. The evidence-backed report is still returned if the AI call is disabled or fails.", "schema": { "type": "string", "enum": ["true", "false"], "default": "false" } }
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["weekly", "monthly"],
+              "default": "weekly"
+            }
+          },
+          {
+            "name": "includeAiSummary",
+            "in": "query",
+            "description": "Set to true to request an optional OpenAI-compatible Responses API summary. The evidence-backed report is still returned if the AI call is disabled or fails.",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"],
+              "default": "false"
+            }
+          }
         ],
         "responses": {
-          "200": { "description": "Structured period insight report with markdown and optional aiSummary metadata" },
+          "200": {
+            "description": "Structured period insight report with markdown and optional aiSummary metadata"
+          },
           "400": { "description": "Invalid query input" }
+        }
+      }
+    },
+    "/collectors/run": {
+      "post": {
+        "summary": "Queue collection jobs for all, keyword, or category targets",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "taskType": {
+                    "type": "string",
+                    "enum": ["all", "keyword", "category"],
+                    "default": "all"
+                  },
+                  "targetId": { "type": "integer", "minimum": 1 },
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Collection jobs queued" },
+          "400": { "description": "Invalid collection request" },
+          "404": { "description": "Requested target not found" },
+          "409": { "description": "Requested target is disabled" }
+        }
+      }
+    },
+    "/collectors/jobs": {
+      "get": {
+        "summary": "List collector queue jobs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Collector queue jobs" }
+        }
+      }
+    },
+    "/collectors/jobs/{id}": {
+      "get": {
+        "summary": "Get one collector queue job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Collector queue job" },
+          "404": { "description": "Collector job not found" }
+        }
+      }
+    },
+    "/collectors/logs": {
+      "get": {
+        "summary": "List collector execution logs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Collector execution logs" }
+        }
+      }
+    },
+    "/collectors/freshness": {
+      "get": {
+        "summary": "Get collection freshness by target type",
+        "responses": {
+          "200": { "description": "Collection freshness snapshot" }
+        }
+      }
+    },
+    "/collectors/queue-stats": {
+      "get": {
+        "summary": "Get collector queue health",
+        "responses": {
+          "200": { "description": "Collector queue health snapshot" }
+        }
+      }
+    },
+    "/collectors/worker-status": {
+      "get": {
+        "summary": "Get collection worker heartbeat status",
+        "responses": {
+          "200": { "description": "Collection worker status" }
+        }
+      }
+    },
+    "/tasks": {
+      "get": {
+        "summary": "List organization-scoped workflow tasks",
+        "responses": { "200": { "description": "Task list" } }
+      },
+      "post": {
+        "summary": "Create a workflow task",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "additionalProperties": true }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Task created" } }
+      }
+    },
+    "/tasks/{id}": {
+      "get": {
+        "summary": "Get a workflow task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Task detail" },
+          "404": { "description": "Task not found" }
+        }
+      },
+      "put": {
+        "summary": "Update a workflow task using the PRD-compatible method",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "additionalProperties": true }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Task updated" },
+          "404": { "description": "Task not found" }
+        }
+      }
+    },
+    "/tasks/{id}/complete": {
+      "post": {
+        "summary": "Complete a task after execution has been submitted",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Task completed" },
+          "404": { "description": "Task not found" },
+          "409": { "description": "Task is not awaiting completion" }
+        }
+      }
+    },
+    "/tasks/{id}/review": {
+      "post": {
+        "summary": "Review a completed task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Task reviewed" },
+          "404": { "description": "Task not found" },
+          "409": { "description": "Task is not ready for review" }
+        }
+      }
+    },
+    "/tasks/execution.csv": {
+      "get": {
+        "summary": "Export organization-scoped, human-confirmed in-progress tasks as an execution checklist",
+        "parameters": [
+          {
+            "name": "priority",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] }
+          },
+          {
+            "name": "assigneeId",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Excel-compatible UTF-8 CSV execution checklist",
+            "content": {
+              "text/csv": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Workflow management capability required" }
+        }
+      }
+    },
+    "/tasks/{id}/detail": {
+      "get": {
+        "summary": "Get an organization-scoped task with its linked insight-event context",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task detail with sourceEvent when the task originates from an insight event"
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Task not found in current organization" }
+        }
+      }
+    },
+    "/tasks/{id}/submit": {
+      "post": {
+        "summary": "Record a human task execution and submit it for review",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["actionTaken"],
+                "properties": {
+                  "actionTaken": {
+                    "type": "string",
+                    "description": "Human-executed action record"
+                  },
+                  "resultBefore": {
+                    "$ref": "#/components/schemas/TaskMetricEntries"
+                  },
+                  "resultAfter": {
+                    "$ref": "#/components/schemas/TaskMetricEntries"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task moved from in_progress to awaiting_review with execution evidence"
+          },
+          "400": { "description": "Invalid execution input" },
+          "403": { "description": "Operator or admin role required" },
+          "404": { "description": "Task not found in current organization" },
+          "409": { "description": "Task is not in progress" }
         }
       }
     },

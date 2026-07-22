@@ -183,8 +183,9 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
     response.json(ctx);
   });
 
-  app.get("/api/users", requireAuth(), (_request, response) => {
-    response.json(store.listUsers());
+  app.get("/api/users", requireAuth(), (request, response) => {
+    const ctx = (request as Request & { sessionContext: SessionContext }).sessionContext;
+    response.json(store.listUsers().filter((user) => user.orgId === ctx.organization.id));
   });
 
   app.post("/api/users", requireRole("admin"), asyncHandler(async (request, response) => {
@@ -193,9 +194,10 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
       response.status(400).json({ message: `Invalid role: ${data.role}` });
       return;
     }
-    const orgId = data.orgId ?? store.listOrganizations()[0]?.id;
-    if (!orgId) {
-      response.status(500).json({ message: "No organization exists; cannot create user" });
+    const ctx = (request as Request & { sessionContext: SessionContext }).sessionContext;
+    const orgId = data.orgId ?? ctx.organization.id;
+    if (orgId !== ctx.organization.id) {
+      response.status(403).json({ message: "Forbidden: cannot create users in another organization" });
       return;
     }
     const user = store.createUser({

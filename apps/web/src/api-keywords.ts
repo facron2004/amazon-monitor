@@ -1,4 +1,4 @@
-import type { CollectJob, KeywordMonitor, KeywordMonitorInput } from "@amazon-monitor/shared";
+import type { CollectJob, KeywordMonitor, KeywordMonitorInput, KeywordRankMatrixResponse } from "@amazon-monitor/shared";
 import { request } from "./api-base";
 import type { DatePayload, KeywordCollectPayload, KeywordDetail } from "./api-types";
 
@@ -19,6 +19,7 @@ export const keywordApi = {
       method: "DELETE"
     }),
   keywordDetail: (id: number, date: DatePayload["date"]) => request<KeywordDetail>(`/keywords/${id}/detail?date=${date}`),
+  rankMatrix: (date: DatePayload["date"]) => request<KeywordRankMatrixResponse>(`/keywords/rank-matrix?date=${encodeURIComponent(date)}`),
   collect: (payload: KeywordCollectPayload) =>
     request<CollectJob | CollectJob[]>("/collect/run", {
       method: "POST",

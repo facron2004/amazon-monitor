@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import type { KeywordMonitor } from "@amazon-monitor/shared";
+import type { KeywordMonitor, KeywordRankMatrixResponse } from "@amazon-monitor/shared";
 import { keywordApi } from "../api-keywords";
 import type { KeywordDetail } from "../api-types";
 import type { KeywordMonitorForm } from "../types/keyword-monitor";
@@ -8,10 +8,14 @@ export const useKeywordStore = defineStore("keyword", {
   state: () => ({
     keywords: [] as KeywordMonitor[],
     detail: null as KeywordDetail | null,
+    rankMatrix: null as KeywordRankMatrixResponse | null,
+    rankMatrixLoading: false,
+    rankMatrixError: null as string | null,
     selectedKeywordId: null as number | null,
     keywordForm: {
       keyword: "",
       marketplace: "amazon.com",
+      priority: "C",
       zipCode: "97201",
       language: "en_US",
       categoryTag: "",
@@ -33,7 +37,22 @@ export const useKeywordStore = defineStore("keyword", {
     async loadKeywords(date: string, renderKeywordChart?: (snapshots: KeywordDetail["snapshots"]) => Promise<void>) {
       const keywordData = await keywordApi.keywords();
       this.setKeywords(keywordData);
-      await this.loadDetail(date, renderKeywordChart);
+      await Promise.all([
+        this.loadDetail(date, renderKeywordChart),
+        this.loadRankMatrix(date)
+      ]);
+    },
+    async loadRankMatrix(date: string) {
+      this.rankMatrixLoading = true;
+      this.rankMatrixError = null;
+      try {
+        this.rankMatrix = await keywordApi.rankMatrix(date);
+      } catch (error) {
+        this.rankMatrix = null;
+        this.rankMatrixError = error instanceof Error ? error.message : "排名矩阵加载失败";
+      } finally {
+        this.rankMatrixLoading = false;
+      }
     },
     async loadDetail(date: string, renderKeywordChart?: (snapshots: KeywordDetail["snapshots"]) => Promise<void>) {
       if (!this.selectedKeywordId) {
@@ -53,6 +72,7 @@ export const useKeywordStore = defineStore("keyword", {
       const created = await keywordApi.createKeyword(this.keywordForm);
       this.keywordForm.keyword = "";
       this.keywordForm.categoryTag = "";
+      this.keywordForm.priority = "C";
       this.selectedKeywordId = created.id;
       await this.loadKeywords(date);
     },
@@ -60,6 +80,10 @@ export const useKeywordStore = defineStore("keyword", {
       await keywordApi.updateKeyword(keyword.id, {
         status: keyword.status === "enabled" ? "disabled" : "enabled"
       });
+      await this.loadKeywords(date);
+    },
+    async updateKeywordPriority(keyword: KeywordMonitor, priority: KeywordMonitor["priority"], date: string) {
+      await keywordApi.updateKeyword(keyword.id, { priority });
       await this.loadKeywords(date);
     },
     async deleteKeyword(keywordId: number, date: string) {

@@ -22,6 +22,7 @@ import {
   findCompetitorWatchState,
   normalizeCompetitorWatchLevel
 } from "../utils/competitorWatchState";
+import { useWriteAccess } from "../composables/useWriteAccess";
 
 interface Props {
   visibleCompetitors: CompetitorPoolItem[];
@@ -40,6 +41,7 @@ interface Emits {
 
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
+const { canWrite: canManageCompetitors } = useWriteAccess("manage_competitors");
 
 function watchStateFor(item: CompetitorPoolItem): AsinWatchState | null {
   return findCompetitorWatchState(props.watchStates, item.asin);
@@ -50,6 +52,7 @@ function watchLevelFor(item: CompetitorPoolItem): AsinWatchLevel {
 }
 
 function updateWatchLevel(item: CompetitorPoolItem, value: unknown): void {
+  if (!canManageCompetitors.value) return;
   emit("set-watch-state", item, normalizeCompetitorWatchLevel(value));
 }
 
@@ -124,7 +127,7 @@ function monitorTagType(item: CompetitorPoolItem): "success" | "warning" | "info
                 class="watch-select"
                 size="small"
                 :model-value="watchLevelFor(item)"
-                :disabled="watchStateUpdatingAsin === item.asin"
+                :disabled="!canManageCompetitors || watchStateUpdatingAsin === item.asin"
                 :loading="watchStateUpdatingAsin === item.asin"
                 @update:model-value="updateWatchLevel(item, $event)"
               >
@@ -147,7 +150,7 @@ function monitorTagType(item: CompetitorPoolItem): "success" | "warning" | "info
           </td>
           <td class="link-col">
             <ElTooltip content="切换重点竞品" placement="top">
-              <ElButton circle text class="table-icon-button" @click.stop="emit('toggle-key-competitor', item)">
+              <ElButton circle text class="table-icon-button" :disabled="!canManageCompetitors" @click.stop="emit('toggle-key-competitor', item)">
                 <Star v-if="item.isKeyCompetitor" :size="17" />
                 <StarOff v-else :size="17" />
               </ElButton>

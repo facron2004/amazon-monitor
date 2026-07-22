@@ -81,6 +81,7 @@ export function mapCompetitorFolder(row: CompetitorFolderRow): CompetitorFolder 
 
 export interface CompetitorRow {
   id: number;
+  org_id: number;
   asin: string;
   marketplace: string;
   title: string;
@@ -90,8 +91,8 @@ export interface CompetitorRow {
   first_seen_date: string;
   last_seen_date: string;
   appear_keyword_count: number;
-  best_rank: number;
-  latest_rank: number;
+  best_rank: number | null;
+  latest_rank: number | null;
   lowest_price: number | null;
   latest_price: number | null;
   latest_review_count: number | null;
@@ -120,6 +121,7 @@ export function mapCompetitor(row: CompetitorRow): CompetitorPoolItem {
   const specificBsr = selectSpecificBestsellerRank(latestBestsellerRanks);
   return {
     id: row.id,
+    orgId: row.org_id,
     asin: row.asin,
     marketplace: row.marketplace,
     title: row.title,
@@ -156,7 +158,7 @@ export function mapCompetitor(row: CompetitorRow): CompetitorPoolItem {
 }
 
 export function normalizeCompetitorSourceType(value: string | null): CompetitorPoolItem["sourceType"] {
-  return value === "category" || value === "hybrid" || value === "keyword" ? value : "keyword";
+  return value === "category" || value === "hybrid" || value === "keyword" || value === "manual" ? value : "keyword";
 }
 
 export function normalizeCompetitorTier(value: string | null): CompetitorTier {

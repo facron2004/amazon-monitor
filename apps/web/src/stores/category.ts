@@ -3,12 +3,14 @@ import type {
   BsrRankChange,
   BsrSnapshotQuality,
   CategoryMonitor,
+  CategorySnapshotDiffResponse,
   CategorySignalLog,
   CompetitorActionInsight,
   CompetitorActivityEvent,
   ProductPriceHistory
 } from "@amazon-monitor/shared";
 import { categoryApi } from "../api-categories";
+import { competitorApi } from "../api-competitors";
 import type { CategoryDetail } from "../api-types";
 import type { ActivityEventFilter } from "../types/category-activity";
 import type { CategoryMonitorForm } from "../types/category-monitor";
@@ -47,8 +49,12 @@ export const useCategoryStore = defineStore("category", {
     bsrTablePage: 1,
     bsrTablePageSize: DEFAULT_BSR_PAGE_SIZE,
     activityEventFilter: "all" as ActivityEventFilter,
+    competitorPoolUpdatingAsin: null as string | null,
     categoryDataDate: "",
     categoryDetail: null as CategoryDetail | null,
+    categoryDiff: null as CategorySnapshotDiffResponse | null,
+    categoryDiffLoading: false,
+    categoryDiffError: "",
     selectedCategoryId: null as number | null,
     categoryForm: {
       name: "",
@@ -119,6 +125,42 @@ export const useCategoryStore = defineStore("category", {
       this.actionInsights = bundle.actionInsights;
       this.activityEvents = bundle.activityEvents;
       this.priceHistory = bundle.priceHistory;
+    },
+    async loadCategoryDiff(compareDate: string) {
+      const categoryId = this.selectedCategoryId;
+      const date = this.categoryDataDate;
+      if (!categoryId || !date || !compareDate) {
+        this.categoryDiff = null;
+        return;
+      }
+      this.categoryDiffLoading = true;
+      this.categoryDiffError = "";
+      try {
+        const result = await categoryApi.categoryDiff(categoryId, date, compareDate);
+        if (this.selectedCategoryId === categoryId && this.categoryDataDate === date) {
+          this.categoryDiff = result;
+        }
+      } catch (error) {
+        this.categoryDiff = null;
+        this.categoryDiffError = error instanceof Error ? error.message : String(error);
+      } finally {
+        this.categoryDiffLoading = false;
+      }
+    },
+    async addCategoryCompetitor(asin: string) {
+      if (!this.selectedCategoryId || !this.categoryDetail) {
+        throw new Error("请先选择类目");
+      }
+      this.competitorPoolUpdatingAsin = asin;
+      try {
+        await competitorApi.addCategoryCompetitor(asin, this.selectedCategoryId);
+        const snapshot = this.categoryDetail.snapshots.find((item) => item.asin === asin);
+        if (snapshot) {
+          snapshot.competitorPoolStatus = "active";
+        }
+      } finally {
+        this.competitorPoolUpdatingAsin = null;
+      }
     },
     setBsrTablePage(page: number) {
       this.bsrTablePage = Math.max(1, Math.floor(page));

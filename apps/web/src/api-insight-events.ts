@@ -18,7 +18,9 @@ import type {
   InsightReviewResult,
   ProductPriceHistory,
   ReviewCadenceBucketKey,
-  StrategyTag
+  StrategyTag,
+  TopInsightFilterOptions,
+  TopInsightFilters
 } from "@amazon-monitor/shared";
 import { request, withSignal, type RequestOptions } from "./api-base";
 
@@ -159,9 +161,19 @@ export const insightEventApi = {
       method: "POST",
       body: JSON.stringify({ date, categoryId })
     }),
-  fetchTopInsights: (date: string, limit = 5, options: { signal?: AbortSignal } = {}) =>
+  fetchTopInsights: (
+    date: string,
+    filters: TopInsightFilters = {},
+    limit = 5,
+    options: { signal?: AbortSignal } = {}
+  ) =>
     request<InsightEvent[]>(
-      `/insight-events/top-summary?date=${encodeURIComponent(date)}&limit=${limit}`,
+      `/insight-events/top-summary?${buildTopInsightQuery(date, filters, limit).toString()}`,
+      withSignal(options.signal)
+    ),
+  fetchTopInsightFilterOptions: (date: string, options: { signal?: AbortSignal } = {}) =>
+    request<TopInsightFilterOptions>(
+      `/insight-events/top-summary/filter-options?date=${encodeURIComponent(date)}`,
       withSignal(options.signal)
     ),
   fetchBrandPlaybook: (params: BrandPlaybookQuery, options: { signal?: AbortSignal } = {}) =>
@@ -235,6 +247,17 @@ function buildInsightEventQuery(params: InsightEventQuery): URLSearchParams {
   setOptional(query, "newBreakoutOnly", params.newBreakoutOnly ? "true" : undefined);
   setOptional(query, "limit", params.limit);
   setOptional(query, "offset", params.offset);
+  return query;
+}
+
+function buildTopInsightQuery(date: string, filters: TopInsightFilters, limit: number): URLSearchParams {
+  const query = new URLSearchParams();
+  setOptional(query, "date", date);
+  setOptional(query, "limit", limit);
+  setOptional(query, "marketplace", filters.marketplace?.trim());
+  setOptional(query, "categoryName", filters.categoryName?.trim());
+  setOptional(query, "brand", filters.brand?.trim());
+  setOptional(query, "assignee", filters.assignee?.trim());
   return query;
 }
 

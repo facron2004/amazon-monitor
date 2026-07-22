@@ -1,11 +1,11 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { AdsWorkflowItem, AdsWorkflowLevel, AdsWorkflowSummary, AiAdsAnalysisResponse } from "@amazon-monitor/shared";
+import type { AdsWorkflowItem, AdsWorkflowLevel, AdsWorkflowResponse, AiAdsAnalysisResponse } from "@amazon-monitor/shared";
 import { adsApi, type AdsMetricPayload } from "../api-ads";
 import { aiApi } from "../api-ai";
 
 export const useAdsStore = defineStore("ads", () => {
-  const summary = ref<AdsWorkflowSummary | null>(null);
+  const summary = ref<AdsWorkflowResponse | null>(null);
   const selectedMetricId = ref<number | null>(null);
   const aiAnalysis = ref<AiAdsAnalysisResponse | null>(null);
   const loading = ref(false);

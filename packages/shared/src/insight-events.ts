@@ -20,6 +20,14 @@ export const insightEventTypes = [
   "DEAL_ADDED",
   "DEAL_REMOVED",
   "REVIEW_SPIKE",
+  "RATING_DROP",
+  "LISTING_CHANGED",
+  "INVENTORY_STOCKOUT_RISK",
+  "ADS_ACOS_SPIKE",
+  "REVIEW_NEGATIVE_CLUSTER",
+  "LISTING_HEALTH_LOW",
+  "KEYWORD_PAGE_DROP",
+  "OWNED_RATING_DROP",
   "NEW_PRODUCT_BREAKOUT",
   "LOW_REVIEW_HIGH_RANK",
   "BRAND_MATRIX_SURGE",
@@ -69,6 +77,14 @@ export type AsinWatchLevel = (typeof asinWatchLevels)[number];
 // 后端消费方:
 //   apps/api/src/reports/insight-report.ts                    (statusLabels + reviewResultLabels)
 export const insightEventTypeLabels: Record<InsightEventType, string> = {
+  RATING_DROP: "评分下降",
+  LISTING_CHANGED: "Listing 变化",
+  INVENTORY_STOCKOUT_RISK: "库存断货风险",
+  ADS_ACOS_SPIKE: "广告 ACOS 异常",
+  REVIEW_NEGATIVE_CLUSTER: "Review 负面聚类",
+  LISTING_HEALTH_LOW: "Listing 健康分过低",
+  KEYWORD_PAGE_DROP: "核心词掉出首页",
+  OWNED_RATING_DROP: "自营 SKU 评分下降",
   NEW_TOP100_ENTRY: "新进 Top100",
   NEW_TOP50_ENTRY: "新进 Top50",
   NEW_TOP20_ENTRY: "新进 Top20",
@@ -134,6 +150,25 @@ export interface InsightEvidence {
   productUrl?: string | null;
   imageUrl?: string | null;
   title?: string | null;
+  productId?: number | null;
+  sku?: string | null;
+  ruleId?: string | null;
+  keyword?: string | null;
+  keywordPriority?: import("./types-monitors.js").KeywordPriority | null;
+  currentMetricDate?: string | null;
+  previousMetricDate?: string | null;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  inventoryAvailable?: number | null;
+  inventoryDays?: number | null;
+  dailySalesVelocity?: number | null;
+  acos?: number | null;
+  targetAcos?: number | null;
+  acosOverTargetPct?: number | null;
+  listingHealthScore?: number | null;
+  negativeReviewCount?: number | null;
+  topNegativeTopic?: string | null;
+  topNegativeTopicShare?: number | null;
   currentRank?: number | null;
   previousRank?: number | null;
   rankChange?: number | null;
@@ -143,6 +178,14 @@ export interface InsightEvidence {
   reviewCountBefore?: number | null;
   reviewCountAfter?: number | null;
   reviewCountChange?: number | null;
+  ratingBefore?: number | null;
+  ratingAfter?: number | null;
+  ratingChange?: number | null;
+  titleBefore?: string | null;
+  titleAfter?: string | null;
+  imageUrlBefore?: string | null;
+  imageUrlAfter?: string | null;
+  listingChangedFields?: Array<"title" | "mainImage">;
   couponBefore?: string | null;
   couponAfter?: string | null;
   dealType?: string | null;
@@ -170,6 +213,7 @@ export interface InsightScoreBreakdown {
 
 export interface InsightEvent {
   id: string;
+  orgId: number;
   eventDate: string;
   asin: string | null;
   brand: string | null;
@@ -202,13 +246,15 @@ export interface InsightEventNote {
   updatedAt: string;
 }
 
-export interface InsightEventInput extends Omit<InsightEvent, "assignee" | "createdAt" | "updatedAt"> {
+export interface InsightEventInput extends Omit<InsightEvent, "orgId" | "assignee" | "createdAt" | "updatedAt"> {
+  orgId?: number;
   assignee?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
 
 export interface InsightEventListParams {
+  orgId?: number;
   date?: string;
   reviewedOnDate?: boolean;
   status?: InsightEventStatus;
@@ -234,6 +280,20 @@ export interface InsightEventListParams {
   offset?: number;
 }
 
+export interface TopInsightFilters {
+  marketplace?: string;
+  categoryName?: string;
+  brand?: string;
+  assignee?: string;
+}
+
+export interface TopInsightFilterOptions {
+  marketplaces: string[];
+  categoryNames: string[];
+  brands: string[];
+  assignees: string[];
+}
+
 export interface InsightEventTrendPoint {
   date: string;
   totalCount: number;
@@ -246,6 +306,7 @@ export interface InsightEventTrendPoint {
 }
 
 export interface AsinWatchState {
+  orgId: number;
   asin: string;
   watchLevel: AsinWatchLevel;
   watchReason: string | null;
@@ -256,7 +317,8 @@ export interface AsinWatchState {
   updatedAt: string;
 }
 
-export interface AsinWatchStateInput extends Omit<AsinWatchState, "createdAt" | "updatedAt"> {
+export interface AsinWatchStateInput extends Omit<AsinWatchState, "orgId" | "createdAt" | "updatedAt"> {
+  orgId?: number;
   createdAt?: string;
   updatedAt?: string;
 }

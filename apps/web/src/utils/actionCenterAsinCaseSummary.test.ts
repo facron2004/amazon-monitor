@@ -48,7 +48,8 @@ function makeEvent(overrides: EventOverrides = {}): InsightEvent {
     userNote: null,
     createdAt: "2026-06-30T00:00:00.000Z",
     updatedAt: "2026-06-30T00:00:00.000Z",
-    ...rest
+    ...rest,
+    orgId: rest.orgId ?? 1
   };
 }
 
@@ -59,14 +60,18 @@ function makeGroup(overrides: Partial<AsinGroupedView> = {}): AsinGroupedView {
     scoreTotal: overrides.scoreTotal ?? 80
   });
   return {
-    asin: overrides.asin ?? "B000TEST",
+    asin: overrides.asin ?? "B000001",
     representative,
     events: overrides.events ?? [representative],
     attributionTags: overrides.attributionTags ?? [],
     strategyTags: overrides.strategyTags ?? [],
     topLevel: overrides.topLevel ?? representative.eventLevel,
     watchLevel: overrides.watchLevel ?? null,
-    scoreTotal: overrides.scoreTotal ?? representative.scoreTotal
+    scoreTotal: overrides.scoreTotal ?? representative.scoreTotal,
+    opportunityScore: overrides.opportunityScore ?? 60,
+    riskScore: overrides.riskScore ?? 40,
+    opportunityReasons: overrides.opportunityReasons ?? ["ranking +30"],
+    riskReasons: overrides.riskReasons ?? ["risk +10"]
   };
 }
 

@@ -1,11 +1,12 @@
-export type CompetitorSourceFilter = "all" | "keyword" | "category" | "hybrid";
+export type CompetitorSourceFilter = "all" | "keyword" | "category" | "hybrid" | "manual";
 export type CompetitorTierFilter = "all" | "core" | "rising" | "activity" | "watch";
 
 export const competitorSourceOptions: Array<{ value: CompetitorSourceFilter; label: string }> = [
   { value: "all", label: "全部来源" },
   { value: "category", label: "类目榜单" },
   { value: "keyword", label: "关键词" },
-  { value: "hybrid", label: "混合" }
+  { value: "hybrid", label: "混合" },
+  { value: "manual", label: "手动添加" }
 ];
 
 export const competitorTierOptions: Array<{ value: CompetitorTierFilter; label: string }> = [

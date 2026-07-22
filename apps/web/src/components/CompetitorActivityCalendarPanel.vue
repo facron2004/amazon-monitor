@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ProductActivityCalendar } from "@amazon-monitor/shared";
 import { bestDayPrice, categoryLabel, changeLabel, formatCount, formatMoney, formatSignedCount, validCouponText, validDealBadge } from "../utils/formatters";
+import CompetitorTrendPanel from "./CompetitorTrendPanel.vue";
 
 interface Props {
   productActivityCalendar: ProductActivityCalendar | null;
@@ -37,6 +38,7 @@ defineProps<Props>();
         <strong>{{ formatCount(productActivityCalendar.summary.latestReviewCount) }} <small>{{ formatSignedCount(productActivityCalendar.summary.reviewCountChange) }}</small></strong>
       </article>
     </div>
+    <CompetitorTrendPanel :calendar="productActivityCalendar" />
     <div class="table-wrap">
       <table>
         <thead>

@@ -37,7 +37,7 @@ export function useKeywordChart() {
       if (chartElement.value !== element) {
         return;
       }
-      chart = echarts.initKeywordChart(element);
+      chart ??= echarts.initKeywordChart(element);
     }
     chart.setOption(buildKeywordChartOption(snapshots));
   }

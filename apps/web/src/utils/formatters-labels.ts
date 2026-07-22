@@ -124,7 +124,8 @@ export function competitorSourceLabel(source: string): string {
   const map: Record<string, string> = {
     keyword: "关键词",
     category: "类目榜单",
-    hybrid: "混合"
+    hybrid: "混合",
+    manual: "手动添加"
   };
 
   return map[source] ?? source;

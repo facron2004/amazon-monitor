@@ -5,6 +5,7 @@ import { waitForCollectJobs } from "./collect-jobs";
 function buildJob(overrides: Partial<CollectJob> = {}): CollectJob {
   return {
     id: 1,
+    orgId: 1,
     taskType: "category",
     targetId: 1,
     date: "2026-06-13",

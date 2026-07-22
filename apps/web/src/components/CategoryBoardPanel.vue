@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "@lucide/vue";
+import { Check, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw } from "@lucide/vue";
+import { useWriteAccess } from "../composables/useWriteAccess";
 import type { CategoryRankWindow, DealCouponChoice } from "../stores/category";
 import { useCategoryStore } from "../stores/category";
 import { openCategoryProductByAsin } from "../utils/open-category-product";
 import { formatCount, formatMoney, iceTypeLabel, imgFallback, promoText } from "../utils/formatters";
+import { snapshotProvenanceLabel, snapshotSyncedAtLabel } from "../utils/snapshotProvenance";
 
 const emit = defineEmits<{
   selectAsin: [asin: string];
@@ -24,8 +26,11 @@ const {
   categoryRankWindow,
   bsrTablePage,
   bsrTablePageSize,
+  competitorPoolUpdatingAsin,
   selectedCategoryId
 } = storeToRefs(store);
+const { canWrite: canManageCompetitors } = useWriteAccess("manage_competitors");
+const poolActionError = ref("");
 
 const DEAL_COUPON_OPTIONS: { value: DealCouponChoice; label: string }[] = [
   { value: "all", label: "全部 Deal/Coupon" },
@@ -44,6 +49,12 @@ const RANK_WINDOW_OPTIONS: { value: CategoryRankWindow; label: string }[] = [
 const paged = computed(() => store.pagedCategorySnapshots);
 const total = computed(() => paged.value.total);
 const pageCount = computed(() => paged.value.pageCount);
+const latestSnapshot = computed(() => categoryDetail.value?.snapshots[0]);
+const breakoutAsins = computed(() => new Set(
+  categoryDetail.value?.signals
+    .filter((signal) => signal.signalType === "new_product_breakout" && signal.asin)
+    .map((signal) => signal.asin as string) ?? []
+));
 
 watch(
   [categoryProductQuery, categoryBrandFilter, iceTypeFilter, dealCouponFilter, categoryRankWindow],
@@ -97,6 +108,26 @@ function handleSelectRow(item: { asin: string }): void {
 function handleOpenProduct(asin: string): void {
   openCategoryProductByAsin(asin, selectedCategoryId.value);
 }
+
+function rankChangeLabel(change: number | null | undefined): string {
+  if (change === null || change === undefined) return "7日 -";
+  if (change === 0) return "7日 持平";
+  return `7日 ${change > 0 ? "+" : ""}${change}`;
+}
+
+function rankChangeClass(change: number | null | undefined): string {
+  if (!change) return "rank-history--flat";
+  return change > 0 ? "rank-history--up" : "rank-history--down";
+}
+
+async function handleAddToCompetitorPool(asin: string): Promise<void> {
+  poolActionError.value = "";
+  try {
+    await store.addCategoryCompetitor(asin);
+  } catch (error) {
+    poolActionError.value = error instanceof Error ? error.message : String(error);
+  }
+}
 </script>
 
 <template>
@@ -109,7 +140,11 @@ function handleOpenProduct(asin: string): void {
       <span class="panel-head-meta">
         {{ categoryDataDate || "—" }} · 展示 {{ total }} / {{ categoryDetail?.snapshots.length ?? 0 }} 个 ASIN
       </span>
+      <small class="panel-head-meta" :title="snapshotSyncedAtLabel(latestSnapshot)">
+        {{ snapshotProvenanceLabel(latestSnapshot) }}
+      </small>
     </div>
+    <p v-if="poolActionError" class="bsr-board-error" role="alert">{{ poolActionError }}</p>
 
     <div class="panel-controls bsr-board-controls">
       <div class="bsr-board-search">
@@ -151,12 +186,21 @@ function handleOpenProduct(asin: string): void {
             <th class="promo-col">Deal/Coupon</th>
             <th class="rating-col">评分</th>
             <th class="review-col">Reviews</th>
+            <th class="pool-col">竞品池</th>
             <th class="link-col">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in paged.rows" :key="item.asin" style="cursor: pointer" @click="handleSelectRow(item)">
-            <td><strong>#{{ item.rank }}</strong></td>
+            <td>
+              <div class="rank-cell">
+                <strong>#{{ item.rank }}</strong>
+                <small>昨日 {{ item.previousRank ? `#${item.previousRank}` : "-" }}</small>
+                <small :class="rankChangeClass(item.sevenDayRankChange)" :title="item.sevenDayReferenceRank ? `7日前参考排名 #${item.sevenDayReferenceRank}` : '暂无7日前排名'">
+                  {{ rankChangeLabel(item.sevenDayRankChange) }}
+                </small>
+              </div>
+            </td>
             <td class="product-cell">
               <div class="product-cell-content">
                 <img :src="item.imageUrl" :alt="item.title" loading="lazy" decoding="async" @error="imgFallback" />
@@ -164,6 +208,11 @@ function handleOpenProduct(asin: string): void {
                   <strong>{{ item.asin }}</strong>
                   <span>{{ item.title }}</span>
                   <small v-if="promoText(item) !== '-'" class="promo-inline" :title="promoText(item)">Deal/Coupon：{{ promoText(item) }}</small>
+                  <small v-if="item.firstListedDate" class="listing-meta">
+                    <b v-if="item.isNewListing">新品</b>
+                    <span>上榜 {{ item.daysListed }} 天</span>
+                    <span>首登 {{ item.firstListedDate }}</span>
+                  </small>
                 </div>
               </div>
             </td>
@@ -173,6 +222,25 @@ function handleOpenProduct(asin: string): void {
             <td class="promo-col" :title="promoText(item)">{{ promoText(item) }}</td>
             <td class="rating-col">{{ item.rating || "-" }}</td>
             <td class="review-col">{{ formatCount(item.reviewCount) }}</td>
+            <td class="pool-col">
+              <div class="pool-status-stack">
+                <span v-if="breakoutAsins.has(item.asin)" class="pool-breakout">新品黑马</span>
+                <span v-if="item.competitorPoolStatus === 'active'" class="pool-status pool-status--active">
+                  <Check :size="13" /> 已入池
+                </span>
+                <button
+                  v-else
+                  type="button"
+                  class="pool-add-button"
+                  :disabled="!canManageCompetitors || competitorPoolUpdatingAsin === item.asin"
+                  :title="canManageCompetitors ? '加入竞品池' : '当前角色无竞品管理权限'"
+                  @click.stop="handleAddToCompetitorPool(item.asin)"
+                >
+                  <Plus :size="13" />
+                  {{ competitorPoolUpdatingAsin === item.asin ? "加入中" : "加入" }}
+                </button>
+              </div>
+            </td>
             <td class="link-col">
               <button class="icon-button" title="打开 Amazon" type="button" @click.stop="handleOpenProduct(item.asin)">
                 <ExternalLink :size="17" />
@@ -180,7 +248,7 @@ function handleOpenProduct(asin: string): void {
             </td>
           </tr>
           <tr v-if="paged.rows.length === 0">
-            <td colspan="9" class="bsr-board-empty">当前筛选下没有 ASIN，试试放宽品牌或排名范围。</td>
+            <td colspan="10" class="bsr-board-empty">当前筛选下没有 ASIN，试试放宽品牌或排名范围。</td>
           </tr>
         </tbody>
       </table>
@@ -256,6 +324,111 @@ function handleOpenProduct(asin: string): void {
   font-size: 12.5px;
   padding: 24px 12px;
   text-align: center;
+}
+
+.rank-cell {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 66px;
+}
+
+.rank-cell > strong {
+  color: var(--text-primary, #0f172a);
+  font-size: 15px;
+}
+
+.rank-cell > small {
+  color: var(--text-muted, #64748b);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.rank-cell > .rank-history--up {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.rank-cell > .rank-history--down {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.listing-meta {
+  align-items: center;
+  color: var(--text-muted, #64748b);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+  gap: 4px 8px;
+  margin-top: 3px;
+}
+
+.listing-meta b {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 4px;
+  color: #b45309;
+  font-size: 10px;
+  padding: 1px 4px;
+}
+
+.bsr-board-error {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  color: #9a3412;
+  font-size: 12px;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+}
+
+.pool-status,
+.pool-add-button {
+  align-items: center;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.pool-status-stack {
+  align-items: flex-start;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pool-breakout {
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pool-status--active {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.pool-add-button {
+  background: #ffffff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 5px 8px;
+}
+
+.pool-add-button:hover:not(:disabled) {
+  background: #eff6ff;
+}
+
+.pool-add-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .bsr-board-pager {
@@ -353,6 +526,23 @@ function handleOpenProduct(asin: string): void {
   }
   .bsr-board-refresh {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .bsr-board-pager {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bsr-board-pager-pages {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .bsr-board-pager-right {
+    justify-content: space-between;
+    width: 100%;
   }
 }
 </style>

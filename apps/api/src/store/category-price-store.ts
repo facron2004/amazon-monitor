@@ -111,6 +111,7 @@ export function createCategoryPriceStore(
 
     listProductPriceHistory(filter = {}) {
       const { sql: where, params } = buildWhere(
+        whereEq("cm.org_id", filter.orgId),
         whereEq("p.snapshot_date", filter.date),
         whereEq("p.category_id", filter.categoryId),
         whereEq("p.asin", filter.asin),
@@ -132,6 +133,7 @@ export function createCategoryPriceStore(
               COALESCE(s.image_url, m.image_url) AS image_url,
               COALESCE(s.product_url, m.product_url) AS product_url
              FROM amazon_product_price_history p
+             INNER JOIN amazon_bestseller_category_monitor cm ON cm.id = p.category_id
              LEFT JOIN amazon_bestseller_rank_snapshot s
               ON s.snapshot_date = p.snapshot_date
               AND s.category_id = p.category_id

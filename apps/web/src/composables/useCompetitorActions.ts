@@ -60,9 +60,8 @@ export function useCompetitorActions(options: UseCompetitorActionsOptions) {
 
   async function openProductActivityCalendar(item: CompetitorPoolItem) {
     options.selectedCompetitorAsin.value = item.asin;
-    options.productActivityCalendar.value = await competitorApi.productActivityCalendar(item.asin, {
+    options.productActivityCalendar.value = await competitorApi.competitorTimeline(item.id, {
       date: options.date.value,
-      marketplace: item.marketplace,
       limitDays: 90
     });
   }

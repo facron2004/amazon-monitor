@@ -1,3 +1,4 @@
+import { kill } from "node:process";
 import type { DatabaseSync } from "node:sqlite";
 import type { WorkerStatus } from "@amazon-monitor/shared";
 import { nowIso } from "./sql-utils.js";
@@ -93,9 +94,10 @@ export function createWorkerStore(db: DatabaseSync): WorkerStoreMethods {
       }
 
       const ageMs = Math.max(0, Date.now() - new Date(row.last_beat_at).getTime());
-      const alive = ageMs <= LIVE_THRESHOLD_MS;
-      const stale = !alive && ageMs <= STALE_THRESHOLD_MS;
-      const offline = !alive && !stale;
+      const pidAlive = isPidAlive(row.pid);
+      const alive = pidAlive && ageMs <= LIVE_THRESHOLD_MS;
+      const stale = pidAlive && !alive && ageMs <= STALE_THRESHOLD_MS;
+      const offline = !pidAlive || (!alive && !stale);
 
       return {
         alive,
@@ -113,4 +115,15 @@ export function createWorkerStore(db: DatabaseSync): WorkerStoreMethods {
       };
     }
   };
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ESRCH") return false;
+    return true;
+  }
 }

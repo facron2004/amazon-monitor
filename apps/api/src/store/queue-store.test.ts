@@ -34,6 +34,20 @@ describe("QueueStore", () => {
     expect(list.length).toBe(1);
   });
 
+  it("deduplicates jobs within an organization without merging organizations", () => {
+    const secondOrganization = store.createOrganization({ name: "Second queue organization" });
+    const first = store.pushJob("keyword", 42, "2026-06-11", 1);
+    const duplicate = store.pushJob("keyword", 42, "2026-06-11", 1);
+    const secondOrg = store.pushJob("keyword", 42, "2026-06-11", secondOrganization.id);
+
+    expect(duplicate.id).toBe(first.id);
+    expect(secondOrg.id).not.toBe(first.id);
+    expect(store.listJobs(50, 0, 1)).toEqual([expect.objectContaining({ id: first.id, orgId: 1 })]);
+    expect(store.listJobs(50, 0, secondOrganization.id)).toEqual([
+      expect.objectContaining({ id: secondOrg.id, orgId: secondOrganization.id })
+    ]);
+  });
+
   it("claims jobs in order and locks them in processing status", () => {
     const job1 = store.pushJob("keyword", 101, "2026-06-11");
     const job2 = store.pushJob("keyword", 102, "2026-06-11");
@@ -98,6 +112,10 @@ describe("QueueStore", () => {
         expect(entry.lastCompletedAt).toBeNull();
         expect(entry.lastStartedAt).toBeNull();
         expect(entry.lastStatus).toBeNull();
+        expect(entry.dataSource).toBeNull();
+        expect(entry.lastSyncedAt).toBeNull();
+        expect(entry.syncStatus).toBeNull();
+        expect(entry.syncError).toBeNull();
         expect(entry.totalJobs).toBe(0);
         expect(entry.failedJobs).toBe(0);
       }
@@ -125,11 +143,18 @@ describe("QueueStore", () => {
       // The reported completion must match the actual stored timestamp.
       const stored = store.getJobStatus(2)!.completedAt!;
       expect(kw.lastCompletedAt).toBe(stored);
+      expect(kw).toMatchObject({
+        dataSource: "amazon_playwright",
+        lastSyncedAt: stored,
+        syncStatus: "success",
+        syncError: null
+      });
       expect(kw.totalJobs).toBe(2);
       expect(kw.failedJobs).toBe(0);
 
       expect(cat.lastStatus).toBe("pending");
       expect(cat.lastCompletedAt).toBeNull();
+      expect(cat.syncStatus).toBe("pending");
       expect(cat.totalJobs).toBe(1);
     });
 
@@ -143,6 +168,8 @@ describe("QueueStore", () => {
       expect(kw.failedJobs).toBe(1);
       expect(kw.totalJobs).toBe(1);
       expect(kw.lastStatus).toBe("failed");
+      expect(kw.syncStatus).toBe("failed");
+      expect(kw.syncError).toBe("boom");
       // The first (newest in scan order) row dictates lastStatus
       expect(job.status).toBeDefined();
     });

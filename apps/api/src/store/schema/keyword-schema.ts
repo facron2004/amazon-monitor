@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS amazon_keyword_serp_snapshot (
   bsr_text TEXT,
   bestseller_ranks_json TEXT,
   detail_collected_at TEXT,
+  data_source TEXT NOT NULL DEFAULT 'manual',
+  last_synced_at TEXT,
+  sync_status TEXT NOT NULL DEFAULT 'manual',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_keyword_date ON amazon_keyword_serp_snapshot(keyword_id, snapshot_date);
@@ -47,6 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_keyword_serp_date ON amazon_keyword_serp_snapshot
 
 CREATE TABLE IF NOT EXISTS amazon_competitor_pool (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL DEFAULT 1 REFERENCES organizations(id),
   asin TEXT NOT NULL,
   marketplace TEXT NOT NULL,
   title TEXT,
@@ -79,8 +83,21 @@ CREATE TABLE IF NOT EXISTS amazon_competitor_pool (
   status INTEGER DEFAULT 1,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(asin, marketplace)
+  UNIQUE(org_id, asin, marketplace)
 );
-CREATE INDEX IF NOT EXISTS idx_competitor_pool_source_tier ON amazon_competitor_pool(source_type, competitor_tier, latest_category_rank);
-CREATE INDEX IF NOT EXISTS idx_competitor_pool_rank ON amazon_competitor_pool(status, is_key_competitor, latest_category_rank, latest_bsr_rank, latest_rank);
+CREATE INDEX IF NOT EXISTS idx_competitor_pool_source_tier ON amazon_competitor_pool(org_id, source_type, competitor_tier, latest_category_rank);
+CREATE INDEX IF NOT EXISTS idx_competitor_pool_rank ON amazon_competitor_pool(org_id, status, is_key_competitor, latest_category_rank, latest_bsr_rank, latest_rank);
+
+CREATE TABLE IF NOT EXISTS amazon_competitor_daily_kpi_snapshot (
+  org_id INTEGER NOT NULL REFERENCES organizations(id),
+  snapshot_date TEXT NOT NULL,
+  total_count INTEGER NOT NULL,
+  core_count INTEGER NOT NULL,
+  new_count INTEGER NOT NULL,
+  price_active_count INTEGER NOT NULL,
+  key_count INTEGER NOT NULL,
+  captured_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, snapshot_date)
+);
+CREATE INDEX IF NOT EXISTS idx_competitor_daily_kpi_date ON amazon_competitor_daily_kpi_snapshot(snapshot_date, org_id);
 `;

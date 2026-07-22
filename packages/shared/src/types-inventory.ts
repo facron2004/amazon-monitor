@@ -1,4 +1,5 @@
 import type { OwnedProductDailyMetric, ProductDataFreshness, ProductSyncStatus } from "./types-products.js";
+import type { Task } from "./types-workflow.js";
 
 export const inventoryPlanLevels = ["healthy", "watch", "critical", "overstock"] as const;
 export type InventoryPlanLevel = (typeof inventoryPlanLevels)[number];
@@ -13,12 +14,17 @@ export interface InventoryReplenishmentSetting extends ProductDataFreshness {
   id: number;
   productId: number;
   leadTimeDays: number;
+  productionLeadTimeDays: number | null;
+  inboundLeadTimeDays: number | null;
   safetyStockDays: number;
   targetStockDays: number;
   minOrderQuantity: number | null;
   packSize: number | null;
   supplierName: string | null;
   reorderPointUnits: number | null;
+  inTransitUnits: number | null;
+  localWarehouseUnits: number | null;
+  expectedArrivalDate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,12 +32,17 @@ export interface InventoryReplenishmentSetting extends ProductDataFreshness {
 export interface UpsertInventoryReplenishmentSettingInput {
   productId: number;
   leadTimeDays?: number | null;
+  productionLeadTimeDays?: number | null;
+  inboundLeadTimeDays?: number | null;
   safetyStockDays?: number | null;
   targetStockDays?: number | null;
   minOrderQuantity?: number | null;
   packSize?: number | null;
   supplierName?: string | null;
   reorderPointUnits?: number | null;
+  inTransitUnits?: number | null;
+  localWarehouseUnits?: number | null;
+  expectedArrivalDate?: string | null;
   dataSource?: string;
   lastSyncedAt?: string | null;
   syncStatus?: ProductSyncStatus;
@@ -59,15 +70,23 @@ export interface InventoryReplenishmentPlan {
   latestMetric: OwnedProductDailyMetric | null;
   setting: InventoryReplenishmentSetting | null;
   inventoryAvailable: number | null;
+  inTransitUnits: number;
+  localWarehouseUnits: number;
+  supplyPositionUnits: number | null;
   inventoryDays: number | null;
   dailySalesVelocity: number | null;
+  salesVelocity7d: number | null;
+  salesVelocity30d: number | null;
   leadTimeDays: number;
+  productionLeadTimeDays: number | null;
+  inboundLeadTimeDays: number | null;
   safetyStockDays: number;
   targetStockDays: number;
   reorderPointUnits: number | null;
   recommendedOrderQuantity: number | null;
   stockoutDate: string | null;
   reorderByDate: string | null;
+  expectedArrivalDate: string | null;
   level: InventoryPlanLevel;
   issues: InventoryReplenishmentIssue[];
   freshness: ProductDataFreshness;
@@ -81,4 +100,9 @@ export interface InventoryPlanListFilter {
   level?: InventoryPlanLevel;
   limit?: number;
   offset?: number;
+}
+
+export interface InventoryPlanTaskResponse {
+  created: boolean;
+  task: Task;
 }

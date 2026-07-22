@@ -27,6 +27,7 @@ export const TASK_TYPES = [
   "listing",
   "image",
   "inventory",
+  "keyword",
   "competitor",
   "review",
   "supplier",
@@ -35,7 +36,7 @@ export const TASK_TYPES = [
 ] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
-export const TASK_SOURCE_TYPES = ["insight_event", "rule", "manual", "review_recurring"] as const;
+export const TASK_SOURCE_TYPES = ["insight_event", "ai_run", "rule", "manual", "review_recurring"] as const;
 export type TaskSourceType = (typeof TASK_SOURCE_TYPES)[number];
 
 export const TASK_REVIEW_RESULTS = ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] as const;
@@ -124,6 +125,7 @@ export const taskTypeLabels: Record<TaskType, string> = {
   listing: "Listing",
   image: "图片",
   inventory: "库存",
+  keyword: "关键词",
   competitor: "竞品",
   review: "评论",
   supplier: "供应商",
@@ -197,6 +199,18 @@ export interface UpdateTaskInput {
   resultAfterJson?: string | null;
   reviewNote?: string | null;
   reviewResult?: TaskReviewResult | null;
+}
+
+export interface TaskMetricEntry {
+  label: string;
+  value: string;
+  unit?: string | null;
+}
+
+export interface TaskExecutionInput {
+  actionTaken: string;
+  resultBefore?: TaskMetricEntry[];
+  resultAfter?: TaskMetricEntry[];
 }
 
 export interface CreateSopInput {

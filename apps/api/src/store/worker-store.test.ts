@@ -33,7 +33,7 @@ describe("WorkerStore", () => {
     const startedAt = "2026-06-26T10:00:00.000Z";
     store.recordWorkerHeartbeat({
       workerId: "w-1",
-      pid: 4242,
+      pid: process.pid,
       host: "test-host",
       startedAt,
       version: "0.2.0",
@@ -48,7 +48,7 @@ describe("WorkerStore", () => {
     expect(status.ageMs).not.toBeNull();
     expect(status.ageMs).toBeLessThanOrEqual(15_000);
     expect(status.workerId).toBe("w-1");
-    expect(status.pid).toBe(4242);
+    expect(status.pid).toBe(process.pid);
     expect(status.host).toBe("test-host");
     expect(status.startedAt).toBe(startedAt);
     expect(status.version).toBe("0.2.0");

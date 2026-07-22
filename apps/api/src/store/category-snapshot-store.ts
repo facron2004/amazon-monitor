@@ -5,7 +5,7 @@ import { categoryCompetitorReasons, categoryCompetitorTier } from "./competitor-
 import { serpKeywordCountsByAsinMarket } from "./keyword-snapshot-store.js";
 import { mapBestsellerSnapshot, type BestsellerSnapshotRow } from "./snapshot-mappers.js";
 import { sanitizeBestsellerSnapshotRows } from "./review-guards.js";
-import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, withTransaction } from "./sql-utils.js";
+import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, whereMarketplace, withTransaction } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
 type CategorySnapshotStoreMethods = Pick<
@@ -51,9 +51,10 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
         `INSERT INTO amazon_bestseller_rank_snapshot
         (category_id, category_name, marketplace, snapshot_date, rank_no, asin, title, brand, image_url, product_url,
          current_price, original_price, coupon_text, coupon_value, coupon_rate, final_estimated_price, currency,
-         rating, review_count, ice_type, is_prime, deal_badge, bsr_rank, bsr_category)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         rating, review_count, ice_type, is_prime, deal_badge, bsr_rank, bsr_category, data_source, last_synced_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      const storedAt = nowIso();
       withTransaction(db, () => {
         for (const item of items) {
           stmt.run(
@@ -80,7 +81,10 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
             item.isPrime ? 1 : 0,
             item.dealBadge,
             item.bsrRank,
-            item.bsrCategory
+            item.bsrCategory,
+            item.dataSource?.trim() || "manual",
+            item.lastSyncedAt ?? storedAt,
+            item.syncStatus ?? "manual"
           );
         }
       });
@@ -88,35 +92,40 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
 
     listCategorySnapshots(filter = {}) {
       const { sql: where, params } = buildWhere(
-        whereEq("snapshot_date", filter.date),
-        whereEq("category_id", filter.categoryId),
-        whereEq("asin", filter.asin),
-        whereEq("brand", filter.brand),
-        whereGte("snapshot_date", filter.startDate),
-        whereLte("snapshot_date", filter.endDate)
+        whereEq("m.org_id", filter.orgId),
+        whereEq("s.snapshot_date", filter.date),
+        whereEq("s.category_id", filter.categoryId),
+        whereEq("s.asin", filter.asin),
+        whereMarketplace("s.marketplace", filter.marketplace),
+        whereEq("s.brand", filter.brand),
+        whereGte("s.snapshot_date", filter.startDate),
+        whereLte("s.snapshot_date", filter.endDate)
       );
       const clamped = clampLimit(filter.limit);
       const offset = clampOffset(filter.offset);
       const pagination = clamped > 0
         ? (offset > 0 ? `LIMIT ${clamped} OFFSET ${offset}` : `LIMIT ${clamped}`)
         : (offset > 0 ? `LIMIT -1 OFFSET ${offset}` : "");
-      const rows = db.prepare(`SELECT * FROM amazon_bestseller_rank_snapshot ${where} ORDER BY snapshot_date DESC, category_id, rank_no ${pagination}`).all(
+      const rows = db.prepare(`SELECT s.* FROM amazon_bestseller_rank_snapshot s
+        INNER JOIN amazon_bestseller_category_monitor m ON m.id = s.category_id
+        ${where} ORDER BY s.snapshot_date DESC, s.category_id, s.rank_no ${pagination}`).all(
         ...params
       ) as unknown as BestsellerSnapshotRow[];
       return sanitizeBestsellerSnapshotRows(db, rows).map((row) => mapBestsellerSnapshot(row));
     },
 
-    getPreviousCategorySnapshots(categoryId, beforeDate) {
+    getPreviousCategorySnapshots(categoryId, beforeDate, orgId) {
       const row = db
         .prepare(
-          `SELECT snapshot_date FROM amazon_bestseller_rank_snapshot
-           WHERE category_id = ? AND snapshot_date < ?
-           GROUP BY snapshot_date
-           ORDER BY snapshot_date DESC
+          `SELECT s.snapshot_date FROM amazon_bestseller_rank_snapshot s
+           INNER JOIN amazon_bestseller_category_monitor m ON m.id = s.category_id
+           WHERE s.category_id = ? AND s.snapshot_date < ? AND (? IS NULL OR m.org_id = ?)
+           GROUP BY s.snapshot_date
+           ORDER BY s.snapshot_date DESC
            LIMIT 1`
         )
-        .get(categoryId, beforeDate) as { snapshot_date: string } | undefined;
-      return row ? this.listCategorySnapshots({ categoryId, date: row.snapshot_date }) : [];
+        .get(categoryId, beforeDate, orgId ?? null, orgId ?? null) as { snapshot_date: string } | undefined;
+      return row ? this.listCategorySnapshots({ orgId, categoryId, date: row.snapshot_date }) : [];
     },
 
     upsertProductMasterFromCategorySnapshots(items) {
@@ -165,7 +174,7 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
       });
     },
 
-    upsertCompetitorsFromCategorySnapshots(items, activityEvents = []) {
+    upsertCompetitorsFromCategorySnapshots(items, activityEvents = [], orgId = 1) {
       const unique = new Map<string, BestsellerRankSnapshot>();
       for (const item of items) {
         unique.set(`${item.marketplace}:${item.asin}`, item);
@@ -183,17 +192,17 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
           eventsByAsin.set(key, [event]);
         }
       }
-      const keywordCounts = serpKeywordCountsByAsinMarket(db, Array.from(unique.values()));
+      const keywordCounts = serpKeywordCountsByAsinMarket(db, Array.from(unique.values()), orgId);
       const stmt = db.prepare(
         `INSERT INTO amazon_competitor_pool
-         (asin, marketplace, title, brand, image_url, first_seen_keyword, first_seen_date, last_seen_date,
+         (org_id, asin, marketplace, title, brand, image_url, first_seen_keyword, first_seen_date, last_seen_date,
           appear_keyword_count, best_rank, latest_rank, lowest_price, latest_price, latest_review_count, latest_product_url,
           coupon_text, deal_badge,
           latest_bsr_rank, latest_bsr_category, latest_bsr_text, latest_bestseller_ranks_json,
           source_type, first_seen_source, latest_category_name, latest_category_rank, ice_type, competitor_tier, competitor_reasons_json,
           is_key_competitor, status, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'category', ?, ?, ?, ?, ?, ?, 0, 1, ?)
-         ON CONFLICT(asin, marketplace) DO UPDATE SET
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'category', ?, ?, ?, ?, ?, ?, 0, 1, ?)
+         ON CONFLICT(org_id, asin, marketplace) DO UPDATE SET
           title = excluded.title,
           brand = COALESCE(excluded.brand, amazon_competitor_pool.brand),
           image_url = excluded.image_url,
@@ -243,6 +252,7 @@ export function createCategorySnapshotStore(db: DatabaseSync): CategorySnapshotS
           const events = eventsByAsin.get(`${item.marketplace}:${item.asin}`) ?? [];
           const tier = categoryCompetitorTier(item, events);
           stmt.run(
+            orgId,
             item.asin,
             item.marketplace,
             item.title,

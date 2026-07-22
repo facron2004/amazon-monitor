@@ -5,10 +5,15 @@ import { ElButton, ElDialog, ElInput, ElMessage, ElOption, ElSelect, ElTag } fro
 import { BarChart3, Megaphone, Plus, RefreshCw, Sparkles } from "@lucide/vue";
 import type { AdsWorkflowItem, AdsWorkflowLevel } from "@amazon-monitor/shared";
 import { useAdsStore } from "../stores/ads";
+import { useWriteAccess } from "../composables/useWriteAccess";
+import AgentActionTaskButton from "./AgentActionTaskButton.vue";
+import AdsOptimizationArtifactPanel from "./ads/AdsOptimizationArtifactPanel.vue";
 
 const props = defineProps<{ date: string }>();
 
 const store = useAdsStore();
+const { canWrite: canViewDetails } = useWriteAccess("view_ads_details");
+const { canWrite: canManageAds } = useWriteAccess("manage_ads");
 const { summary, items, selectedItem, selectedMetricId, aiAnalysis, loading, saving, analyzing, error, query, level } = storeToRefs(store);
 
 const metricDialogOpen = ref(false);
@@ -166,12 +171,16 @@ function emptyToNull(value: string): string | null {
           <template #icon><RefreshCw :size="14" /></template>
           Refresh
         </ElButton>
-        <ElButton type="primary" @click="openMetricDialog()">
+        <ElButton v-if="canManageAds" type="primary" @click="openMetricDialog()">
           <template #icon><Plus :size="14" /></template>
           Metric
         </ElButton>
       </div>
     </header>
+
+    <p v-if="!canViewDetails" class="ads-access-note">
+      当前角色可查看广告效率与风险信号；Campaign、关键词、花费、销售和转化明细已隐藏。
+    </p>
 
     <div class="metrics ads-metrics">
       <article class="metric">
@@ -213,13 +222,13 @@ function emptyToNull(value: string): string | null {
           <p>No Ads metrics for this date.</p>
         </div>
 
-        <div v-else class="table-wrap compact-scroll ads-table-wrap">
+        <div v-else :class="['table-wrap', 'compact-scroll', 'ads-table-wrap', { 'ads-table-wrap--summary': !canViewDetails }]">
           <table>
             <thead>
               <tr>
                 <th>Campaign</th>
-                <th>Spend</th>
-                <th>Sales</th>
+                <th v-if="canViewDetails">Spend</th>
+                <th v-if="canViewDetails">Sales</th>
                 <th>ACOS</th>
                 <th>Level</th>
                 <th>Top signal</th>
@@ -233,12 +242,12 @@ function emptyToNull(value: string): string | null {
                 @click="selectItem(item)"
               >
                 <td class="ads-campaign-cell">
-                  <strong>{{ item.metric.campaignName }}</strong>
+                  <strong>{{ canViewDetails ? item.metric.campaignName : `Campaign signal #${item.metric.id}` }}</strong>
                   <span>{{ item.metric.targetText || item.metric.searchTerm || item.metric.adGroupName || "Campaign total" }}</span>
                   <small>{{ item.productSku || item.productAsin || "Unlinked SKU" }}</small>
                 </td>
-                <td>{{ formatMoney(item.metric.spend) }}</td>
-                <td>{{ formatMoney(item.metric.sales) }}</td>
+                <td v-if="canViewDetails">{{ formatMoney(item.metric.spend) }}</td>
+                <td v-if="canViewDetails">{{ formatMoney(item.metric.sales) }}</td>
                 <td><strong>{{ formatPercent(item.metric.acos) }}</strong></td>
                 <td><ElTag :type="levelType(item.level)" size="small">{{ item.level }}</ElTag></td>
                 <td>
@@ -259,10 +268,10 @@ function emptyToNull(value: string): string | null {
         <template v-else>
           <div class="panel-head">
             <div>
-              <h2>{{ selectedItem.metric.campaignName }}</h2>
+              <h2>{{ canViewDetails ? selectedItem.metric.campaignName : `Campaign signal #${selectedItem.metric.id}` }}</h2>
               <span>{{ selectedItem.metric.targetText || selectedItem.metric.searchTerm || selectedItem.metric.campaignId }}</span>
             </div>
-            <div class="ads-detail-actions">
+            <div v-if="canManageAds" class="ads-detail-actions">
               <ElButton size="small" @click="openMetricDialog(selectedItem)">
                 <template #icon><Plus :size="12" /></template>
                 Metric
@@ -274,7 +283,7 @@ function emptyToNull(value: string): string | null {
             </div>
           </div>
 
-          <section class="ads-detail-grid">
+          <section v-if="canViewDetails" class="ads-detail-grid">
             <div><span>Spend</span><strong>{{ formatMoney(selectedItem.metric.spend) }}</strong></div>
             <div><span>Sales</span><strong>{{ formatMoney(selectedItem.metric.sales) }}</strong></div>
             <div><span>Orders</span><strong>{{ selectedItem.metric.orders ?? "-" }}</strong></div>
@@ -298,12 +307,23 @@ function emptyToNull(value: string): string | null {
             <h3>Ads Analyst Agent</h3>
             <strong>{{ aiAnalysis.output.summary }}</strong>
             <p>{{ aiAnalysis.output.impact }}</p>
+            <AdsOptimizationArtifactPanel
+              v-if="aiAnalysis.output.artifacts?.adsOptimization"
+              :artifact="aiAnalysis.output.artifacts.adsOptimization"
+            />
             <ol>
               <li v-for="action in aiAnalysis.output.recommended_actions" :key="action.action">
                 <span>{{ action.priority }}</span>
                 <div>
                   <strong>{{ action.action }}</strong>
                   <small>{{ action.reason }}</small>
+                  <AgentActionTaskButton
+                    :run-id="aiAnalysis.run.id"
+                    agent-type="ads_analyst"
+                    :output="aiAnalysis.output"
+                    :action="action"
+                    :related-asin="selectedItem?.productAsin"
+                  />
                 </div>
               </li>
             </ol>
@@ -312,7 +332,7 @@ function emptyToNull(value: string): string | null {
       </aside>
     </div>
 
-    <ElDialog v-model="metricDialogOpen" title="Ads metric" width="720px">
+    <ElDialog v-if="canManageAds" v-model="metricDialogOpen" title="Ads metric" width="720px">
       <div class="ads-metric-form">
         <ElInput v-model="metricForm.date" placeholder="Date" />
         <ElInput v-model.number="metricForm.productId" placeholder="Product ID" />

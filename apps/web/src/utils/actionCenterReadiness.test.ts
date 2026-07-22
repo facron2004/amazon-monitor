@@ -56,7 +56,8 @@ function makeEvent(overrides: EventOverrides = {}): InsightEvent {
     userNote: null,
     createdAt: "2026-06-29T00:00:00.000Z",
     updatedAt: "2026-06-29T00:00:00.000Z",
-    ...rest
+    ...rest,
+    orgId: rest.orgId ?? 1
   };
 }
 

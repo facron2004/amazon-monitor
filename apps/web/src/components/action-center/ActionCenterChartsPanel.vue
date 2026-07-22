@@ -1,67 +1,29 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { BarChart3, Building2, CalendarClock, Donut, Tags } from "@lucide/vue";
-import { ElAlert, ElCard, ElCol, ElEmpty, ElProgress, ElRow, ElSegmented, ElStatistic, ElStep, ElSteps, ElTag } from "element-plus";
+import { BarChart3 } from "@lucide/vue";
+import { ElAlert, ElCard, ElEmpty, ElProgress, ElSegmented, ElStatistic, ElStep, ElSteps, ElTag } from "element-plus";
 import type { AttributionTag, InsightEvent, InsightEventLevel, InsightEventTrendPoint, InsightEventType, InsightReviewResult, StrategyTag } from "@amazon-monitor/shared";
 import type { InsightEventFilters } from "../../stores/insightEvents";
 import type { ActionEvidenceMovementFilter } from "../../utils/actionCenterEvidenceDeltas";
 import type { ReviewCadenceBucketKey } from "../../utils/actionCenterReviewCadence";
 import ActionBrandPressurePanel from "./ActionBrandPressurePanel.vue";
+import ActionCenterChartGrid from "./ActionCenterChartGrid.vue";
 import { getActionFilterBadges, type ActionFilterKey } from "../../utils/actionCenterFilterSummary";
+import type { ActionScoreDriverFilter } from "../../utils/actionCenterScoreBreakdown";
 import {
-  getActionScoreCompositionRows,
-  type ActionScoreDriverFilter
-} from "../../utils/actionCenterScoreBreakdown";
-import { useEchartsCharts } from "../../composables/useEchartsCharts";
-import {
-  buildActionTrendChartOption,
-  buildAttributionDriverChartOption,
-  buildBrandActionPressureChartOption,
-  buildEvidenceMovementChartOption,
-  buildEventTypeMixChartOption,
-  buildPriorityMixChartOption,
-  buildReviewCadenceChartOption,
-  buildReviewOutcomeMixChartOption,
-  buildScoreCompositionChartOption,
-  buildStrategyFocusChartOption,
-  buildWorkflowFunnelChartOption,
-  getActionChartCaptions,
   getActionChartPathSteps,
   getActionChartSummary,
   getActionChartTakeaways,
   getActionReviewQueueSummary,
-  getAttributionDriverData,
   getBrandActionPressureRows,
-  getEvidenceMovementData,
-  getEventTypeMixData,
-  getPriorityMixData,
-  getReviewOutcomeMixData,
-  getStrategyFocusData,
   shouldPreferFollowUpChartGroup,
   type ActionChartPathStep,
   type ActionChartTakeaway
 } from "../../utils/actionCenterChartOptions";
-import {
-  attributionChartNameToTag,
-  chartBucketNameFromOffset,
-  chartBucketNameFromVerticalOffset,
-  eventTypeChartNameToType,
-  evidenceMovementChartNameToFilter,
-  pieChartNameFromOffset,
-  priorityChartNameToLevel,
-  reviewCadenceChartNameToFilter,
-  reviewOutcomeChartNameToResult,
-  scoreDriverChartNameToFilter,
-  stackedScoreChartNameFromOffset,
-  strategyChartNameToTag,
-  workflowChartNameToColumn,
-  type WorkflowChartColumn
-} from "../../utils/actionCenterChartInteractions";
+import type { WorkflowChartColumn } from "../../utils/actionCenterChartInteractions";
 
 type ActionChartGroup = "overview" | "drivers" | "followUp";
 
-const workflowBucketNames = ["待处理", "处理中", "已关闭"] as const;
-const reviewCadenceBucketNames = ["已逾期", "今日到期", "待到期"] as const;
 const chartGroupOptions: Array<{ label: string; value: ActionChartGroup }> = [
   { label: "总览", value: "overview" },
   { label: "驱动", value: "drivers" },
@@ -92,24 +54,10 @@ const emit = defineEmits<{
   (event: "select-workflow", column: WorkflowChartColumn): void;
 }>();
 
-const workflowChartEl = ref<HTMLDivElement | null>(null);
-const priorityChartEl = ref<HTMLDivElement | null>(null);
-const eventTypeChartEl = ref<HTMLDivElement | null>(null);
-const scoreChartEl = ref<HTMLDivElement | null>(null);
-const evidenceChartEl = ref<HTMLDivElement | null>(null);
-const attributionChartEl = ref<HTMLDivElement | null>(null);
-const strategyChartEl = ref<HTMLDivElement | null>(null);
-const brandChartEl = ref<HTMLDivElement | null>(null);
-const reviewChartEl = ref<HTMLDivElement | null>(null);
-const reviewOutcomeChartEl = ref<HTMLDivElement | null>(null);
-const trendChartEl = ref<HTMLDivElement | null>(null);
-
 const activeChartGroup = ref<ActionChartGroup>("overview");
-const { renderChartSpecs, disposeCharts } = useEchartsCharts();
 const brandPressureRows = computed(() => getBrandActionPressureRows(props.events));
 const hasChartData = computed(() => props.events.length > 0 || props.reviewDueEvents.length > 0 || props.trend.length > 0);
 const chartSummary = computed(() => getActionChartSummary(props.events, props.trend));
-const chartCaptions = computed(() => getActionChartCaptions(props.events, props.reviewDueEvents, props.trend, props.currentDate));
 const chartTakeaways = computed(() => getActionChartTakeaways(props.events, props.reviewDueEvents, props.trend, props.currentDate));
 const chartActionPathSteps = computed(() => getActionChartPathSteps(props.events, props.reviewDueEvents, props.trend, props.currentDate));
 const reviewQueueSummary = computed(() => getActionReviewQueueSummary(props.events, props.reviewDueEvents, props.currentDate));
@@ -154,17 +102,6 @@ const activeActionPathIndex = computed(() => {
 });
 
 watch(
-  () => [props.events, props.reviewDueEvents, props.trend, props.currentDate],
-  () => {
-    renderCharts();
-  },
-  { immediate: true }
-);
-watch(activeChartGroup, () => {
-  disposeCharts();
-  renderCharts();
-});
-watch(
   () => [props.events.length, props.reviewDueEvents.length],
   () => {
     if (shouldPreferFollowUpChartGroup(props.events, props.reviewDueEvents)) {
@@ -174,86 +111,6 @@ watch(
   { immediate: true }
 );
 
-async function renderCharts(): Promise<void> {
-  await renderChartSpecs(
-    () => [
-      { key: "workflow", element: workflowChartEl.value, option: buildWorkflowFunnelChartOption(props.events) },
-      { key: "priority", element: priorityChartEl.value, option: buildPriorityMixChartOption(props.events) },
-      { key: "eventType", element: eventTypeChartEl.value, option: buildEventTypeMixChartOption(props.events) },
-      { key: "score", element: scoreChartEl.value, option: buildScoreCompositionChartOption(props.events) },
-      { key: "evidence", element: evidenceChartEl.value, option: buildEvidenceMovementChartOption(props.events) },
-      { key: "attribution", element: attributionChartEl.value, option: buildAttributionDriverChartOption(props.events) },
-      { key: "strategy", element: strategyChartEl.value, option: buildStrategyFocusChartOption(props.events) },
-      { key: "brand", element: brandChartEl.value, option: buildBrandActionPressureChartOption(props.events) },
-      { key: "review", element: reviewChartEl.value, option: buildReviewCadenceChartOption(props.events, props.reviewDueEvents, props.currentDate) },
-      { key: "reviewOutcome", element: reviewOutcomeChartEl.value, option: buildReviewOutcomeMixChartOption(props.events) },
-      { key: "trend", element: trendChartEl.value, option: buildActionTrendChartOption(props.trend) }
-    ],
-    () => hasChartData.value
-  );
-}
-
-function focusPriorityFromPointer(event: MouseEvent): void {
-  const bucketName = pieChartNameFromPointer(event, getPriorityMixData(props.events));
-  const level = priorityChartNameToLevel(bucketName);
-  if (level) {
-    emit("focus-level", level);
-  }
-}
-
-function focusStrategyFromPointer(event: MouseEvent): void {
-  const bucketNames = getStrategyFocusData(props.events).reverse().map((item) => item.name);
-  const bucketName = verticalChartBucketNameFromPointer(event, bucketNames);
-  const tag = strategyChartNameToTag(bucketName);
-  if (tag) {
-    emit("focus-strategy", tag);
-  }
-}
-
-function focusAttributionFromPointer(event: MouseEvent): void {
-  const bucketNames = getAttributionDriverData(props.events).reverse().map((item) => item.name);
-  const bucketName = verticalChartBucketNameFromPointer(event, bucketNames);
-  const tag = attributionChartNameToTag(bucketName);
-  if (tag) {
-    emit("focus-attribution", tag);
-  }
-}
-
-function focusEventTypeFromPointer(event: MouseEvent): void {
-  const bucketNames = getEventTypeMixData(props.events).reverse().map((item) => item.name);
-  const bucketName = verticalChartBucketNameFromPointer(event, bucketNames);
-  const eventType = eventTypeChartNameToType(bucketName);
-  if (eventType) {
-    emit("focus-event-type", eventType);
-  }
-}
-
-function focusEvidenceMovementFromPointer(event: MouseEvent): void {
-  const bucketNames = getEvidenceMovementData(props.events).reverse().map((item) => item.name);
-  const bucketName = verticalChartBucketNameFromPointer(event, bucketNames);
-  const filter = evidenceMovementChartNameToFilter(bucketName);
-  if (filter) {
-    emit("focus-evidence-movement", filter);
-  }
-}
-
-function focusScoreDriverFromPointer(event: MouseEvent): void {
-  const target = event.currentTarget;
-  if (!isRectTarget(target)) return;
-  const rect = target.getBoundingClientRect();
-  const bucketName = stackedScoreChartNameFromOffset(
-    event.clientX - rect.left,
-    rect.width,
-    getActionScoreCompositionRows(props.events).map((row) => ({
-      name: row.label,
-      value: row.value
-    }))
-  );
-  const filter = scoreDriverChartNameToFilter(bucketName);
-  if (filter) {
-    emit("focus-score-driver", filter);
-  }
-}
 
 function focusTopScoreDriver(): void {
   const driver = chartSummary.value.topScoreDriver;
@@ -355,64 +212,6 @@ function isChartTakeawayActionable(key: ActionChartTakeaway["key"]): boolean {
     );
   }
   return reviewQueueSummary.value.totalCount > 0;
-}
-
-function focusBrandFromPointer(event: MouseEvent): void {
-  const bucketNames = brandPressureRows.value.map((row) => row.brand).reverse();
-  const brand = verticalChartBucketNameFromPointer(event, bucketNames);
-  const canFocus = brandPressureRows.value.some((row) => row.brand === brand && row.canFocus);
-  if (brand && canFocus) {
-    emit("focus-brand", brand);
-  }
-}
-
-function selectWorkflowFromPointer(event: MouseEvent): void {
-  const bucketName = chartBucketNameFromPointer(event, workflowBucketNames);
-  const column = workflowChartNameToColumn(bucketName);
-  if (column) {
-    emit("select-workflow", column);
-  }
-}
-
-function focusReviewCadenceFromPointer(event: MouseEvent): void {
-  const bucketName = chartBucketNameFromPointer(event, reviewCadenceBucketNames);
-  const filter = reviewCadenceChartNameToFilter(bucketName);
-  if (filter) {
-    emit("focus-review-cadence", filter);
-  }
-}
-
-function focusReviewOutcomeFromPointer(event: MouseEvent): void {
-  const bucketName = pieChartNameFromPointer(event, getReviewOutcomeMixData(props.events));
-  const result = reviewOutcomeChartNameToResult(bucketName);
-  if (result) {
-    emit("focus-review-result", result);
-  }
-}
-
-function chartBucketNameFromPointer(event: MouseEvent, bucketNames: readonly string[]): string | null {
-  const target = event.currentTarget;
-  if (!isRectTarget(target)) return null;
-  const rect = target.getBoundingClientRect();
-  return chartBucketNameFromOffset(event.clientX - rect.left, rect.width, bucketNames);
-}
-
-function verticalChartBucketNameFromPointer(event: MouseEvent, bucketNames: readonly string[]): string | null {
-  const target = event.currentTarget;
-  if (!isRectTarget(target)) return null;
-  const rect = target.getBoundingClientRect();
-  return chartBucketNameFromVerticalOffset(event.clientY - rect.top, rect.height, bucketNames);
-}
-
-function pieChartNameFromPointer(event: MouseEvent, data: readonly { name: string; value: number }[]): string | null {
-  const target = event.currentTarget;
-  if (!isRectTarget(target)) return null;
-  const rect = target.getBoundingClientRect();
-  return pieChartNameFromOffset(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height, data);
-}
-
-function isRectTarget(target: EventTarget | null): target is HTMLElement {
-  return target !== null && "getBoundingClientRect" in target;
 }
 
 function formatTrendDelta(delta: number | null): string {
@@ -643,194 +442,23 @@ function formatSignedPercent(value: number): string {
         </ElAlert>
       </div>
 
-      <ElRow :gutter="12" class="action-chart-grid">
-        <ElCol v-if="activeChartGroup === 'overview'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <BarChart3 :size="15" />
-                <span>行动漏斗</span>
-              </div>
-              <small>{{ chartCaptions.workflow }}</small>
-            </div>
-            <div
-              ref="workflowChartEl"
-              class="action-chart"
-              data-chart="action-workflow"
-              @click.capture="selectWorkflowFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'overview'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <Donut :size="15" />
-                <span>优先级分布</span>
-              </div>
-              <small>{{ chartCaptions.priority }}</small>
-            </div>
-            <div
-              ref="priorityChartEl"
-              class="action-chart"
-              data-chart="action-priority"
-              @click.capture="focusPriorityFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'overview'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <BarChart3 :size="15" />
-                <span>事件类型分布</span>
-              </div>
-              <small>{{ chartCaptions.eventType }}</small>
-            </div>
-            <div
-              ref="eventTypeChartEl"
-              class="action-chart"
-              data-chart="action-event-type"
-              @click.capture="focusEventTypeFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'overview'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <Building2 :size="15" />
-                <span>品牌压力</span>
-              </div>
-              <small>{{ chartCaptions.brandPressure }}</small>
-            </div>
-            <div
-              ref="brandChartEl"
-              class="action-chart"
-              data-chart="action-brand-pressure"
-              @click.capture="focusBrandFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'drivers'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <BarChart3 :size="15" />
-                <span>评分构成</span>
-              </div>
-              <small>{{ chartCaptions.score }}</small>
-            </div>
-            <div
-              ref="scoreChartEl"
-              class="action-chart"
-              data-chart="action-score-mix"
-              @click.capture="focusScoreDriverFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'drivers'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <BarChart3 :size="15" />
-                <span>证据变化</span>
-              </div>
-              <small>{{ chartCaptions.evidenceMovement }}</small>
-            </div>
-            <div
-              ref="evidenceChartEl"
-              class="action-chart"
-              data-chart="action-evidence-movement"
-              @click.capture="focusEvidenceMovementFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'drivers'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <Tags :size="15" />
-                <span>归因驱动</span>
-              </div>
-              <small>{{ chartCaptions.attribution }}</small>
-            </div>
-            <div
-              ref="attributionChartEl"
-              class="action-chart"
-              data-chart="action-attribution"
-              @click.capture="focusAttributionFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'drivers'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <Tags :size="15" />
-                <span>策略标签</span>
-              </div>
-              <small>{{ chartCaptions.strategy }}</small>
-            </div>
-            <div
-              ref="strategyChartEl"
-              class="action-chart"
-              data-chart="action-strategy"
-              @click.capture="focusStrategyFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'followUp'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <CalendarClock :size="15" />
-                <span>复盘节奏</span>
-              </div>
-              <small>{{ chartCaptions.reviewCadence }}</small>
-            </div>
-            <div
-              ref="reviewChartEl"
-              class="action-chart"
-              data-chart="action-review-cadence"
-              @click.capture="focusReviewCadenceFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'followUp'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <BarChart3 :size="15" />
-                <span>7 日行动趋势</span>
-              </div>
-              <small>{{ chartCaptions.trend }}</small>
-            </div>
-            <div
-              ref="trendChartEl"
-              class="action-chart"
-              data-chart="action-trend"
-            ></div>
-          </section>
-        </ElCol>
-        <ElCol v-if="activeChartGroup === 'followUp'" :xs="24" :lg="12" :xl="8">
-          <section class="action-chart-card">
-            <div class="chart-heading">
-              <div class="chart-title">
-                <Donut :size="15" />
-                <span>复盘结果</span>
-              </div>
-              <small>{{ chartCaptions.reviewOutcome }}</small>
-            </div>
-            <div
-              ref="reviewOutcomeChartEl"
-              class="action-chart"
-              data-chart="action-review-outcomes"
-              @click.capture="focusReviewOutcomeFromPointer"
-            ></div>
-          </section>
-        </ElCol>
-      </ElRow>
+      <ActionCenterChartGrid
+        :events="events"
+        :review-due-events="reviewDueEvents"
+        :trend="trend"
+        :current-date="currentDate"
+        :active-group="activeChartGroup"
+        @focus-brand="emit('focus-brand', $event)"
+        @focus-level="emit('focus-level', $event)"
+        @focus-event-type="emit('focus-event-type', $event)"
+        @focus-attribution="emit('focus-attribution', $event)"
+        @focus-evidence-movement="emit('focus-evidence-movement', $event)"
+        @focus-review-cadence="emit('focus-review-cadence', $event)"
+        @focus-review-result="emit('focus-review-result', $event)"
+        @focus-score-driver="emit('focus-score-driver', $event)"
+        @focus-strategy="emit('focus-strategy', $event)"
+        @select-workflow="emit('select-workflow', $event)"
+      />
 
       <ActionBrandPressurePanel
         v-if="brandPressureRows.length"
@@ -843,422 +471,4 @@ function formatSignedPercent(value: number): string {
   </ElCard>
 </template>
 
-<style scoped>
-.action-chart-panel {
-  flex: 0 0 auto;
-  min-width: 0;
-}
-
-.action-chart-panel :deep(.el-card__body) {
-  overflow: visible;
-}
-
-.action-chart-stack {
-  display: grid;
-  gap: 12px;
-}
-
-.chart-summary-strip {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-}
-
-.chart-summary-item {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  padding: 9px 10px;
-}
-
-button.chart-summary-item {
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-
-.chart-summary-action {
-  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
-}
-
-.chart-summary-action:hover {
-  border-color: #93c5fd;
-  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.10);
-  transform: translateY(-1px);
-}
-
-.chart-summary-action:focus-visible {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
-  outline: none;
-}
-
-.chart-summary-item span,
-.chart-summary-item small {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.chart-summary-item strong {
-  color: #0f172a;
-  display: -webkit-box;
-  font-size: 18px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  overflow-wrap: anywhere;
-}
-
-.chart-summary-item :deep(.el-statistic__head) {
-  color: #64748b;
-  font-size: 12px;
-  margin-bottom: 2px;
-}
-
-.chart-summary-item :deep(.el-statistic__content) {
-  color: #0f172a;
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.chart-summary-review :deep(.el-progress-bar__outer) {
-  background-color: #e2e8f0;
-}
-
-.chart-action-path {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px;
-}
-
-.chart-action-steps {
-  min-width: 0;
-}
-
-.chart-action-steps :deep(.el-step__title) {
-  color: #334155;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.25;
-}
-
-.chart-action-steps :deep(.el-step__description) {
-  color: #64748b;
-  display: -webkit-box;
-  font-size: 11px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.25;
-  max-width: 160px;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  text-overflow: ellipsis;
-}
-
-.chart-action-path-actions {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.chart-path-action {
-  align-items: flex-start;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  color: inherit;
-  cursor: pointer;
-  display: grid;
-  font: inherit;
-  gap: 4px;
-  min-width: 0;
-  padding: 9px;
-  text-align: left;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
-}
-
-.chart-path-action:hover {
-  border-color: #93c5fd;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.1);
-  transform: translateY(-1px);
-}
-
-.chart-path-action:focus-visible {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
-  outline: none;
-}
-
-.chart-path-action.is-active {
-  border-color: #2563eb;
-  box-shadow: inset 3px 0 0 #2563eb;
-}
-
-.chart-path-action span,
-.chart-path-action small {
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.25;
-}
-
-.chart-path-action strong {
-  color: #0f172a;
-  display: -webkit-box;
-  font-size: 13px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.25;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  text-overflow: ellipsis;
-}
-
-.chart-path-action :deep(.el-tag) {
-  justify-self: start;
-  max-width: 100%;
-}
-
-.chart-path-action :deep(.el-tag__content) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.chart-panel-header {
-  align-items: flex-start;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-}
-
-.chart-panel-heading {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.chart-panel-title,
-.chart-title {
-  align-items: center;
-  color: #0f172a;
-  display: flex;
-  font-weight: 800;
-  gap: 8px;
-}
-
-.chart-panel-title {
-  font-size: 13px;
-  text-transform: uppercase;
-}
-
-.chart-scope-row {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.chart-scope-label {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.chart-scope-row :deep(.el-tag__content) {
-  max-width: 176px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.chart-takeaway-strip {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.chart-takeaway {
-  min-width: 0;
-}
-
-.chart-takeaway.is-actionable {
-  cursor: pointer;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease;
-}
-
-.chart-takeaway.is-actionable:hover {
-  border-color: #93c5fd;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.1);
-}
-
-.chart-takeaway.is-actionable:focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
-}
-
-.chart-takeaway :deep(.el-alert__content) {
-  min-width: 0;
-}
-
-.chart-takeaway :deep(.el-alert__title) {
-  align-items: baseline;
-  display: flex;
-  gap: 6px;
-  min-width: 0;
-}
-
-.chart-takeaway :deep(.el-alert__title strong) {
-  color: #0f172a;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-.chart-takeaway :deep(.el-alert__description) {
-  color: #475569;
-  font-size: 12px;
-  margin-top: 4px;
-}
-
-.chart-takeaway-detail {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.chart-takeaway-label {
-  color: #64748b;
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.action-chart-grid {
-  row-gap: 12px;
-}
-
-.action-chart-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px;
-}
-
-.chart-title {
-  font-size: 12px;
-}
-
-.chart-heading {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.chart-heading small {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.35;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-chart {
-  height: 210px;
-  min-width: 0;
-  width: 100%;
-}
-
-[data-chart="action-trend"] {
-  height: 230px;
-}
-
-[data-chart="action-workflow"],
-[data-chart="action-priority"],
-[data-chart="action-event-type"],
-[data-chart="action-score-mix"],
-[data-chart="action-evidence-movement"],
-[data-chart="action-attribution"],
-[data-chart="action-strategy"],
-[data-chart="action-brand-pressure"],
-[data-chart="action-review-cadence"],
-[data-chart="action-review-outcomes"] {
-  cursor: pointer;
-}
-
-@media (max-width: 1100px) {
-  .chart-summary-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .chart-action-path-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .chart-takeaway-strip {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 760px) {
-  .chart-panel-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .chart-panel-header :deep(.el-segmented) {
-    width: 100%;
-  }
-
-  .chart-summary-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .chart-action-steps {
-    display: none;
-  }
-
-  .chart-action-path-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .chart-takeaway :deep(.el-alert__title) {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .action-chart {
-    height: 220px;
-  }
-
-  .chart-heading small {
-    white-space: normal;
-  }
-
-  [data-chart="action-trend"] {
-    height: 260px;
-  }
-}
-
-@media (max-width: 340px) {
-  .chart-summary-strip {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
+<style scoped src="../../styles/action-center-charts-panel.css"></style>

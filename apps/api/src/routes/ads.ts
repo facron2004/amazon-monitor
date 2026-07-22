@@ -1,5 +1,12 @@
 import type { Express, Request } from "express";
-import type { AdsWorkflowLevel, SessionContext } from "@amazon-monitor/shared";
+import {
+  hasBusinessCapability,
+  type AdsWorkflowItem,
+  type AdsWorkflowLevel,
+  type AdsWorkflowResponse,
+  type AdsWorkflowSummary,
+  type SessionContext
+} from "@amazon-monitor/shared";
 import { z } from "zod";
 import type { Store } from "../store.js";
 import { asyncHandler } from "./http-utils.js";
@@ -53,18 +60,26 @@ function requireSessionContext(request: Request): SessionContext {
   return ctx;
 }
 
-function requireOperatorOrAdmin(ctx: SessionContext): void {
-  if (ctx.user.role !== "admin" && ctx.user.role !== "operator") {
-    throw Object.assign(new Error("Forbidden: only operator or admin can manage Ads metrics"), { statusCode: 403 });
+function requireAdsAccess(ctx: SessionContext): "full" | "summary" {
+  if (!hasBusinessCapability(ctx.user.role, "view_ads")) {
+    throw Object.assign(new Error("Forbidden: role cannot view Ads data"), { statusCode: 403 });
+  }
+  return hasBusinessCapability(ctx.user.role, "view_ads_details") ? "full" : "summary";
+}
+
+function requireAdsManagement(ctx: SessionContext): void {
+  if (!hasBusinessCapability(ctx.user.role, "manage_ads")) {
+    throw Object.assign(new Error("Forbidden: role cannot manage Ads data"), { statusCode: 403 });
   }
 }
 
 export function registerAdsRoutes(app: Express, store: Store): void {
   app.get("/api/ads/summary", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
+    const accessLevel = requireAdsAccess(ctx);
     const query = validateQuery(adsQuerySchema, request.query);
     ensureProductInOrg(store, query.productId, ctx.organization.id);
-    response.json(store.getAdsWorkflowSummary({
+    const summary = store.getAdsWorkflowSummary({
       orgId: ctx.organization.id,
       productId: query.productId,
       date: query.date,
@@ -72,11 +87,18 @@ export function registerAdsRoutes(app: Express, store: Store): void {
       level: query.level as AdsWorkflowLevel | undefined,
       limit: query.limit,
       offset: query.offset
-    }));
+    });
+    response.json(accessLevel === "full"
+      ? { ...summary, accessLevel }
+      : toAdsSummary(summary));
   }));
 
   app.get("/api/ads/metrics", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
+    requireAdsAccess(ctx);
+    if (!hasBusinessCapability(ctx.user.role, "view_ads_details")) {
+      throw Object.assign(new Error("Forbidden: detailed Ads metrics are restricted"), { statusCode: 403 });
+    }
     const query = validateQuery(adsQuerySchema.omit({ level: true }), request.query);
     ensureProductInOrg(store, query.productId, ctx.organization.id);
     response.json(store.listAdDailyMetrics({
@@ -91,7 +113,7 @@ export function registerAdsRoutes(app: Express, store: Store): void {
 
   app.post("/api/ads/metrics", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
-    requireOperatorOrAdmin(ctx);
+    requireAdsManagement(ctx);
     const data = validateBody(adMetricSchema, request.body);
     ensureProductInOrg(store, data.productId ?? undefined, ctx.organization.id);
     const metric = store.upsertAdDailyMetric({
@@ -124,6 +146,54 @@ export function registerAdsRoutes(app: Express, store: Store): void {
     });
     response.status(201).json(metric);
   }));
+}
+
+function toAdsSummary(summary: AdsWorkflowSummary): AdsWorkflowResponse {
+  return {
+    ...summary,
+    accessLevel: "summary",
+    totalSpend: null,
+    totalSales: null,
+    items: summary.items.map(toAdsSummaryItem)
+  };
+}
+
+function toAdsSummaryItem(item: AdsWorkflowItem): AdsWorkflowItem {
+  return {
+    ...item,
+    metric: {
+      ...item.metric,
+      campaignId: `restricted-${item.metric.id}`,
+      campaignName: "Restricted campaign",
+      adGroupName: null,
+      targetText: null,
+      searchTerm: null,
+      matchType: null,
+      impressions: null,
+      clicks: null,
+      spend: null,
+      sales: null,
+      orders: null,
+      unitsSold: null,
+      roas: null,
+      cpc: null,
+      ctr: null,
+      cvr: null,
+      budget: null,
+      budgetUsageRate: null,
+      syncError: null
+    },
+    productSku: null,
+    productAsin: null,
+    efficiencyScore: 0,
+    wasteScore: 0,
+    scaleScore: 0,
+    insights: item.insights.map((insight) => ({
+      ...insight,
+      message: "A threshold-based Ads signal needs review by the Ads owner.",
+      evidence: []
+    }))
+  };
 }
 
 function ensureProductInOrg(store: Store, productId: number | undefined, orgId: number): void {

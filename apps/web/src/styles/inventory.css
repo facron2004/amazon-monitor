@@ -107,6 +107,15 @@
   font-size: 18px;
 }
 
+.inventory-supply-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.inventory-detail-grid__emphasis {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+}
+
 .inventory-section {
   border-bottom: 1px solid var(--border-color);
   display: grid;
@@ -158,6 +167,51 @@
   padding: 10px;
 }
 
+.inventory-action {
+  padding: 12px;
+  border: 1px solid rgba(161, 92, 0, 0.18);
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.inventory-action__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inventory-action__head span {
+  color: #a15c00;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inventory-action__head h3 {
+  margin-top: 3px;
+  font-size: 14px;
+}
+
+.inventory-action > p {
+  color: #5f6065;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.inventory-action__boundary {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: #6e6e73;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.inventory-action__boundary svg {
+  flex: 0 0 auto;
+  color: #18864b;
+}
+
 .inventory-setting-form {
   display: grid;
   gap: 10px;
@@ -175,5 +229,16 @@
 
   .inventory-metrics {
     grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .inventory-supply-grid,
+  .inventory-setting-form {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-setting-form .wide {
+    grid-column: auto;
   }
 }

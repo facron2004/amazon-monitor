@@ -12,6 +12,9 @@ import {
   type InsightEventStatus
 } from "@amazon-monitor/shared";
 import InsightScoreBadge from "./InsightScoreBadge.vue";
+import { useWriteAccess } from "../../composables/useWriteAccess";
+
+const { canWrite } = useWriteAccess();
 
 const props = defineProps<{
   currentDate: string;
@@ -122,7 +125,7 @@ function formatRank(value: number | null | undefined): string {
         <span v-if="strategyTags.length > 2" class="strategy-chip">+{{ strategyTags.length - 2 }}</span>
         <span v-if="reviewDueLabel" class="review-due-chip" :class="`review-due-chip-${reviewDueTone}`">{{ reviewDueLabel }}</span>
       </div>
-      <ElButtonGroup v-if="actionable" class="row-actions" @click.stop>
+      <ElButtonGroup v-if="actionable && canWrite" class="row-actions" @click.stop>
         <ElButton v-if="event.asin && event.status !== 'WATCHING'" size="small" plain @click="emit('watch', event.id)">
           <Eye :size="13" />
           <span>观察</span>

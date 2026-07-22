@@ -15,12 +15,15 @@ const emit = defineEmits<Emits>();
 </script>
 
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>关键词监控健康度</h2>
-      <span>{{ keywords.length }} 个关键词</span>
+  <section class="panel keyword-panel">
+    <div class="panel-head panel-head-split">
+      <div>
+        <h2>关键词监控健康度</h2>
+        <span>{{ keywords.length }} 个关键词</span>
+      </div>
+      <p class="panel-caption">把健康度列表改成稳定的信息块，让状态扫描更快，也更适合横向对比。</p>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap keyword-table-wrap">
       <table>
         <thead>
           <tr>

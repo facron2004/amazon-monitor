@@ -2,6 +2,7 @@ export const productSchemaSql = `
 CREATE TABLE IF NOT EXISTS own_products (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org_id INTEGER NOT NULL,
+  store_id INTEGER,
   marketplace TEXT NOT NULL,
   sku TEXT NOT NULL,
   asin TEXT NOT NULL,
@@ -19,9 +20,11 @@ CREATE TABLE IF NOT EXISTS own_products (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(org_id, marketplace, sku),
   FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (store_id) REFERENCES commerce_stores(id) ON DELETE SET NULL,
   FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_own_products_org_status ON own_products(org_id, status);
+CREATE INDEX IF NOT EXISTS idx_own_products_store ON own_products(store_id);
 CREATE INDEX IF NOT EXISTS idx_own_products_asin ON own_products(asin, marketplace);
 CREATE INDEX IF NOT EXISTS idx_own_products_owner ON own_products(owner_id);
 

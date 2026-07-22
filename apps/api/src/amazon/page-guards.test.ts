@@ -56,6 +56,7 @@ function makeKeyword(overrides: Partial<KeywordMonitor> = {}): KeywordMonitor {
     id: 1,
     keyword: "ice makers",
     marketplace: "amazon.com",
+    priority: "C",
     zipCode: null,
     language: null,
     categoryTag: null,

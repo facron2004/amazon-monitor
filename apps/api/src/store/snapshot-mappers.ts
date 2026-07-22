@@ -6,6 +6,7 @@ import type {
   CategorySignalLog,
   CompetitorActivityEvent,
   IceTypeTag,
+  ProductSyncStatus,
   ProductPriceHistory
 } from "@amazon-monitor/shared";
 import { parseJsonArray } from "./json-utils.js";
@@ -38,6 +39,9 @@ export interface BestsellerSnapshotRow {
   effective_deal_badge?: string | null;
   bsr_rank: number | null;
   bsr_category: string | null;
+  data_source: string;
+  last_synced_at: string | null;
+  sync_status: ProductSyncStatus;
   created_at: string;
 }
 
@@ -68,6 +72,9 @@ export function mapBestsellerSnapshot(row: BestsellerSnapshotRow): BestsellerRan
     dealBadge: row.effective_deal_badge !== undefined ? row.effective_deal_badge : row.deal_badge,
     bsrRank: row.bsr_rank,
     bsrCategory: row.bsr_category,
+    dataSource: row.data_source,
+    lastSyncedAt: row.last_synced_at,
+    syncStatus: row.sync_status,
     createdAt: row.created_at
   };
 }

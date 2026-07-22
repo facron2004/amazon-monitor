@@ -143,7 +143,7 @@ describe("groupEventsByAsin", () => {
   it("resolves watchLevel from the watch state map", () => {
     const events = [buildEvent({ asin: "B001" })];
     const watch: AsinWatchState[] = [
-      { asin: "B001", watchLevel: "CORE", watchReason: "test", firstWatchDate: "2026-06-01", lastEventDate: "2026-06-24", note: null, createdAt: "", updatedAt: "" }
+      { orgId: 1, asin: "B001", watchLevel: "CORE", watchReason: "test", firstWatchDate: "2026-06-01", lastEventDate: "2026-06-24", note: null, createdAt: "", updatedAt: "" }
     ];
     const result = groupEventsByAsin(events, watch);
     expect(result[0].watchLevel).toBe("CORE");
@@ -157,6 +157,28 @@ describe("groupEventsByAsin", () => {
     ];
     const result = groupEventsByAsin(events, []);
     expect(result.map((group) => group.asin)).toEqual(["B002", "B003", "B001"]);
+  });
+
+  it("derives opportunity and risk scores from scoreBreakdown", () => {
+    const events = [
+      buildEvent({
+        id: "1",
+        asin: "B001",
+        scoreBreakdown: {
+          rankingScore: 35,
+          productScore: 25,
+          promoScore: 0,
+          brandScore: 0,
+          riskScore: 15,
+          reasons: ["排名分 35", "商品机会分 25", "核心竞品风险分 15"]
+        }
+      })
+    ];
+    const result = groupEventsByAsin(events, []);
+    expect(result[0].opportunityScore).toBe(75);
+    expect(result[0].riskScore).toBe(50);
+    expect(result[0].opportunityReasons.length).toBeGreaterThan(0);
+    expect(result[0].riskReasons.length).toBeGreaterThan(0);
   });
 });
 
@@ -339,6 +361,31 @@ describe("useInsightEventsStore actions", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.restoreAllMocks();
+  });
+
+  it("reloads Today 5 with server-side filters and complete filter options", async () => {
+    const filteredEvent = buildEvent({ id: "filtered", brand: "Breezo" });
+    const fetchTopInsights = vi.spyOn(insightEventApi, "fetchTopInsights").mockResolvedValue([filteredEvent]);
+    const fetchFilterOptions = vi.spyOn(insightEventApi, "fetchTopInsightFilterOptions").mockResolvedValue({
+      marketplaces: ["amazon.com", "amazon.de"],
+      categoryNames: ["Fans", "Ice Makers"],
+      brands: ["Acme", "Breezo"],
+      assignees: ["Leo", "Mia"]
+    });
+    const store = useInsightEventsStore();
+
+    await store.loadTopSummary("2026-06-25");
+    await store.setTopSummaryFilter("brand", "Breezo");
+
+    expect(fetchTopInsights).toHaveBeenLastCalledWith(
+      "2026-06-25",
+      expect.objectContaining({ brand: "Breezo" }),
+      5,
+      expect.any(Object)
+    );
+    expect(fetchFilterOptions).toHaveBeenCalledTimes(2);
+    expect(store.topSummary).toEqual([filteredEvent]);
+    expect(store.topSummaryFilterOptions.brands).toEqual(["Acme", "Breezo"]);
   });
 
   it("keeps Action Center workspace state in Pinia across panel remounts", () => {

@@ -3,13 +3,35 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ElButton, ElDialog, ElInput, ElMessage, ElOption, ElSelect, ElTag } from "element-plus";
 import { BadgeDollarSign, RefreshCw, Save, Settings, ShieldCheck } from "@lucide/vue";
-import type { ProductProfitPlan, ProductProfitScenario, ProfitPlanLevel } from "@amazon-monitor/shared";
+import {
+  type ProductProfitPlan,
+  type ProductProfitScenario,
+  type ProfitActionKind,
+  type ProfitPlanLevel
+} from "@amazon-monitor/shared";
 import { useProfitStore } from "../stores/profit";
+import { useWriteAccess } from "../composables/useWriteAccess";
+import { formatMarketplaceMoney } from "../utils/marketplace-money";
+import ProfitActionPanel from "./profit/ProfitActionPanel.vue";
 
 const props = defineProps<{ date: string }>();
 
 const store = useProfitStore();
-const { plans, selectedProductId, selectedPlan, loading, saving, error, query, level } = storeToRefs(store);
+const {
+  plans,
+  selectedProductId,
+  selectedPlan,
+  loading,
+  saving,
+  creatingTaskProductId,
+  taskIdsByAction,
+  error,
+  query,
+  level
+} = storeToRefs(store);
+const { canWrite: canViewProfitDetails } = useWriteAccess("view_profit_details");
+const { canWrite: canManageProfit } = useWriteAccess("manage_profit");
+const { canWrite: canManageWorkflow } = useWriteAccess("manage_workflow");
 
 const settingDialogOpen = ref(false);
 const settingForm = reactive({
@@ -28,14 +50,23 @@ const settingForm = reactive({
 const riskCount = computed(() => plans.value.filter((plan) => plan.level === "risk").length);
 const watchCount = computed(() => plans.value.filter((plan) => plan.level === "watch").length);
 const dataGapCount = computed(() => plans.value.filter((plan) => plan.level === "data_gap").length);
-const projectedProfit = computed(() =>
-  plans.value.reduce((sum, plan) => {
+const projectedProfitByMarketplace = computed(() => {
+  const totals = new Map<string, number>();
+  if (!canViewProfitDetails.value) return totals;
+  for (const plan of plans.value) {
     const current = currentScenario(plan);
-    if (current?.profitPerUnit === null || current?.profitPerUnit === undefined || plan.unitsSold === null) return sum;
-    return sum + current.profitPerUnit * plan.unitsSold;
-  }, 0)
-);
-
+    if (current?.profitPerUnit === null || current?.profitPerUnit === undefined || plan.unitsSold === null) continue;
+    totals.set(plan.marketplace, (totals.get(plan.marketplace) ?? 0) + current.profitPerUnit * plan.unitsSold);
+  }
+  return totals;
+});
+const projectedProfitLabel = computed(() => {
+  if (!canViewProfitDetails.value) return "Restricted";
+  const entries = [...projectedProfitByMarketplace.value.entries()];
+  if (entries.length === 0) return "-";
+  if (entries.length > 1) return `${entries.length} 个站点`;
+  return formatMarketplaceMoney(entries[0][1], entries[0][0]);
+});
 watch(() => props.date, async (date) => {
   await store.fetchPlans(date);
 });
@@ -49,6 +80,7 @@ function selectPlan(plan: ProductProfitPlan): void {
 }
 
 function openSettingDialog(plan?: ProductProfitPlan | null): void {
+  if (!canManageProfit.value) return;
   const target = plan ?? selectedPlan.value;
   if (!target) return;
   settingForm.productId = target.productId;
@@ -65,6 +97,7 @@ function openSettingDialog(plan?: ProductProfitPlan | null): void {
 }
 
 async function submitSetting(): Promise<void> {
+  if (!canManageProfit.value) return;
   if (settingForm.productId <= 0) {
     ElMessage.warning("Select a SKU before saving profit settings.");
     return;
@@ -90,6 +123,17 @@ async function submitSetting(): Promise<void> {
   }
 }
 
+async function createPriceActionTask(actionKind: ProfitActionKind): Promise<void> {
+  const plan = selectedPlan.value;
+  if (!plan) return;
+  try {
+    const result = await store.createActionTask(plan.productId, actionKind, props.date);
+    ElMessage.success(result.created ? `价格任务 #${result.taskId} 已创建` : `价格任务 #${result.taskId} 已存在`);
+  } catch (err) {
+    ElMessage.error((err as Error).message);
+  }
+}
+
 function currentScenario(plan: ProductProfitPlan): ProductProfitScenario | null {
   return plan.scenarios.find((scenario) => scenario.kind === "current") ?? null;
 }
@@ -108,9 +152,9 @@ function levelLabel(value: ProfitPlanLevel): string {
   return "Healthy";
 }
 
-function formatMoney(value: number | null | undefined): string {
+function formatMoney(value: number | null | undefined, marketplace = selectedPlan.value?.marketplace ?? "US"): string {
   if (value == null) return "-";
-  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  return formatMarketplaceMoney(value, marketplace);
 }
 
 function formatPercent(value: number | null | undefined): string {
@@ -123,10 +167,14 @@ function cleanNumber(value: number | string | null): number | null {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
 }
+
 </script>
 
 <template>
   <section class="view profit-view">
+    <p v-if="!canViewProfitDetails" class="profit-access-note">
+      当前角色可查看价格安全线、毛利率与风险信号；成本假设、销售额、广告花费和绝对利润已隐藏。
+    </p>
     <header class="profit-toolbar panel">
       <div>
         <p class="eyebrow">Profit Safety Line</p>
@@ -144,7 +192,7 @@ function cleanNumber(value: number | string | null): number | null {
           <template #icon><RefreshCw :size="14" /></template>
           Refresh
         </ElButton>
-        <ElButton type="primary" :disabled="!selectedPlan" @click="openSettingDialog()">
+        <ElButton v-if="canManageProfit" type="primary" :disabled="!selectedPlan" @click="openSettingDialog()">
           <template #icon><Settings :size="14" /></template>
           Settings
         </ElButton>
@@ -166,7 +214,7 @@ function cleanNumber(value: number | string | null): number | null {
       </article>
       <article class="metric review-metric">
         <span>Current profit</span>
-        <strong>{{ formatMoney(projectedProfit) }}</strong>
+        <strong>{{ projectedProfitLabel }}</strong>
       </article>
     </div>
 
@@ -217,15 +265,16 @@ function cleanNumber(value: number | string | null): number | null {
                   <small>{{ plan.productTitle }}</small>
                 </td>
                 <td>
-                  <strong>{{ formatMoney(plan.averageSellingPrice) }}</strong>
+                  <strong>{{ formatMoney(plan.averageSellingPrice, plan.marketplace) }}</strong>
                   <small>{{ plan.unitsSold ?? "-" }} units</small>
                 </td>
                 <td>
                   <strong>{{ formatPercent(currentScenario(plan)?.marginRate) }}</strong>
-                  <small>{{ formatMoney(currentScenario(plan)?.profitPerUnit) }} / unit</small>
+                  <small v-if="canViewProfitDetails">{{ formatMoney(currentScenario(plan)?.profitPerUnit, plan.marketplace) }} / unit</small>
+                  <small v-else>Cost details restricted</small>
                 </td>
-                <td><strong>{{ formatMoney(plan.minimumSafePrice) }}</strong></td>
-                <td><strong>{{ formatMoney(plan.targetMarginPrice) }}</strong></td>
+                <td><strong>{{ formatMoney(plan.minimumSafePrice, plan.marketplace) }}</strong></td>
+                <td><strong>{{ formatMoney(plan.targetMarginPrice, plan.marketplace) }}</strong></td>
                 <td><ElTag :type="levelType(plan.level)" size="small">{{ levelLabel(plan.level) }}</ElTag></td>
                 <td>
                   <strong>{{ plan.issues[0]?.label ?? "No blocking issue" }}</strong>
@@ -248,7 +297,7 @@ function cleanNumber(value: number | string | null): number | null {
               <h2>{{ selectedPlan.sku }}</h2>
               <span>{{ selectedPlan.asin }} · {{ selectedPlan.date ?? "No metric date" }}</span>
             </div>
-            <ElButton size="small" @click="openSettingDialog(selectedPlan)">
+            <ElButton v-if="canManageProfit" size="small" @click="openSettingDialog(selectedPlan)">
               <template #icon><Settings :size="12" /></template>
               Settings
             </ElButton>
@@ -256,10 +305,18 @@ function cleanNumber(value: number | string | null): number | null {
 
           <section class="profit-detail-grid">
             <div><span>Average price</span><strong>{{ formatMoney(selectedPlan.averageSellingPrice) }}</strong></div>
-            <div><span>Ad cost / unit</span><strong>{{ formatMoney(selectedPlan.adCostPerUnit) }}</strong></div>
+            <div v-if="canViewProfitDetails"><span>Ad cost / unit</span><strong>{{ formatMoney(selectedPlan.adCostPerUnit) }}</strong></div>
             <div><span>Minimum safe</span><strong>{{ formatMoney(selectedPlan.minimumSafePrice) }}</strong></div>
             <div><span>Target margin line</span><strong>{{ formatMoney(selectedPlan.targetMarginPrice) }}</strong></div>
           </section>
+
+          <ProfitActionPanel
+            :plan="selectedPlan"
+            :can-manage-workflow="canManageWorkflow"
+            :creating="creatingTaskProductId === selectedPlan.productId"
+            :task-ids-by-action="taskIdsByAction"
+            @create="createPriceActionTask"
+          />
 
           <section class="profit-section">
             <h3>Scenarios</h3>
@@ -267,12 +324,15 @@ function cleanNumber(value: number | string | null): number | null {
               <article v-for="scenario in selectedPlan.scenarios" :key="scenario.kind">
                 <span>{{ scenario.label }}</span>
                 <strong>{{ formatMoney(scenario.price) }}</strong>
-                <small>{{ formatPercent(scenario.marginRate) }} · {{ formatMoney(scenario.profitPerUnit) }}/unit</small>
+                <small>
+                  {{ formatPercent(scenario.marginRate) }}
+                  <template v-if="canViewProfitDetails"> · {{ formatMoney(scenario.profitPerUnit) }}/unit</template>
+                </small>
               </article>
             </div>
           </section>
 
-          <section class="profit-section">
+          <section v-if="canViewProfitDetails" class="profit-section">
             <h3>Cost assumptions</h3>
             <div class="profit-costs">
               <span>Purchase cost</span><strong>{{ formatMoney(selectedPlan.setting?.purchaseCost) }}</strong>
@@ -300,7 +360,7 @@ function cleanNumber(value: number | string | null): number | null {
       </aside>
     </div>
 
-    <ElDialog v-model="settingDialogOpen" title="Profit settings" width="680px">
+    <ElDialog v-if="canManageProfit" v-model="settingDialogOpen" title="Profit settings" width="680px">
       <div class="profit-setting-form">
         <ElInput v-model.number="settingForm.purchaseCost" placeholder="Purchase cost" />
         <ElInput v-model.number="settingForm.inboundFreight" placeholder="Inbound freight" />

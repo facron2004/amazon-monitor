@@ -1,10 +1,14 @@
 import type { OwnedProductDailyMetric, ProductDataFreshness, ProductSyncStatus } from "./types-products.js";
+import type { Task } from "./types-workflow.js";
 
 export const profitPlanLevels = ["healthy", "watch", "risk", "data_gap"] as const;
 export type ProfitPlanLevel = (typeof profitPlanLevels)[number];
 
 export const profitScenarioKinds = ["current", "coupon_10", "coupon_15", "deal"] as const;
 export type ProfitScenarioKind = (typeof profitScenarioKinds)[number];
+
+export const profitActionKinds = ["target_margin", "coupon_10", "coupon_15", "deal"] as const;
+export type ProfitActionKind = (typeof profitActionKinds)[number];
 
 export const profitIssueTypes = ["missing_sales", "missing_cost", "below_min_margin", "below_target_margin", "ad_cost_pressure"] as const;
 export type ProfitIssueType = (typeof profitIssueTypes)[number];
@@ -105,4 +109,19 @@ export interface ProductProfitPlanFilter {
   level?: ProfitPlanLevel;
   limit?: number;
   offset?: number;
+}
+
+export interface ProductProfitActionOption {
+  kind: ProfitActionKind;
+  label: string;
+  price: number | null;
+  marginRate: number | null;
+  safe: boolean;
+  blockedReasons: string[];
+}
+
+export interface ProductProfitActionTaskResponse {
+  created: boolean;
+  option: ProductProfitActionOption;
+  task: Task;
 }

@@ -8,8 +8,8 @@ export interface NotificationAttachment {
   contentType: string;
 }
 
-export function buildNotificationExcelAttachment(store: Store, date: string): NotificationAttachment {
-  const workbook = buildWorkbookBuffer(buildReportSheets(store, date));
+export function buildNotificationExcelAttachment(store: Store, date: string, orgId?: number): NotificationAttachment {
+  const workbook = buildWorkbookBuffer(buildReportSheets(store, date, orgId));
   return {
     filename: `amazon-monitor-${date}.xlsx`,
     content: workbook,

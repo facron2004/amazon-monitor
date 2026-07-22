@@ -19,6 +19,7 @@ export type ChangeType =
   | "historical_low";
 
 export interface DailyChange {
+  orgId?: number;
   asin: string;
   keyword: string;
   marketplace: string;
@@ -41,6 +42,7 @@ export type AlertLevel = "critical" | "high" | "medium" | "low";
 
 export interface AlertLog {
   id?: number;
+  orgId?: number;
   alertDate: string;
   alertType: string;
   alertLevel: AlertLevel;
@@ -95,8 +97,40 @@ export interface DashboardSummary {
   latestReportDate: string | null;
 }
 
+export interface DashboardSalesPoint {
+  date: string;
+  salesAmount: NullableNumber;
+}
+
+export interface DashboardMarketplaceOperations {
+  marketplace: string;
+  metricProductCount: number;
+  salesAmount: NullableNumber;
+  previousSalesAmount: NullableNumber;
+  orders: NullableNumber;
+  adSpend: NullableNumber;
+  acos: NullableNumber;
+  grossMargin: NullableNumber;
+  sevenDaySales: DashboardSalesPoint[];
+}
+
+export interface DashboardOperationsSummary {
+  date: string;
+  activeProductCount: number;
+  productMetricCount: number;
+  inventoryRiskSkuCount: number;
+  openTaskCount: number;
+  lastSyncedAt: string | null;
+  marketplaces: DashboardMarketplaceOperations[];
+}
+
+export interface DashboardOverviewResponse extends DashboardSummary {
+  operations: DashboardOperationsSummary;
+}
+
 export interface CollectTaskLog {
   id: number;
+  orgId: number;
   taskType: string;
   keywordId: number | null;
   keyword: string | null;
@@ -114,6 +148,7 @@ export interface CollectTaskLog {
 
 export interface CollectJob {
   id: number;
+  orgId: number;
   taskType: "keyword" | "category";
   targetId: number;
   date: string;
@@ -134,6 +169,10 @@ export interface CollectionFreshness {
   lastCompletedAt: string | null;
   lastStartedAt: string | null;
   lastStatus: "completed" | "failed" | "pending" | "processing" | null;
+  dataSource: string | null;
+  lastSyncedAt: string | null;
+  syncStatus: "pending" | "success" | "partial" | "failed" | "manual" | null;
+  syncError: string | null;
   totalJobs: number;
   failedJobs: number;
 }

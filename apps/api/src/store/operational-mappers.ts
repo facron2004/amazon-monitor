@@ -9,6 +9,7 @@ import type {
 } from "@amazon-monitor/shared";
 
 export interface ChangeRow {
+  org_id: number;
   asin: string;
   keyword: string;
   marketplace: string;
@@ -29,6 +30,7 @@ export interface ChangeRow {
 
 export function mapChange(row: ChangeRow): DailyChange {
   return {
+    orgId: row.org_id,
     asin: row.asin,
     keyword: row.keyword,
     marketplace: row.marketplace,
@@ -50,6 +52,7 @@ export function mapChange(row: ChangeRow): DailyChange {
 
 export interface AlertRow {
   id: number;
+  org_id: number;
   alert_date: string;
   alert_type: string;
   alert_level: AlertLevel;
@@ -67,6 +70,7 @@ export interface AlertRow {
 export function mapAlert(row: AlertRow): AlertLog {
   return {
     id: row.id,
+    orgId: row.org_id,
     alertDate: row.alert_date,
     alertType: row.alert_type,
     alertLevel: row.alert_level,
@@ -84,6 +88,7 @@ export function mapAlert(row: AlertRow): AlertLog {
 
 export interface TaskLogRow {
   id: number;
+  org_id: number;
   task_type: string;
   keyword_id: number | null;
   keyword: string | null;
@@ -102,6 +107,7 @@ export interface TaskLogRow {
 export function mapTaskLog(row: TaskLogRow): CollectTaskLog {
   return {
     id: row.id,
+    orgId: row.org_id,
     taskType: row.task_type,
     keywordId: row.keyword_id,
     keyword: row.keyword,
@@ -120,6 +126,7 @@ export function mapTaskLog(row: TaskLogRow): CollectTaskLog {
 
 export interface NotificationScheduleRow {
   id: number;
+  org_id: number;
   name: string;
   channel: NotificationSchedule["channel"];
   target: string;
@@ -137,6 +144,7 @@ export interface NotificationScheduleRow {
 export function mapNotificationSchedule(row: NotificationScheduleRow): NotificationSchedule {
   return {
     id: row.id,
+    orgId: row.org_id,
     name: row.name,
     channel: row.channel,
     target: row.target,
@@ -154,6 +162,7 @@ export function mapNotificationSchedule(row: NotificationScheduleRow): Notificat
 
 export interface NotificationSendLogRow {
   id: number;
+  org_id: number;
   schedule_id: number;
   schedule_name: string;
   channel: NotificationSendLog["channel"];
@@ -169,6 +178,7 @@ export interface NotificationSendLogRow {
 export function mapNotificationSendLog(row: NotificationSendLogRow): NotificationSendLog {
   return {
     id: row.id,
+    orgId: row.org_id,
     scheduleId: row.schedule_id,
     scheduleName: row.schedule_name,
     channel: row.channel,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildDailyReportExcelUrl, buildPeriodInsightReportQuery } from "./api-dashboard";
+import {
+  buildDailyReportExcelUrl,
+  buildDailyReportMarkdownUrl,
+  buildPeriodInsightReportQuery
+} from "./api-reports";
 
 describe("buildPeriodInsightReportQuery", () => {
   it("passes the selected insight report period through to the API query", () => {
@@ -19,5 +23,6 @@ describe("buildPeriodInsightReportQuery", () => {
     expect(buildDailyReportExcelUrl("2026-06-30", "https://monitor.example.com/api/")).toBe(
       "https://monitor.example.com/api/reports/daily.xlsx?date=2026-06-30"
     );
+    expect(buildDailyReportMarkdownUrl("2026-06-30")).toBe("/api/reports/daily.md?date=2026-06-30");
   });
 });

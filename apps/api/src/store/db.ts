@@ -16,6 +16,16 @@ import {
   refreshActionInsightsForTraceability,
   refreshBsrSnapshotQuality,
   backfillProductPriceHistoryPromos,
+  migrateInsightOrganizationScope,
+  migrateCompetitorPoolOrganizationScope,
+  migrateKeywordOperationalOrganizationScope,
+  migrateNotificationOrganizationScope,
+  migrateSnapshotProvenance,
+  migrateKeywordAndDailyChangeUniqueness,
+  dedupeKeywordSerpSnapshots,
+  dedupeCompetitorDailyChanges,
+  ensureKeywordSerpSnapshotUniqueIndex,
+  ensureCompetitorDailyChangeUniqueIndex,
   SCHEMA_VERSION,
   getSchemaVersion,
   setSchemaVersion
@@ -80,11 +90,45 @@ export function configureDatabase(db: DatabaseSync): void {
  * 初始化数据库 schema 和执行迁移
  */
 export function initSchema(db: DatabaseSync): void {
+  // 添加新列（向后兼容旧数据库）——在 createTables 之前执行，
+  // 避免已有表缺失列导致 CREATE INDEX 失败
+  ensureColumn(db, "own_products", "store_id", "INTEGER REFERENCES commerce_stores(id) ON DELETE SET NULL");
+  ensureColumn(db, "insight_events", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "asin_watch_states", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_keyword_monitor", "priority", "TEXT NOT NULL DEFAULT 'C'");
+  ensureColumn(db, "amazon_keyword_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_bestseller_category_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_job_queue", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_task_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_competitor_pool", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_competitor_daily_change", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_alert_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_daily_report", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_notification_schedule", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_notification_send_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  db.exec("DROP INDEX IF EXISTS idx_queue_dedup_active");
+
   // 创建所有表
   createTables(db);
+  // Organization-scoped migrations backfill legacy rows to organization 1.
+  // Ensure that organization exists before those foreign keys are enforced.
+  ensureDefaultIdentity(db);
 
-  // 添加新列（向后兼容旧数据库）
+  // 添加新列（向后兼容旧数据库）——针对新表或已存在表
+  ensureColumn(db, "product_inventory_settings", "production_lead_time_days", "REAL");
+  ensureColumn(db, "product_inventory_settings", "inbound_lead_time_days", "REAL");
+  ensureColumn(db, "product_inventory_settings", "in_transit_units", "INTEGER");
+  ensureColumn(db, "product_inventory_settings", "local_warehouse_units", "INTEGER");
+  ensureColumn(db, "product_inventory_settings", "expected_arrival_date", "TEXT");
   ensureColumn(db, "amazon_keyword_serp_snapshot", "bsr_rank", "INTEGER");
+  ensureColumn(db, "amazon_keyword_monitor", "priority", "TEXT NOT NULL DEFAULT 'C'");
+  ensureColumn(db, "amazon_keyword_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_bestseller_category_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_job_queue", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_task_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_keyword_monitor_org_status ON amazon_keyword_monitor(org_id, status, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_category_monitor_org_status ON amazon_bestseller_category_monitor(org_id, status, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_collect_task_log_org_id ON amazon_collect_task_log(org_id, id DESC)");
   ensureColumn(db, "amazon_keyword_serp_snapshot", "bsr_category", "TEXT");
   ensureColumn(db, "amazon_keyword_serp_snapshot", "bsr_text", "TEXT");
   ensureColumn(db, "amazon_keyword_serp_snapshot", "bestseller_ranks_json", "TEXT");
@@ -106,6 +150,11 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_competitor_pool", "ice_type", "TEXT");
   ensureColumn(db, "amazon_competitor_pool", "competitor_tier", "TEXT DEFAULT 'watch'");
   ensureColumn(db, "amazon_competitor_pool", "competitor_reasons_json", "TEXT");
+  ensureColumn(db, "amazon_competitor_pool", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  migrateCompetitorPoolOrganizationScope(db);
+  migrateKeywordOperationalOrganizationScope(db);
+  migrateNotificationOrganizationScope(db);
+  migrateSnapshotProvenance(db);
   ensureColumn(db, "amazon_product_price_history", "review_count", "INTEGER");
   ensureColumn(db, "amazon_product_price_history", "previous_review_count", "INTEGER");
   ensureColumn(db, "amazon_product_price_history", "review_count_change", "INTEGER");
@@ -118,10 +167,20 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_competitor_action_insight", "previous_date", "TEXT");
   ensureColumn(db, "amazon_bsr_snapshot_quality", "unique_rank_count", "INTEGER DEFAULT 0");
   ensureColumn(db, "insight_events", "assignee", "TEXT");
+  migrateInsightOrganizationScope(db);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_own_products_store ON own_products(store_id)");
+  ensureColumn(db, "ai_runs", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ai_runs_org_created ON ai_runs(org_id, created_at DESC)");
 
   // 数据清理和索引
   dedupeActionInsightTargets(db);
   ensureActionInsightTargetIndex(db);
+  // Keyword SERP + daily-change uniqueness: always dedupe before unique index creation.
+  runStoreMigrationOnce(db, "keyword_daily_change_unique_v1", () => migrateKeywordAndDailyChangeUniqueness(db));
+  dedupeKeywordSerpSnapshots(db);
+  dedupeCompetitorDailyChanges(db);
+  ensureKeywordSerpSnapshotUniqueIndex(db);
+  ensureCompetitorDailyChangeUniqueIndex(db);
 
   // 数据回填
   backfillBsrRankHistory(db);

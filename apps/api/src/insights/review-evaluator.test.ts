@@ -97,6 +97,7 @@ describe("evaluateDueInsightEventReviews", () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
     const store = createStore(db);
+    store.createCategoryMonitor({ name: "Ice Makers", marketplace: "amazon.com", categoryUrl: "https://www.amazon.com/Best-Sellers/zgbs", crawlTopN: 100 });
     // 插入一个 category snapshot 让 evaluator 进入 evaluateAsinEvent 分支;
     // 但 ASIN 不在快照里 → 走 evaluateMissingAsin(drop→CONFIRMED / positive→FAILED)
     store.insertCategorySnapshots([{
@@ -158,6 +159,7 @@ describe("evaluateDueInsightEventReviews", () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
     const store = createStore(db);
+    store.createCategoryMonitor({ name: "Ice", marketplace: "amazon.com", categoryUrl: "https://www.amazon.com/Best-Sellers/zgbs", crawlTopN: 100 });
     store.insertCategorySnapshots([{
       categoryId: 1, categoryName: "Ice", marketplace: "amazon.com",
       snapshotDate: "2026-06-22", rank: 30, asin: "DROPPED", title: "x", brand: "b",

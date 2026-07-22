@@ -4,6 +4,7 @@ import type {
   BsrSnapshotQuality,
   CategoryMonitor,
   CategoryMonitorInput,
+  CategorySnapshotDiffResponse,
   CategorySignalLog,
   CollectJob,
   CompetitorActionInsight,
@@ -64,6 +65,10 @@ export const categoryApi = {
       body: JSON.stringify(payload)
     }),
   categoryDetail: (id: number, date: DatePayload["date"]) => request<CategoryDetail>(`/categories/${id}/detail?date=${date}`),
+  categoryDiff: (id: number, date: string, compareDate: string) => {
+    const params = new URLSearchParams({ date, compareDate });
+    return request<CategorySnapshotDiffResponse>(`/categories/${id}/diff?${params.toString()}`);
+  },
   collectCategory: (id: number, payload: DatePayload) =>
     request<CollectJob>(`/categories/${id}/collect`, {
       method: "POST",

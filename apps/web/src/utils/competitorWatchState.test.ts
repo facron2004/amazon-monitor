@@ -10,6 +10,7 @@ import {
 } from "./competitorWatchState";
 
 const watchState: AsinWatchState = {
+  orgId: 1,
   asin: "B0CORE0001",
   watchLevel: "CORE",
   watchReason: "Manual priority",

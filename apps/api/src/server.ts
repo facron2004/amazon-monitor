@@ -6,17 +6,20 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionContext } from "@amazon-monitor/shared";
+import { hasBusinessCapability, type SessionContext, type UserRole } from "@amazon-monitor/shared";
 import type { AmazonSearchCollector } from "./amazon-collector.js";
 import type { AmazonBestSellerCollector } from "./category-pipeline.js";
 import type { NotificationSender } from "./notifier.js";
+import type { ReportPdfRenderer } from "./reports/report-pdf.js";
 import { registerAdsRoutes } from "./routes/ads.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerAuthRoutes, sessionLoader } from "./routes/auth.js";
 import { registerBrandPlaybookRoutes } from "./routes/brand-playbooks.js";
 import { registerCompetitorRoutes } from "./routes/competitors.js";
 import { registerCategoryRoutes } from "./routes/categories.js";
-import { getDate } from "./routes/http-utils.js";
+import { registerCollectorRoutes } from "./routes/collectors.js";
+import { registerDataSourceRoutes } from "./routes/data-sources.js";
+import { getDate, optionalNumber } from "./routes/http-utils.js";
 import { registerInsightEventRoutes } from "./routes/insight-events.js";
 import { registerInsightRoutes } from "./routes/insights.js";
 import { registerInventoryRoutes } from "./routes/inventory.js";
@@ -25,10 +28,13 @@ import { registerListingHealthRoutes } from "./routes/listing-health.js";
 import { registerNotificationRoutes } from "./routes/notifications.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { registerProductRoutes } from "./routes/products.js";
+import { registerPromotionRoutes } from "./routes/promotions.js";
 import { registerProfitRoutes } from "./routes/profit.js";
 import { registerReportRoutes } from "./routes/reports.js";
 import { registerReviewVocRoutes } from "./routes/review-voc.js";
+import { registerRuleRoutes } from "./routes/rules.js";
 import { registerSopRoutes } from "./routes/sops.js";
+import { registerStoreRoutes } from "./routes/stores.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import type { Store } from "./store.js";
 
@@ -36,6 +42,7 @@ export interface ApiAppOptions {
   collector?: AmazonSearchCollector;
   categoryCollector?: AmazonBestSellerCollector;
   notificationSender?: NotificationSender;
+  reportPdfRenderer?: ReportPdfRenderer;
 }
 
 export function createApiApp(store: Store, options: ApiAppOptions = {}) {
@@ -135,20 +142,14 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   //   1) New session token (Cookie or x-amazon-monitor-session header)
   //   2) Legacy AMAZON_MONITOR_API_KEY via Authorization: Bearer
   //
-  // Compatibility (matches PRD plan):
-  //   - When AMAZON_MONITOR_API_KEY is set: every /api request must carry
-  //     either a valid session or a matching Bearer key.
-  //   - When the env var is NOT set: behave like the old dev mode — skip
-  //     auth (warning is logged). This keeps the existing test suite and
-  //     local dev workflows working.
-  //   - In production we throw if neither path is configured so the server
-  //     never boots in a fully-unprotected state.
+  // Every business API requires a session. A legacy API key can authenticate
+  // automation, while tests retain the historical anonymous mode so route
+  // fixtures can stay focused on their own behavior.
   const apiKey = process.env.AMAZON_MONITOR_API_KEY;
-  if (!apiKey) {
+  const allowAnonymousTestRequests = process.env.NODE_ENV === "test" && !apiKey;
+  if (!apiKey && !allowAnonymousTestRequests) {
     console.warn(
-      "⚠️  [SECURITY] AMAZON_MONITOR_API_KEY is not set! Authentication is " +
-      "disabled (dev mode). Set the env var or POST /api/auth/login to enable " +
-      "session-based protection."
+      "[SECURITY] AMAZON_MONITOR_API_KEY is not set; business APIs require a login session."
     );
   }
   if (isProduction && !apiKey) {
@@ -170,13 +171,17 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
     }
 
     // Auth bootstrap endpoints are public
-    if (req.path === "/api/auth/login") {
+    if (req.path === "/api/auth/login" || req.path === "/api/auth/register-first-user") {
       return next();
     }
 
     // Session-based auth (preferred)
-    const ctx = (req as Request & { sessionContext?: { user: { id: number } } }).sessionContext;
+    const ctx = (req as Request & { sessionContext?: SessionContext }).sessionContext;
     if (ctx) {
+      if (requiresBusinessCapability(req) && !canModifyBusinessRequest(ctx.user.role, req)) {
+        res.status(403).json({ message: "Forbidden: role cannot modify this business domain" });
+        return;
+      }
       return next();
     }
 
@@ -197,8 +202,11 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
       return;
     }
 
-    // No api key configured (dev mode) — allow through with a warning
-    return next();
+    if (allowAnonymousTestRequests) {
+      return next();
+    }
+
+    res.status(401).json({ message: "Unauthorized: login or valid API key required" });
   });
 
   // Static file serving for Electron / embedded mode - MUST be before API routes
@@ -212,28 +220,66 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   });
 
   app.get("/api/dashboard/summary", (request, response) => {
-    response.json(store.getDashboardSummary(getDate(request)));
+    const context = (request as Request & { sessionContext?: SessionContext }).sessionContext;
+    if (!context) {
+      response.status(401).json({ message: "Authentication required" });
+      return;
+    }
+    const date = getDate(request);
+    response.json({
+      ...store.getDashboardSummary(date, context.organization.id),
+      operations: store.getDashboardOperationsSummary(context.organization.id, date)
+    });
+  });
+
+  app.get("/api/dashboard/today-actions", (request, response) => {
+    const context = (request as Request & { sessionContext?: SessionContext }).sessionContext;
+    if (!context) {
+      response.status(401).json({ message: "Authentication required" });
+      return;
+    }
+    const limit = Math.min(Math.max(optionalNumber(request.query.limit) ?? 5, 1), 20);
+    response.json(store.listTopInsights(getDate(request), limit, undefined, context.organization.id));
+  });
+
+  app.get("/api/dashboard/events-feed", (request, response) => {
+    const context = (request as Request & { sessionContext?: SessionContext }).sessionContext;
+    if (!context) {
+      response.status(401).json({ message: "Authentication required" });
+      return;
+    }
+    response.json(store.listInsightEvents({
+      orgId: context.organization.id,
+      date: getDate(request),
+      limit: Math.min(Math.max(optionalNumber(request.query.limit) ?? 20, 1), 100),
+      offset: Math.max(optionalNumber(request.query.offset) ?? 0, 0)
+    }));
   });
 
   registerKeywordRoutes(app, store, { collector: options.collector, collectLimiter });
   registerCategoryRoutes(app, store, { categoryCollector: options.categoryCollector, collectLimiter });
+  registerCollectorRoutes(app, store, { collectLimiter });
   registerAuthRoutes(app, store);
   registerInsightEventRoutes(app, store);
   registerBrandPlaybookRoutes(app, store);
   registerInsightRoutes(app, store);
   registerCompetitorRoutes(app, store);
   registerProductRoutes(app, store);
+  registerPromotionRoutes(app, store);
   registerListingHealthRoutes(app, store);
   registerAdsRoutes(app, store);
   registerReviewVocRoutes(app, store);
   registerInventoryRoutes(app, store);
   registerProfitRoutes(app, store);
   registerAiRoutes(app, store);
-  registerReportRoutes(app, store);
+  registerReportRoutes(app, store, { reportPdfRenderer: options.reportPdfRenderer });
   registerOperationRoutes(app, store);
   registerNotificationRoutes(app, store, { notificationSender: options.notificationSender });
   registerTaskRoutes(app, store);
   registerSopRoutes(app, store);
+  registerRuleRoutes(app, store);
+  registerDataSourceRoutes(app, store);
+  registerStoreRoutes(app, store);
 
   // Fallback to index.html for SPA routing
   app.use((req, response, next) => {
@@ -264,6 +310,68 @@ function isTimingSafeEqual(input: string, expected: string): boolean {
   const b = Buffer.from(expected, "utf-8");
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+function requiresBusinessCapability(request: Request): boolean {
+  if (request.path === "/api/auth/logout") return false;
+  if (request.method === "GET") {
+    return request.path.endsWith("/open")
+      || request.path === "/api/reports/daily.md"
+      || request.path === "/api/reports/daily.xlsx"
+      || request.path === "/api/reports/daily.pdf"
+      || request.path === "/api/reports/period.pdf";
+  }
+  return request.method !== "HEAD" && request.method !== "OPTIONS";
+}
+
+function canModifyBusinessRequest(role: UserRole, request: Request): boolean {
+  if (request.path.endsWith("/profit-setting")) {
+    return hasBusinessCapability(role, "manage_profit");
+  }
+  if (
+    request.path.startsWith("/api/ads")
+    || request.path === "/api/ai/analyze-ads"
+  ) {
+    return hasBusinessCapability(role, "manage_ads");
+  }
+  if (
+    request.path.startsWith("/api/competitors")
+    || request.path.startsWith("/api/asin-watch-states")
+  ) {
+    return hasBusinessCapability(role, "manage_competitors");
+  }
+  if (request.path === "/api/ai/analyze-competitor") {
+    return hasBusinessCapability(role, "manage_competitors");
+  }
+  if (request.path === "/api/ai/create-report") {
+    return hasBusinessCapability(role, "manage_reports");
+  }
+  if (request.path.startsWith("/api/ai")) {
+    return hasBusinessCapability(role, "manage_workflow");
+  }
+  if (request.path.startsWith("/api/data-sources") || request.path.startsWith("/api/stores")) {
+    return hasBusinessCapability(role, "manage_data_sources");
+  }
+  if (request.path.startsWith("/api/promotions")) {
+    return hasBusinessCapability(role, "manage_workflow");
+  }
+  if (request.path.startsWith("/api/reports")) {
+    return hasBusinessCapability(role, "manage_reports");
+  }
+  if (request.path.startsWith("/api/notifications")) {
+    return hasBusinessCapability(role, "manage_reports");
+  }
+  if (request.path.startsWith("/api/rules")) {
+    return hasBusinessCapability(role, "manage_rules");
+  }
+  if (
+    request.path.startsWith("/api/tasks")
+    || request.path.startsWith("/api/sops")
+    || request.path.startsWith("/api/insight-events")
+  ) {
+    return hasBusinessCapability(role, "manage_workflow");
+  }
+  return role === "admin" || role === "operator";
 }
 
 function resolveLegacyApiKeyContext(store: Store): SessionContext | null {
