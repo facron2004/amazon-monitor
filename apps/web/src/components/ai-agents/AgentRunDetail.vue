@@ -7,7 +7,10 @@ import AgentActionTaskButton from "../AgentActionTaskButton.vue";
 import ListingRewriteDraftPanel from "../listing-health/ListingRewriteDraftPanel.vue";
 import ReviewVocArtifactPanel from "../review-voc/ReviewVocArtifactPanel.vue";
 import AdsOptimizationArtifactPanel from "../ads/AdsOptimizationArtifactPanel.vue";
+import ProductLaunchBriefPanel from "../categories/ProductLaunchBriefPanel.vue";
 import { useWriteAccess } from "../../composables/useWriteAccess";
+import { isAiDataFreshnessSafe } from "../../utils/ai-data-freshness";
+import AgentDataFreshness from "./AgentDataFreshness.vue";
 
 const { canWrite } = useWriteAccess("manage_workflow");
 
@@ -61,6 +64,11 @@ defineEmits<{
       </section>
 
       <template v-if="run.output">
+        <AgentDataFreshness
+          v-if="run.output.dataFreshness"
+          :freshness="run.output.dataFreshness"
+        />
+
         <section class="agent-output-section">
           <h3><CheckCircle2 :size="15" /> Summary</h3>
           <p>{{ run.output.summary }}</p>
@@ -73,16 +81,44 @@ defineEmits<{
           </ul>
         </section>
 
-        <section v-if="run.output.artifacts?.listingRewrite" class="agent-output-section">
+        <section
+          v-if="run.output.artifacts?.listingRewrite && isAiDataFreshnessSafe(run.output.dataFreshness)"
+          class="agent-output-section"
+        >
           <ListingRewriteDraftPanel :draft="run.output.artifacts.listingRewrite" />
         </section>
 
-        <section v-if="run.output.artifacts?.reviewVoc" class="agent-output-section">
+        <section
+          v-if="run.output.artifacts?.reviewVoc && isAiDataFreshnessSafe(run.output.dataFreshness)"
+          class="agent-output-section"
+        >
           <ReviewVocArtifactPanel :artifact="run.output.artifacts.reviewVoc" />
         </section>
 
-        <section v-if="run.output.artifacts?.adsOptimization" class="agent-output-section">
+        <section
+          v-if="run.output.artifacts?.adsOptimization && isAiDataFreshnessSafe(run.output.dataFreshness)"
+          class="agent-output-section"
+        >
           <AdsOptimizationArtifactPanel :artifact="run.output.artifacts.adsOptimization" />
+        </section>
+
+        <section
+          v-if="!isAiDataFreshnessSafe(run.output.dataFreshness) && (
+            run.output.artifacts?.listingRewrite
+            || run.output.artifacts?.reviewVoc
+            || run.output.artifacts?.adsOptimization
+          )"
+          class="agent-output-section agent-muted"
+        >
+          证据刷新完成后再显示可复制的执行产物。
+        </section>
+
+        <section v-if="run.output.artifacts?.productLaunchBrief" class="agent-output-section">
+          <ProductLaunchBriefPanel
+            :brief="run.output.artifacts.productLaunchBrief"
+            :run-id="run.id"
+            :data-freshness="run.output.dataFreshness"
+          />
         </section>
 
         <section class="agent-output-section">

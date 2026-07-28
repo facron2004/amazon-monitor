@@ -5,7 +5,9 @@ import { ElButton, ElDialog, ElInput, ElInputNumber, ElMessage, ElOption, ElSele
 import { MessageSquare, Plus, RefreshCw, Sparkles } from "@lucide/vue";
 import type { ReviewSentiment, ReviewVocLevel, ReviewVocSummary } from "@amazon-monitor/shared";
 import { useReviewVocStore } from "../stores/reviewVoc";
+import { isAiDataFreshnessSafe } from "../utils/ai-data-freshness";
 import AgentActionTaskButton from "./AgentActionTaskButton.vue";
+import AgentDataFreshness from "./ai-agents/AgentDataFreshness.vue";
 import ReviewVocArtifactPanel from "./review-voc/ReviewVocArtifactPanel.vue";
 
 const props = defineProps<{ date: string }>();
@@ -271,12 +273,19 @@ function emptyToNull(value: string): string | null {
 
           <section v-if="aiAnalysis" class="review-voc-section agent-output">
             <h3>Review VOC Agent</h3>
+            <AgentDataFreshness
+              v-if="aiAnalysis.output.dataFreshness"
+              :freshness="aiAnalysis.output.dataFreshness"
+            />
             <strong>{{ aiAnalysis.output.summary }}</strong>
             <p>{{ aiAnalysis.output.impact }}</p>
             <ReviewVocArtifactPanel
-              v-if="aiAnalysis.output.artifacts?.reviewVoc"
+              v-if="aiAnalysis.output.artifacts?.reviewVoc && isAiDataFreshnessSafe(aiAnalysis.output.dataFreshness)"
               :artifact="aiAnalysis.output.artifacts.reviewVoc"
             />
+            <p v-else-if="aiAnalysis.output.artifacts?.reviewVoc">
+              证据刷新完成后再显示可复制的 VOC 行动包。
+            </p>
             <ol>
               <li v-for="action in aiAnalysis.output.recommended_actions" :key="action.action">
                 <span>{{ action.priority }}</span>

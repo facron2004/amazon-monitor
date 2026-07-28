@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.1] - 2026-07-28
+
+### Added
+
+- **产品运营工作台增强**：补齐 Product Operations、Launch Brief、Validation Tasks、SOP Recommendations、Team Performance 等运营执行面板与配套 API / store / 前端工作区。
+- **AI 运行质量与数据新鲜度视图**：新增 `AgentQualityPanel`、`AgentDataFreshness` 及对应服务，帮助运营更快判断 Agent 输出是否可用。
+
+### Changed
+
+- **运营界面重构**：围绕运营信息流重排顶部动作区、概览、商品与任务工作区，统一更简洁的企业化视觉表达与更明确的状态展示。
+- **采集与归档细节修正**：修正日报归档测试夹具与采集日志分页实现，保持当前队列状态机和 Element Plus 用法一致。
+
 ## [0.6.0] - 2026-07-22
 
 ### Added

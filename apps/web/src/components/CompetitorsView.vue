@@ -38,6 +38,7 @@ interface Emits {
   (e: "set-watch-state", item: CompetitorPoolItem, level: AsinWatchLevel): void;
   (e: "open-product-activity-calendar", item: CompetitorPoolItem): void;
   (e: "open-amazon", item: CompetitorPoolItem): void;
+  (e: "open-competitor-insights", asin?: string): void;
 }
 
 defineProps<Props>();
@@ -80,7 +81,9 @@ const { canWrite: canManageCompetitors } = useWriteAccess("manage_competitors");
         />
       </div>
       <div class="competitors-view-side">
-        <CompetitorPoolInsightPanel />
+        <CompetitorPoolInsightPanel
+          @open-insights="emit('open-competitor-insights', $event)"
+        />
       </div>
     </div>
 

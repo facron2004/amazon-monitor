@@ -5,6 +5,7 @@ import {
   Flame,
   BadgePercent,
   Layers,
+  ExternalLink,
   type LucideIcon,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
@@ -12,6 +13,10 @@ import { useCompetitorStore } from "../stores/competitor";
 
 const store = useCompetitorStore();
 const { competitorInsightSuggestion, yesterdayKpiDelta } = storeToRefs(store);
+
+const emit = defineEmits<{
+  (event: "open-insights", asin?: string): void;
+}>();
 
 function openAmazonByAsin(asin: string): void {
   window.open(
@@ -91,16 +96,36 @@ function statDeltaText(
           v-for="item in competitorInsightSuggestion.topItems"
           :key="item.asin"
         >
-          <button type="button" @click="openAmazonByAsin(item.asin)">
-            <strong>{{ item.brand || "未知品牌" }}</strong>
-            <small>{{ item.asin }}</small>
+          <button
+            type="button"
+            class="competitor-insight-top-main"
+            @click="emit('open-insights', item.asin)"
+          >
+            <span>
+              <strong>{{ item.brand || "未知品牌" }}</strong>
+              <small class="competitor-insight-asin">{{ item.asin }}</small>
+            </span>
+            <ChevronRight :size="14" />
+          </button>
+          <button
+            type="button"
+            class="competitor-insight-top-external"
+            :aria-label="`在 Amazon 打开 ${item.asin}`"
+            title="在 Amazon 打开"
+            @click="openAmazonByAsin(item.asin)"
+          >
+            <ExternalLink :size="13" />
           </button>
         </li>
       </ul>
     </div>
 
-    <button type="button" class="competitor-insight-detail">
-      <span>查看详细洞察</span>
+    <button
+      type="button"
+      class="competitor-insight-detail"
+      @click="emit('open-insights')"
+    >
+      <span>进入核心竞品案卷</span>
       <ChevronRight :size="14" />
     </button>
   </aside>
@@ -236,11 +261,11 @@ function statDeltaText(
 .competitor-insight-top small {
   color: var(--text-muted, #64748b);
   display: block;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
   margin-bottom: 6px;
-  text-transform: uppercase;
 }
 
 .competitor-insight-top ul {
@@ -251,23 +276,53 @@ function statDeltaText(
   padding: 0;
 }
 
-.competitor-insight-top button {
+.competitor-insight-top li {
   align-items: center;
   background: #f8fafc;
   border: 1px solid var(--border-color);
   border-radius: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  overflow: hidden;
+}
+
+.competitor-insight-top button {
+  align-items: center;
+  background: transparent;
+  border: 0;
   color: inherit;
   cursor: pointer;
-  display: flex;
   font: inherit;
+}
+
+.competitor-insight-top-main {
+  display: flex;
   gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
   padding: 5px 8px;
   text-align: left;
-  width: 100%;
+}
+
+.competitor-insight-top-main span {
+  min-width: 0;
 }
 
 .competitor-insight-top button:hover {
   background: #f1f5f9;
+}
+
+.competitor-insight-top-external {
+  align-self: stretch;
+  border-left: 1px solid var(--border-color) !important;
+  color: var(--text-muted, #64748b) !important;
+  display: inline-flex;
+  justify-content: center;
+  padding: 0;
+}
+
+.competitor-insight-top-external svg {
+  flex: 0 0 auto;
 }
 
 .competitor-insight-top strong {
@@ -275,13 +330,13 @@ function statDeltaText(
   font-size: 12px;
 }
 
-.competitor-insight-top small {
+.competitor-insight-asin {
   color: var(--text-muted, #64748b);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 10.5px;
-  letter-spacing: 0;
-  margin: 0;
-  text-transform: none;
+  display: block;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .competitor-insight-detail {

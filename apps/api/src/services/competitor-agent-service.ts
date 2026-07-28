@@ -6,9 +6,14 @@ import type {
   InsightEventType
 } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
+import {
+  assessDataFreshness,
+  guardAgentOutput,
+  insightEventFreshnessRecords
+} from "./ai-data-freshness.js";
 import { normalizeAiActionPriority, validateAiAgentOutput } from "./ai-agent-policy.js";
 
-const COMPETITOR_ANALYST_MODEL = "deterministic-competitor-analyst-v1";
+const COMPETITOR_ANALYST_MODEL = "deterministic-competitor-analyst-v2";
 
 interface CompetitorAnalysisInput {
   date: string;
@@ -23,8 +28,20 @@ export function analyzeCompetitor(store: Store, input: CompetitorAnalysisInput):
   }
 
   const relatedEvents = findRelatedEvents(store, event);
-  const confidence = calculateConfidence(event, relatedEvents);
-  const output = buildCompetitorOutput(event, relatedEvents, confidence);
+  const dataFreshness = assessDataFreshness({
+    evidenceDate: event.eventDate,
+    records: insightEventFreshnessRecords([event, ...relatedEvents]),
+    maxAgeHours: competitorMaxAgeHours(event.eventType),
+    dataLabel: "Competitor"
+  });
+  const baseOutput = buildCompetitorOutput(event, relatedEvents, calculateConfidence(event, relatedEvents));
+  const output = guardAgentOutput(baseOutput, dataFreshness, {
+    action: `Refresh competitor evidence for ${formatSubject(event)} before planning a response`,
+    priority: "P2",
+    reason: dataFreshness.warning ?? "Competitor evidence is not ready.",
+    risk: "Pricing, ranking, or promotion responses based on stale evidence can waste margin and traffic.",
+    needs_human_approval: true
+  });
   const validationErrors = validateAiAgentOutput(output);
   const inputContextJson = JSON.stringify({
     date: input.date,
@@ -35,6 +52,7 @@ export function analyzeCompetitor(store: Store, input: CompetitorAnalysisInput):
     asin: event.asin,
     brand: event.brand,
     relatedEventIds: relatedEvents.map((item) => item.id),
+    dataFreshness,
     generatedAt: new Date().toISOString()
   });
 
@@ -62,6 +80,12 @@ export function analyzeCompetitor(store: Store, input: CompetitorAnalysisInput):
     errorMessage: null
   });
   return { date: input.date, eventId: event.id, output, run, event, relatedEvents };
+}
+
+function competitorMaxAgeHours(eventType: InsightEventType): number {
+  if (isPricingEvent(eventType)) return 3;
+  if (isRankingEvent(eventType)) return 6;
+  return 24;
 }
 
 function findRelatedEvents(store: Store, event: InsightEvent): InsightEvent[] {

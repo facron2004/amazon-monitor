@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElEmpty, ElScrollbar, ElTag } from "element-plus";
+import { ElEmpty, ElPagination, ElScrollbar, ElTag } from "element-plus";
 import { RefreshCw, ShieldCheck, TriangleAlert } from "@lucide/vue";
 import type { AiRun } from "@amazon-monitor/shared";
 import { agentLabels, formatAgentRunTime, runTitle, statusTypes } from "./ai-agent-display";
@@ -9,10 +9,14 @@ defineProps<{
   selectedRunId: number | null;
   loading: boolean;
   latestRunTime: string;
+  total: number;
+  currentPage: number;
+  pageSize: number;
 }>();
 
 const emit = defineEmits<{
   selectRun: [run: AiRun];
+  changePage: [page: number];
 }>();
 </script>
 
@@ -52,6 +56,19 @@ const emit = defineEmits<{
         </div>
       </article>
     </ElScrollbar>
+
+    <footer v-if="total > 0" class="agent-run-pagination">
+      <span>共 {{ total }} 次运行</span>
+      <ElPagination
+        size="small"
+        background
+        layout="prev, pager, next"
+        :current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        @current-change="emit('changePage', $event)"
+      />
+    </footer>
   </section>
 </template>
 
@@ -62,6 +79,21 @@ const emit = defineEmits<{
 
 .agent-run-scroll {
   max-height: 760px;
+}
+
+.agent-run-pagination {
+  align-items: center;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding-top: 12px;
+}
+
+.agent-run-pagination span {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .agent-run-row {
@@ -121,5 +153,12 @@ const emit = defineEmits<{
   color: #64748b;
   gap: 6px;
   padding-right: 10px;
+}
+
+@media (max-width: 480px) {
+  .agent-run-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

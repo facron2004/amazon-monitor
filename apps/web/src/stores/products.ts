@@ -1,12 +1,19 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import type { OwnedProductDetail, OwnedProductListItem, OwnedProductStatus } from "@amazon-monitor/shared";
+import type {
+  OwnedProductDetail,
+  OwnedProductListItem,
+  OwnedProductOperationsDetail,
+  OwnedProductStatus,
+} from "@amazon-monitor/shared";
 import { productApi, type CreateProductPayload, type UpsertProductMetricPayload } from "../api-products";
 
 export const useProductStore = defineStore("products", () => {
   const products = ref<OwnedProductListItem[]>([]);
   const selectedProduct = ref<OwnedProductDetail | null>(null);
+  const selectedOperations = ref<OwnedProductOperationsDetail | null>(null);
   const loading = ref(false);
+  const detailLoading = ref(false);
   const saving = ref(false);
   const error = ref<string | null>(null);
   const query = ref("");
@@ -28,6 +35,7 @@ export const useProductStore = defineStore("products", () => {
         const current = products.value.find((item) => item.id === selectedProduct.value?.id);
         if (!current) {
           selectedProduct.value = null;
+          selectedOperations.value = null;
         }
       }
     } catch (err) {
@@ -38,14 +46,16 @@ export const useProductStore = defineStore("products", () => {
   }
 
   async function selectProduct(id: number, date?: string): Promise<void> {
-    loading.value = true;
+    detailLoading.value = true;
     error.value = null;
     try {
-      selectedProduct.value = await productApi.fetchProductDetail(id, date);
+      const detail = await productApi.fetchProductOperations(id, date);
+      selectedOperations.value = detail;
+      selectedProduct.value = detail.product;
     } catch (err) {
       error.value = (err as Error).message;
     } finally {
-      loading.value = false;
+      detailLoading.value = false;
     }
   }
 
@@ -98,7 +108,9 @@ export const useProductStore = defineStore("products", () => {
   return {
     products,
     selectedProduct,
+    selectedOperations,
     loading,
+    detailLoading,
     saving,
     error,
     query,

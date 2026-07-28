@@ -421,12 +421,12 @@ function buildInsightEventTrend(
 ): InsightEventTrendPoint[] {
   return dateWindow(endDate, days).map((date) => {
     const events = applyDerivedInsightEventFilters(
-      store.listInsightEvents({ ...filters, date, limit: 1000 }),
+      store.listInsightEvents({ ...filters, date, limit: 0 }),
       filters,
       date
     );
     const reviewDueEvents = applyDerivedInsightEventFilters(
-      store.listReviewDueEvents(date, { ...filters, limit: 1000 }),
+      store.listReviewDueEvents(date, { ...filters, limit: 0 }),
       filters,
       date
     );
@@ -441,7 +441,7 @@ function listInsightEventsForQuery(store: Store, query: InsightEventListParams, 
   }
 
   const { limit, offset, ...filters } = effectiveQuery;
-  const events = store.listInsightEvents({ ...filters, limit: 1000 });
+  const events = store.listInsightEvents({ ...filters, limit: 0 });
   return paginateEvents(
     applyDerivedInsightEventFilters(events, filters, currentDate),
     limit ?? 50,
@@ -459,7 +459,7 @@ function listReviewDueEventsForQuery(
   }
 
   const { limit, offset, ...filters } = query;
-  const events = store.listReviewDueEvents(date, { ...filters, limit: 1000 });
+  const events = store.listReviewDueEvents(date, { ...filters, limit: 0 });
   return paginateEvents(
     applyDerivedInsightEventFilters(events, filters, date),
     limit,

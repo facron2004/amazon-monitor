@@ -21,6 +21,7 @@ export const useAdsStore = defineStore("ads", () => {
   );
 
   async function fetchSummary(date: string): Promise<void> {
+    if (aiAnalysis.value?.date !== date) aiAnalysis.value = null;
     loading.value = true;
     error.value = null;
     try {
@@ -49,6 +50,7 @@ export const useAdsStore = defineStore("ads", () => {
     try {
       const metric = await adsApi.upsertMetric(payload);
       selectedMetricId.value = metric.id;
+      aiAnalysis.value = null;
       await fetchSummary(date);
     } catch (err) {
       error.value = (err as Error).message;

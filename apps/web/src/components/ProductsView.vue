@@ -7,6 +7,7 @@ import type {
   OwnedProductDetail,
   OwnedProductListItem,
 } from "@amazon-monitor/shared";
+import type { TabKey } from "../constants/tabs";
 import { useProductStore } from "../stores/products";
 import { useCommerceStoresStore } from "../stores/commerceStores";
 import ProductKpiStrip from "./products/ProductKpiStrip.vue";
@@ -21,8 +22,9 @@ const props = defineProps<{ date: string }>();
 const store = useProductStore();
 const commerceStoresStore = useCommerceStoresStore();
 const { stores: commerceStores } = storeToRefs(commerceStoresStore);
-const { products, selectedProduct, loading, error, query, status, storeId } =
+const { products, selectedProduct, selectedOperations, loading, detailLoading, error, query, status, storeId } =
   storeToRefs(store);
+const emit = defineEmits<{ navigate: [tab: TabKey] }>();
 
 const createDialogOpen = ref(false);
 const metricDialogOpen = ref(false);
@@ -126,10 +128,12 @@ function openMetricDialog(
         @edit-metric="openMetricDialog"
       />
       <ProductDetailPanel
-        :product="selectedProduct"
+        :operations="selectedOperations"
         :stores="commerceStores"
+        :loading="detailLoading"
         @edit-store="storeDialogOpen = true"
         @edit-metric="openMetricDialog"
+        @navigate="emit('navigate', $event)"
       />
     </div>
 

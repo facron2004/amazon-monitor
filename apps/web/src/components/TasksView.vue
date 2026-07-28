@@ -8,6 +8,7 @@ import TaskExecutionDialog from "./tasks/TaskExecutionDialog.vue";
 import TaskNotesDialog from "./tasks/TaskNotesDialog.vue";
 import TaskReviewDialog from "./tasks/TaskReviewDialog.vue";
 import TaskSopDialog from "./tasks/TaskSopDialog.vue";
+import TaskTeamPerformancePanel from "./tasks/TaskTeamPerformancePanel.vue";
 import TaskWorkspaceHeader from "./tasks/TaskWorkspaceHeader.vue";
 import { useTaskWorkspace } from "../composables/useTaskWorkspace.js";
 
@@ -26,6 +27,15 @@ const workspace = useTaskWorkspace();
     />
 
     <ReadOnlyNotice v-if="!workspace.canWrite.value" />
+
+    <TaskTeamPerformancePanel
+      v-if="workspace.canAssignTasks.value"
+      v-model:days="workspace.performanceDays.value"
+      :performance="workspace.performance.value"
+      :loading="workspace.performanceLoading.value"
+      :error="workspace.performanceError.value"
+      @retry="workspace.loadPerformance"
+    />
 
     <div v-if="workspace.error.value" class="task-workspace-error" role="alert">
       <span>{{ workspace.error.value }}</span>
@@ -70,6 +80,7 @@ const workspace = useTaskWorkspace();
       :task="workspace.detailTask.value"
       :source-event="workspace.detailSourceEvent.value"
       :source-ai-run="workspace.detailSourceAiRun.value"
+      :sop-recommendations="workspace.detailSopRecommendations.value"
       :loading="workspace.detailLoading.value"
       @close="workspace.closeDetail"
     />

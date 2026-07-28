@@ -19,6 +19,7 @@ export const useReviewVocStore = defineStore("reviewVoc", () => {
   );
 
   async function fetchSummaries(date: string): Promise<void> {
+    if (aiAnalysis.value?.date !== date) aiAnalysis.value = null;
     loading.value = true;
     error.value = null;
     try {
@@ -42,6 +43,7 @@ export const useReviewVocStore = defineStore("reviewVoc", () => {
     try {
       await reviewVocApi.upsertReview(productId, payload);
       selectedProductId.value = productId;
+      aiAnalysis.value = null;
       await fetchSummaries(date);
     } catch (err) {
       error.value = (err as Error).message;

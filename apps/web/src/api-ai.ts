@@ -6,7 +6,9 @@ import type {
   AiCompetitorAnalysisResponse,
   AiDailyBriefResponse,
   AiListingAnalysisResponse,
+  AiProductLaunchValidationTasksResponse,
   AiProductResearchResponse,
+  AiQualityResponse,
   AiReportType,
   AiReportWriterResponse,
   AiRunListResponse,
@@ -35,11 +37,18 @@ function buildRunListQuery(params: AiRunListParams): string {
 export const aiApi = {
   listRuns: (params: AiRunListParams = {}) =>
     request<AiRunListResponse>(`/ai/runs${buildRunListQuery(params)}`),
+  getQuality: (days: 7 | 30 | 90) =>
+    request<AiQualityResponse>(`/ai/quality?days=${days}`),
   setActionFeedback: (runId: number, actionIndex: number, value: AiActionFeedbackValue) =>
     request<AiActionFeedback>(`/ai/runs/${runId}/actions/${actionIndex}/feedback`, {
       method: "PUT",
       body: JSON.stringify({ value })
     }),
+  createProductLaunchValidationTasks: (runId: number) =>
+    request<AiProductLaunchValidationTasksResponse>(
+      `/ai/runs/${runId}/product-launch-brief/tasks`,
+      { method: "POST" }
+    ),
   generateDailyBrief: (date: string) =>
     request<AiDailyBriefResponse>("/ai/daily-brief", {
       method: "POST",

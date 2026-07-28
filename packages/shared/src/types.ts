@@ -4,6 +4,7 @@ export * from "./types-workflow.js";
 export * from "./types-ai.js";
 export * from "./types-monitors.js";
 export * from "./types-products.js";
+export * from "./types-product-operations.js";
 export * from "./types-listing-health.js";
 export * from "./types-ads.js";
 export * from "./types-review-voc.js";

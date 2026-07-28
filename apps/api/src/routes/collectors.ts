@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { kill } from "node:process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Express, Request, RequestHandler } from "express";
@@ -65,6 +66,19 @@ export function registerCollectorRoutes(
     response.json(store.listTaskLogs(query.limit ?? 50, query.offset ?? 0, context.organization.id));
   });
 
+  app.get("/api/collectors/logs/page", (request, response) => {
+    const context = requireSessionContext(request);
+    const query = validateQuery(paginationQuerySchema, request.query);
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+    response.json({
+      logs: store.listTaskLogs(limit, offset, context.organization.id),
+      total: store.countTaskLogs(context.organization.id),
+      limit,
+      offset
+    });
+  });
+
   app.get("/api/collectors/freshness", (request, response) => {
     const context = requireSessionContext(request);
     response.json(store.getCollectionFreshness(context.organization.id));
@@ -79,7 +93,34 @@ export function registerCollectorRoutes(
     response.json(store.getWorkerStatus());
   });
 
+  // Track last spawned worker so we can kill it before spawning another
+  let lastWorkerProcess: ReturnType<typeof spawn> | null = null;
+
+  function killWorkerProcessSync(pid: number): void {
+    try {
+      kill(pid, "SIGTERM");
+    } catch {
+      // process may already be dead
+    }
+  }
+
   app.post("/api/collectors/worker-restart", asyncHandler(async (_request, response) => {
+    // Kill previously spawned worker (if any)
+    if (lastWorkerProcess?.pid) {
+      try {
+        killWorkerProcessSync(lastWorkerProcess.pid);
+      } catch {
+        // ignore
+      }
+      lastWorkerProcess = null;
+    }
+
+    // Kill existing worker from heartbeat table (if running)
+    const status = store.getWorkerStatus();
+    if (status.pid && !status.offline) {
+      killWorkerProcessSync(status.pid);
+    }
+
     const child = spawn("npm", ["run", "worker"], {
       cwd: process.cwd(),
       detached: true,
@@ -87,6 +128,7 @@ export function registerCollectorRoutes(
       shell: true
     });
     child.unref();
+    lastWorkerProcess = child;
     response.status(202).json({ started: true, pid: child.pid ?? null });
   }));
 }

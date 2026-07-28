@@ -82,6 +82,8 @@ const cards = computed<MetricCard[]>(() => {
     }
   ];
 });
+const primaryCards = computed(() => cards.value.slice(0, 4));
+const secondaryCards = computed(() => cards.value.slice(4));
 
 function moneyMetric(key: "salesAmount" | "previousSalesAmount" | "adSpend"): Pick<MetricCard, "value" | "detail"> {
   const available = marketplaces.value.filter((item) => item[key] !== null);
@@ -136,8 +138,8 @@ function formatNumber(value: number | null): string {
       <p>{{ coverageText }} · {{ updatedText }}</p>
     </header>
 
-    <div class="overview-operations__grid">
-      <article v-for="(card, index) in cards" :key="card.label" :class="['operations-metric', card.tone && `operations-metric--${card.tone}`]">
+    <div class="overview-operations__primary-grid">
+      <article v-for="(card, index) in primaryCards" :key="card.label" :class="['operations-metric', card.tone && `operations-metric--${card.tone}`]">
         <div class="operations-metric__label">
           <component :is="card.icon" :size="15" />
           <span>{{ card.label }}</span>
@@ -147,6 +149,17 @@ function formatNumber(value: number | null): string {
         <div v-if="index === 0 && salesTrend.length" class="operations-trend" aria-label="近 7 日销售趋势">
           <i v-for="point in salesTrend" :key="point.date" :style="{ height: `${point.height}px` }" :title="`${point.date}: ${point.salesAmount ?? '--'}`" />
         </div>
+      </article>
+    </div>
+
+    <div class="overview-operations__secondary-grid">
+      <article v-for="card in secondaryCards" :key="card.label" :class="['operations-metric', card.tone && `operations-metric--${card.tone}`]">
+        <div class="operations-metric__label">
+          <component :is="card.icon" :size="15" />
+          <span>{{ card.label }}</span>
+        </div>
+        <strong>{{ card.value }}</strong>
+        <small>{{ card.detail }}</small>
       </article>
     </div>
 

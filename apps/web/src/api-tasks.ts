@@ -1,10 +1,11 @@
 import { downloadFile, request } from "./api-base.js";
-import { isoDate, type AiRun, type InsightEvent, type Task, type TaskExecutionInput, type TaskNote, type TaskPriority, type TaskStatus, type TaskType } from "@amazon-monitor/shared";
+import { isoDate, type AiRun, type InsightEvent, type Task, type TaskExecutionInput, type TaskNote, type TaskPriority, type TaskSopRecommendation, type TaskStatus, type TaskTeamPerformanceResponse, type TaskType } from "@amazon-monitor/shared";
 
 export interface TaskDetailResponse {
   task: Task;
   sourceEvent: InsightEvent | null;
   sourceAiRun: AiRun | null;
+  sopRecommendations: TaskSopRecommendation[];
 }
 
 export interface CreateTaskInput {
@@ -53,6 +54,14 @@ export function listTasks(params: TaskListParams = {}): Promise<Task[]> {
   if (params.offset) search.set("offset", String(params.offset));
   const qs = search.toString();
   return request<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
+}
+
+export function getTaskTeamPerformance(
+  days: 7 | 30 | 90,
+): Promise<TaskTeamPerformanceResponse> {
+  return request<TaskTeamPerformanceResponse>(
+    `/api/tasks/team-performance?days=${days}`,
+  );
 }
 
 export function downloadTaskExecutionCsv(priority?: TaskPriority): Promise<void> {

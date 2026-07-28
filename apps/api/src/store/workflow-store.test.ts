@@ -224,6 +224,30 @@ describe("sop store", () => {
     expect(res).toHaveLength(1);
     expect(res[0].title).toContain("Listing");
   });
+
+  it("counts with the same organization, status, category, and tag filters as the list", () => {
+    store.createSop({
+      orgId: 1,
+      title: "Price playbook",
+      category: "price_action",
+      bodyMd: "x",
+      tags: ["B0MATCH123"]
+    });
+    store.createSop({
+      orgId: 1,
+      title: "Other playbook",
+      category: "general",
+      bodyMd: "x"
+    });
+
+    expect(store.countSops({ orgId: 1 })).toBe(2);
+    expect(store.countSops({
+      orgId: 1,
+      category: "price_action",
+      q: "B0MATCH123"
+    })).toBe(1);
+    expect(store.listSops({ orgId: 1, q: "B0MATCH123" })).toHaveLength(1);
+  });
 });
 
 describe("task ↔ insight_event link", () => {

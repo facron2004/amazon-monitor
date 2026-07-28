@@ -7,9 +7,10 @@ import type {
   AiRecommendedAction
 } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
+import { assessDataFreshness, guardAgentOutput } from "./ai-data-freshness.js";
 import { normalizeAiActionPriority, validateAiAgentOutput } from "./ai-agent-policy.js";
 
-const ADS_ANALYST_MODEL = "deterministic-ads-analyst-v2";
+const ADS_ANALYST_MODEL = "deterministic-ads-analyst-v3";
 
 interface AdsAnalysisInput {
   date: string;
@@ -22,8 +23,24 @@ export function analyzeAds(store: Store, input: AdsAnalysisInput): AiAdsAnalysis
     date: input.date,
     limit: 200
   });
-  const confidence = summary.items.length === 0 ? 0.35 : 0.72;
-  const output = buildAdsAnalystOutput(summary.items, input.date, confidence);
+  const dataFreshness = assessDataFreshness({
+    evidenceDate: input.date,
+    records: summary.items.map((item) => item.metric),
+    maxAgeHours: 24,
+    dataLabel: "Ads"
+  });
+  const baseOutput = buildAdsAnalystOutput(
+    summary.items,
+    input.date,
+    summary.items.length === 0 ? 0.35 : 0.72
+  );
+  const output = guardAgentOutput(baseOutput, dataFreshness, {
+    action: "Import a complete Ads daily dataset before changing bids, budgets, or negatives",
+    priority: "P2",
+    reason: dataFreshness.warning ?? "Ads evidence is not ready.",
+    risk: "Stale or partial attribution data can cut profitable traffic or scale unprofitable spend.",
+    needs_human_approval: true
+  });
   const validationErrors = validateAiAgentOutput(output);
   const inputContextJson = JSON.stringify({
     date: input.date,
@@ -31,6 +48,7 @@ export function analyzeAds(store: Store, input: AdsAnalysisInput): AiAdsAnalysis
     itemCount: summary.items.length,
     riskCount: summary.riskCount,
     scaleCount: summary.scaleCount,
+    dataFreshness,
     generatedAt: new Date().toISOString()
   });
 

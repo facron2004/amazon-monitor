@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { Activity, CalendarDays, LayoutPanelTop, Menu, Play, RefreshCw } from "@lucide/vue";
+import { Activity, CalendarDays, LayoutPanelTop, Menu, Play, RefreshCw, Search } from "@lucide/vue";
 import type { CollectionFreshness, QueueStats, WorkerStatus } from "@amazon-monitor/shared";
+import type { TabKey } from "../constants/tabs";
+import { tabs } from "../constants/tabs";
 import { useWriteAccess } from "../composables/useWriteAccess";
 import FreshnessBadge from "./FreshnessBadge.vue";
 
@@ -24,18 +26,51 @@ const emit = defineEmits<{
   (event: "refresh"): void;
   (event: "restart-worker"): void;
   (event: "poll-worker-status"): void;
+  (event: "navigate", value: TabKey): void;
 }>();
 
 const pollingTimer = ref<number | null>(null);
+const commandInput = ref<HTMLInputElement | null>(null);
+const commandQuery = ref("");
+const commandOpen = ref(false);
+const filteredTabs = computed(() => {
+  const query = commandQuery.value.trim().toLocaleLowerCase();
+  if (!query) return tabs.slice(0, 6);
+  return tabs
+    .filter((tab) => tab.label.toLocaleLowerCase().includes(query) || tab.key.includes(query))
+    .slice(0, 6);
+});
 
 onMounted(() => {
   emit("poll-worker-status");
   pollingTimer.value = window.setInterval(() => emit("poll-worker-status"), 5000);
+  window.addEventListener("keydown", handleCommandShortcut);
 });
 
 onUnmounted(() => {
   if (pollingTimer.value !== null) window.clearInterval(pollingTimer.value);
+  window.removeEventListener("keydown", handleCommandShortcut);
 });
+
+function handleCommandShortcut(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
+    event.preventDefault();
+    commandInput.value?.focus();
+    commandOpen.value = true;
+  }
+}
+
+function navigateTo(tab: TabKey) {
+  emit("navigate", tab);
+  commandQuery.value = "";
+  commandOpen.value = false;
+}
+
+function closeCommandMenu() {
+  window.setTimeout(() => {
+    commandOpen.value = false;
+  }, 120);
+}
 
 /**
  * Human-readable summary of queue health. Returns null when no stats are
@@ -137,6 +172,35 @@ const workerIndicator = computed(() => {
       </span>
       <span class="topbar-divider" aria-hidden="true"></span>
       <h1>{{ activeTabLabel }}</h1>
+    </div>
+
+    <div class="global-command">
+      <Search :size="16" aria-hidden="true" />
+      <input
+        ref="commandInput"
+        v-model="commandQuery"
+        type="search"
+        placeholder="搜索页面、功能或工作流"
+        aria-label="全局页面搜索"
+        aria-controls="global-command-results"
+        :aria-expanded="commandOpen"
+        @focus="commandOpen = true"
+        @blur="closeCommandMenu"
+        @keydown.esc="commandOpen = false"
+      />
+      <kbd>Ctrl K</kbd>
+      <div v-if="commandOpen && filteredTabs.length" id="global-command-results" class="global-command-results" role="listbox">
+        <button
+          v-for="tab in filteredTabs"
+          :key="tab.key"
+          type="button"
+          role="option"
+          @mousedown.prevent="navigateTo(tab.key)"
+        >
+          <component :is="tab.icon" :size="16" />
+          <span>{{ tab.label }}</span>
+        </button>
+      </div>
     </div>
 
     <div class="topbar-command-bar">

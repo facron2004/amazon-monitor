@@ -281,6 +281,11 @@ export function useAppController() {
     await insightEventsStore.loadEventDetail(event.id);
   }
 
+  function openCompetitorInsights(asin?: string) {
+    insightEventsStore.focusCompetitorInsights(date.value, asin);
+    activeTab.value = "action-center";
+  }
+
   async function generateDailyBrief() {
     try {
       await insightEventsStore.generateDailyBrief(date.value);
@@ -441,6 +446,7 @@ export function useAppController() {
     ...overviewWorkflow,
     generateDailyBrief,
     openActionCenterForEvent,
+    openCompetitorInsights,
     categories: categoryMonitors,
     loadCategories: category.loadCategories,
     loadCategoryDetail: category.loadCategoryDetail,

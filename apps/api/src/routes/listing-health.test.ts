@@ -109,9 +109,14 @@ describe("listing health routes", () => {
 
     expect(analysis.body.output.summary).toContain("Listing health score");
     expect(analysis.body.output.recommended_actions[0]).toMatchObject({
-      priority: "P0",
+      priority: "P2",
       needs_human_approval: true
     });
+    expect(analysis.body.output.dataFreshness).toMatchObject({
+      freshnessStatus: "stale",
+      maxAgeHours: 24
+    });
+    expect(analysis.body.output.confidence).toBe(0.49);
     expect(analysis.body.output.artifacts.listingRewrite).toMatchObject({
       proposedTitle: expect.stringContaining("Nugget Ice Maker"),
       bullets: expect.arrayContaining([
@@ -133,7 +138,7 @@ describe("listing health routes", () => {
     expect(analysis.body.run).toMatchObject({
       agentType: "listing_optimizer",
       status: "success",
-      model: "deterministic-listing-optimizer-v2"
+      model: "deterministic-listing-optimizer-v3"
     });
     const persistedRuns = store.listAiRuns({ agentType: "listing_optimizer" });
     expect(persistedRuns).toHaveLength(1);

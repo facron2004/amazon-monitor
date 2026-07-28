@@ -11,6 +11,7 @@ import {
 import {
   sopCategories,
   sopCategoryLabels,
+  taskTypeSopCategory,
   type Sop,
   type Task,
 } from "@amazon-monitor/shared";
@@ -29,27 +30,18 @@ const body = ref("");
 const tags = ref("");
 const saving = ref(false);
 
-const categoriesByTaskType: Partial<Record<Task["taskType"], Sop["category"]>> =
-  {
-    price: "price_action",
-    coupon: "price_action",
-    ad: "ad_optimization",
-    listing: "listing_optimization",
-    image: "listing_optimization",
-    inventory: "inventory_replenishment",
-    competitor: "competitor_response",
-    review: "review_response",
-    supplier: "supplier_negotiation",
-    campaign_recap: "competitor_response",
-  };
-
 watch(
   () => props.task,
   (task) => {
     if (!task) return;
     title.value = `SOP｜${task.title}`;
-    category.value = categoriesByTaskType[task.taskType] ?? "general";
-    tags.value = [task.taskType, task.relatedAsin, task.relatedBrand]
+    category.value = taskTypeSopCategory[task.taskType];
+    tags.value = [
+      task.taskType,
+      task.relatedAsin,
+      task.relatedBrand,
+      task.relatedKeyword,
+    ]
       .filter((tag): tag is string => Boolean(tag))
       .join(", ");
     body.value = buildTaskSopDraft(task);

@@ -146,6 +146,13 @@ export interface CollectTaskLog {
   createdAt: string;
 }
 
+export interface CollectTaskLogListResponse {
+  logs: CollectTaskLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface CollectJob {
   id: number;
   orgId: number;

@@ -133,6 +133,21 @@ export const taskTypeLabels: Record<TaskType, string> = {
   other: "其他"
 };
 
+export const taskTypeSopCategory: Record<TaskType, SopCategory> = {
+  price: "price_action",
+  coupon: "price_action",
+  ad: "ad_optimization",
+  listing: "listing_optimization",
+  image: "listing_optimization",
+  inventory: "inventory_replenishment",
+  keyword: "general",
+  competitor: "competitor_response",
+  review: "review_response",
+  supplier: "supplier_negotiation",
+  campaign_recap: "competitor_response",
+  other: "general"
+};
+
 export const taskStatusLabels: Record<TaskStatus, string> = {
   pending: "待处理",
   in_progress: "进行中",
@@ -161,6 +176,27 @@ export interface Sop {
   createdBy: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskSopRecommendation {
+  sop: Sop;
+  score: number;
+  matchReasons: string[];
+}
+
+export interface SopStatusCounts {
+  all: number;
+  draft: number;
+  published: number;
+  archived: number;
+}
+
+export interface SopListResponse {
+  sops: Sop[];
+  total: number;
+  limit: number;
+  offset: number;
+  statusCounts: SopStatusCounts;
 }
 
 export interface InsightEventTaskLink {
@@ -211,6 +247,34 @@ export interface TaskExecutionInput {
   actionTaken: string;
   resultBefore?: TaskMetricEntry[];
   resultAfter?: TaskMetricEntry[];
+}
+
+export interface TaskTeamPerformanceMetrics {
+  assignedCount: number;
+  completedCount: number;
+  openCount: number;
+  overdueCount: number;
+  reviewedCount: number;
+  confirmedCount: number;
+  dueCompletedCount: number;
+  onTimeCompletedCount: number;
+  onTimeRate: number | null;
+  confirmationRate: number | null;
+  averageCycleHours: number | null;
+}
+
+export interface TaskTeamPerformanceMember extends TaskTeamPerformanceMetrics {
+  assigneeId: number | null;
+  assigneeName: string;
+}
+
+export interface TaskTeamPerformanceResponse {
+  windowDays: 7 | 30 | 90;
+  rangeStart: string;
+  rangeEnd: string;
+  generatedAt: string;
+  totals: TaskTeamPerformanceMetrics;
+  members: TaskTeamPerformanceMember[];
 }
 
 export interface CreateSopInput {

@@ -3,6 +3,7 @@ import type {
   OwnedProduct,
   OwnedProductDetail,
   OwnedProductListItem,
+  OwnedProductOperationsDetail,
   OwnedProductStatus,
   UpsertOwnedProductDailyMetricInput
 } from "@amazon-monitor/shared";
@@ -55,6 +56,11 @@ export const productApi = {
 
   fetchProductDetail: (id: number, date?: string) =>
     request<OwnedProductDetail>(`/products/${id}${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+
+  fetchProductOperations: (id: number, date?: string) =>
+    request<OwnedProductOperationsDetail>(
+      `/products/${id}/operations${date ? `?date=${encodeURIComponent(date)}` : ""}`
+    ),
 
   upsertMetric: (productId: number, payload: UpsertProductMetricPayload) =>
     request(`/products/${productId}/metrics`, {

@@ -1,14 +1,12 @@
 import type { Express, Request } from "express";
 import {
   hasBusinessCapability,
-  type AdsWorkflowItem,
   type AdsWorkflowLevel,
-  type AdsWorkflowResponse,
-  type AdsWorkflowSummary,
   type SessionContext
 } from "@amazon-monitor/shared";
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { toAdsFull, toAdsSummary } from "../services/domain-access.js";
 import { asyncHandler } from "./http-utils.js";
 import { validateBody, validateQuery } from "./validation.js";
 
@@ -88,9 +86,7 @@ export function registerAdsRoutes(app: Express, store: Store): void {
       limit: query.limit,
       offset: query.offset
     });
-    response.json(accessLevel === "full"
-      ? { ...summary, accessLevel }
-      : toAdsSummary(summary));
+    response.json(accessLevel === "full" ? toAdsFull(summary) : toAdsSummary(summary));
   }));
 
   app.get("/api/ads/metrics", asyncHandler(async (request, response) => {
@@ -146,54 +142,6 @@ export function registerAdsRoutes(app: Express, store: Store): void {
     });
     response.status(201).json(metric);
   }));
-}
-
-function toAdsSummary(summary: AdsWorkflowSummary): AdsWorkflowResponse {
-  return {
-    ...summary,
-    accessLevel: "summary",
-    totalSpend: null,
-    totalSales: null,
-    items: summary.items.map(toAdsSummaryItem)
-  };
-}
-
-function toAdsSummaryItem(item: AdsWorkflowItem): AdsWorkflowItem {
-  return {
-    ...item,
-    metric: {
-      ...item.metric,
-      campaignId: `restricted-${item.metric.id}`,
-      campaignName: "Restricted campaign",
-      adGroupName: null,
-      targetText: null,
-      searchTerm: null,
-      matchType: null,
-      impressions: null,
-      clicks: null,
-      spend: null,
-      sales: null,
-      orders: null,
-      unitsSold: null,
-      roas: null,
-      cpc: null,
-      ctr: null,
-      cvr: null,
-      budget: null,
-      budgetUsageRate: null,
-      syncError: null
-    },
-    productSku: null,
-    productAsin: null,
-    efficiencyScore: 0,
-    wasteScore: 0,
-    scaleScore: 0,
-    insights: item.insights.map((insight) => ({
-      ...insight,
-      message: "A threshold-based Ads signal needs review by the Ads owner.",
-      evidence: []
-    }))
-  };
 }
 
 function ensureProductInOrg(store: Store, productId: number | undefined, orgId: number): void {

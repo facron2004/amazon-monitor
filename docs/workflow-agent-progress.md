@@ -1,5 +1,166 @@
 # Workflow Agent 开发进度
 
+## 2026-07-28
+
+MVP / V1 completion audit:
+
+- Rechecked the current implementation against all 14 MVP acceptance criteria and the PRD P0/P1 boundary. The live workspace covers master-data entry, real or simulated snapshots, 10 operational rule types, Today 5, event-to-task handoff, task completion/review, competitor trends, BSR Top100 and brand matrix, keyword rank matrix, evidence-backed Agents, Markdown reports, collector failure evidence, page states, and approval-gated high-risk actions.
+- Confirmed the P1 workflows remain present end to end: Ads recommendations, replenishment, profit guardrails, Review VOC, Listing rewrite drafts, promotion scheduling, weekly/monthly archives, multi-store/marketplace scope, visual rule configuration, and SOP reuse.
+- Updated the daily-report readiness regression fixture to follow the real queue state machine (`pending -> processing -> failed`), preserving the production guard that rejects invalid direct failures while proving failed collections route operators to the correct recovery action.
+- Replaced the collector pagination component's deprecated `small` prop with `size="small"` after a real browser pass surfaced the Element Plus warning.
+- Verified all 792 repository tests (`59` shared, `520` API, `213` Web), the full shared/API/Web production build, and the focused Web test/build after the UI cleanup.
+- Verified authenticated desktop and 390px mobile flows for Today 5, BSR Top100/brand evidence, keyword rank matrix, reviewed tasks, report archives/data gaps, and collector failures. A fresh browser tab reported zero application errors or warnings; document width matched the viewport at 1440px and 390px.
+- PRD P2 items remain intentionally outside this completion boundary: additional commerce platforms, direct ERP/finance/WMS connectors, semi-automatic repricing, Ads API execution, autonomous approval flows, native mobile apps, and SaaS commercialization.
+
+## 2026-07-26
+
+Owned SKU 360 operations detail:
+
+- Extended the existing Owned SKU center into the PRD E3 operations workspace without duplicating domain data. One organization-scoped detail response now aligns sales, profit, Ads, inventory, keyword rank, BSR, Review VOC, Listing health, competitor evidence, Agent suggestions, tasks, and operation events to one business date.
+- Added `GET /api/products/:id/operations` with shared contracts and OpenAPI coverage. The aggregate reuses the existing Ads and profit redaction policies, so operators receive summary fields, viewers receive denied fields, and managers/admins retain full evidence.
+- Replaced the narrow score panel with three scan-first workspaces: commercial trends, health and competitor diagnosis, and the Agent/task/review loop. Empty competitor or event evidence remains an explicit data gap.
+- Added organization-isolation and role-redaction route tests plus chart-option coverage for chronological, null-safe evidence.
+- Verified the authenticated desktop and 390px mobile flows in a real browser, including task-center navigation, no horizontal overflow, image-failure fallback, and a fresh-tab console with zero errors or warnings.
+
+Cross-Agent data-freshness safety:
+
+- Extended the PRD M4 freshness contract from Product Research to Daily Operator, Competitor Analyst, Listing Optimizer, Ads Analyst, Review VOC, and Report Writer.
+- Added one deterministic assessor for evidence date, source, latest sync, collection status, failure reason, and domain threshold. Competitor price/promo evidence uses a 3-hour threshold, rank evidence uses 6 hours, and daily operational datasets use 24 hours.
+- Unsafe evidence now caps confidence at `0.49`, replaces execution recommendations with one P2 refresh action, and remains visible in persisted Agent history. Listing, Ads, and Review execution artifacts are hidden until evidence is fresh and complete.
+- Fixed date-state leakage in the Listing, Ads, and Review Pinia stores: changing the business date or modifying source evidence clears the previous Agent result before the next run.
+- Added the reusable freshness panel to all immediate Agent result surfaces and Report Writer output. Report Markdown now carries the same date/source/update/status/failure boundary.
+- Verified an isolated Ads cohort with current and historical evidence. The fresh run retained its P0 diagnosis; the stale run showed the warning, 49% confidence, one P2 refresh action, and no copyable optimization artifact. Agent history preserved the same boundary.
+- Verified desktop and 390px mobile layouts with no horizontal overflow and zero browser console errors or warnings.
+- Split the former 490-line mixed Daily/Listing Agent service into a 228-line Daily Operator service and a 274-line Listing Optimizer service without changing route contracts.
+- Verified 787 monorepo tests (`59` shared, `517` API, `211` Web), the full shared/API/Web production build, API/Web type checks, OpenAPI JSON parsing, focused freshness/route coverage, and `git diff --check`.
+
+Product Research data-freshness safety:
+
+- Closed PRD M4's stale-data warning gap for Product Research. Every run now persists the BSR evidence date, evaluation time, source, latest sync time, collection status, 24-hour requirement, failure reason, and explicit warning.
+- Added a reusable `AiDataFreshness` contract and deterministic BSR assessor. Current/previous-day evidence remains usable; evidence older than 24 hours or with failed/partial collection is treated as unsafe.
+- Advanced the model to `deterministic-product-research-v3`. Unsafe evidence caps confidence at `0.49`, emits only a P2 recollection action, changes the launch brief to `hold`, and blocks launch-validation task creation.
+- Split Product Research output policy from data loading/context assembly. The main service is now 223 lines, while freshness assessment and output decisions remain isolated, testable modules under 140 lines.
+- Added a reusable Agent freshness status panel to both category results and persisted Agent history. The UI exposes evidence date, update time, source, collection status, warning, and failure reason; Markdown exports preserve the same evidence boundary.
+- Verified an isolated live cohort with one current and one 2026-01-01 category. The fresh run showed `validate` and the four-task command; the stale run showed `hold`, 49% confidence, a P2 recollection action, and no launch-task command. Persisted history retained the same warning.
+- Verified 1440px and 390px layouts. At 390px, document and body widths stayed exactly 390px and the 337px warning region remained contained; a fresh authenticated tab had zero console errors or warnings.
+- Verified 785 monorepo tests (`59` shared, `517` API, `209` Web), the full shared/API/Web production build, API/Web type checks, OpenAPI JSON parsing, focused policy/route/formatter coverage, and `git diff --check`.
+
+## 2026-07-25
+
+Product launch validation task handoff:
+
+- Closed the workflow gap after the Product Research launch brief: an authorized operator can now turn its four required validation gates into Review VOC, profit, compliance, and supplier tasks after an explicit confirmation.
+- Added `POST /api/ai/runs/:id/product-launch-brief/tasks`, shared response contracts, and OpenAPI coverage. The endpoint accepts only a successful, organization-scoped Product Research run with a validation-ready persisted artifact.
+- Kept the approval boundary visible in both UI and task evidence. The confirmation states that task creation does not approve the launch, and every task requires human execution and review before the gate can pass.
+- Preserved traceability through `sourceType=ai_run`, the original run id, category id, evidence date, gate requirement, and Agent recommendation. Task detail resolves the source artifact back to the Product Research model and run.
+- Made the handoff idempotent: the first browser request returned `201` with four tasks, while the repeated confirmation returned `200` with the same task ids and no duplicate rows.
+- Moved confirmation, API, and task-state synchronization out of the visual component into `useProductLaunchValidationTasks`; `ProductLaunchBriefPanel.vue` remains 222 lines and focused on rendering.
+- Verified the real Task Center showed exactly four distinct P1 tasks with `review`, `price`, `other`, and `supplier` task types. The mobile task drawer was exactly 390px wide, with no page-level horizontal overflow; a fresh authenticated tab had zero console errors or warnings.
+- Removed the isolated SQLite database and restored the default development services unchanged (2 tasks, 0 SOPs, API and Web reachable).
+- Verified 780 monorepo tests (`59` shared, `512` API, `209` Web), the full shared/API/Web production build, API/Web type checks, OpenAPI JSON parsing, focused route/Store coverage, and `git diff --check`.
+
+Product Research launch-brief artifact:
+
+- Extended the deterministic Product Research run with an optional, persisted `productLaunchBrief` artifact built only from the selected category's dated snapshots and signals.
+- Added an approval-gated launch decision, evidence-backed target price band, five-row competitor matrix, differentiation hypotheses, launch validation checklist, and explicit risk boundaries. Missing Review VOC remains a visible `data_gap` instead of being inferred from BSR, price, brand, or review-count evidence.
+- Added shared contracts, policy validation, OpenAPI response schemas, persisted-run coverage, and a focused Markdown formatter test. Runs without category snapshots preserve the existing response and do not fabricate a launch brief.
+- Added a compact launch-brief workspace to both category intelligence and Agent Center history, with copy and Markdown download commands, local table scrolling, and reusable rendering for the persisted artifact.
+- Verified the isolated live response with five ranked products: the target price was the observed `USD 129.99` median, the artifact contained five competitors and four required human gates, and the model id advanced to `deterministic-product-research-v2`.
+- Verified the authenticated category-generation and Agent-history flows in a real browser. Markdown downloaded as `product-launch-brief-2026-07-25.md`; a fresh authenticated tab had zero console errors or warnings.
+- Verified 1440px and 390px layouts. At 390px, both document widths remained exactly 390px and the competitor matrix stayed inside its local scroll region.
+- Removed the isolated SQLite database and restored the default development services unchanged (2 tasks, 0 SOPs, API and Web reachable).
+- Verified 777 monorepo tests (`59` shared, `510` API, `208` Web), the full shared/API/Web production build, API/Web type checks, OpenAPI JSON parsing, and `git diff --check`.
+
+SOP knowledge-library operations:
+
+- Preserved the legacy `GET /api/sops` array response while adding organization-scoped `GET /api/sops/page` with `total`, bounded `limit / offset`, and status counts for the active category and search scope.
+- Reused one parameterized Store filter for list and count queries. Server-side search now covers title, Markdown body, and structured tags, so ASIN and workflow labels remain discoverable beyond the first 200 records.
+- Replaced the card wall with a compact master-detail workspace: segmented status counts, category and debounced search filters, a dense evidence list, stable pagination, and a selected SOP reader.
+- Added draft editing in the Web workflow and retained approval-aware publish/archive actions. Icon and command buttons expose explicit accessible names without changing the visual treatment.
+- Added shared contracts, Store and route coverage for pagination/search/organization isolation, Web store coverage for page clamping and edit refresh, and OpenAPI schemas for the paged response.
+- Verified an isolated 27-record browser cohort: 25/2 pagination, tag search, draft editing, publish confirmation, and live status-count refresh all succeeded. The fresh post-login pass had zero console errors or warnings.
+- Verified 1440px and 390px layouts. The mobile document and root widths remained exactly 390px; only the intentionally hidden navigation rail sat outside the viewport.
+- Removed the isolated SQLite database and restored the default development services unchanged (2 tasks, 0 SOPs, API and Web reachable).
+- Verified 775 monorepo tests (`59` shared, `509` API, `207` Web), the full shared/API/Web production build, OpenAPI JSON parsing, and focused SOP Store/route/Web coverage.
+
+ImageGen-guided operations UI refinement:
+
+- Generated a high-fidelity Apple-inspired operations-console reference and saved it at `docs/design/operations-workspace-imagegen-reference.png`; the bitmap is a design baseline, not a static UI replacement.
+- Reworked the global shell into a compact 232px light navigation rail, restrained white command surface, semantic status colors, low-shadow panels, and denser table treatment without changing any business route or write permission.
+- Added a functional global page search with `Ctrl/Cmd + K`, typed navigation events, filtered results, and direct transitions into existing views. A real browser search for `采集` returned only `采集中心` and navigated to the live collection workspace.
+- Split the nine operating metrics into four primary business indicators and a five-item secondary risk/status band. This removed the previous horizontal evidence strip and keeps priority signals visible without making every datum a separate floating card.
+- Verified the authenticated overview at 1440px and 390px. Desktop and mobile document widths exactly matched their viewports; mobile retained a two-column operating-metric scan with no text overlap or horizontal overflow.
+- Verified 764 monorepo tests (`59` shared, `502` API, `203` Web), the full shared/API/Web production build, and `git diff --check`.
+
+Agent recommendation quality diagnostics:
+
+- Added manager/admin-only `GET /api/ai/quality?days=7|30|90`, backed by organization-scoped Agent runs, all team feedback for the cohort, and reviewed tasks whose source is `ai_run`.
+- Added shared response contracts and a pure aggregation service for run success, actionable runs, action volume, positive/negative votes, unique run-to-task conversion, and confirmed reviewed-task outcomes.
+- Kept the evidence semantics explicit: feedback rates are team votes, conversion is deduplicated by run because tasks do not persist an action index, and rates without a denominator remain unavailable instead of becoming zero.
+- Added an Agent Center quality band with 7/30/90-day controls, four scan-first metrics, and a per-Agent comparison table. The aggregate refreshes after new feedback without coupling its time window to run-history pagination.
+- Added route coverage for organization isolation, capability enforcement, invalid windows, mixed team feedback, and reviewed task outcomes, plus Web store coverage for independent quality-window loading.
+- Verified the live 30-day cohort (10 runs, 42 actions, one positive vote), switched to a one-run 7-day cohort, and checked 1440px and 390px layouts in an authenticated browser. The mobile document remained exactly 390px wide while the 760px evidence table stayed inside its own 326px scroll region.
+- Replaced the Agent pagination component's deprecated `small` prop with `size="small"` after the browser check surfaced the Element Plus warning.
+- Verified 767 monorepo tests (`59` shared, `504` API, `204` Web), the full shared/API/Web production build, OpenAPI JSON parsing, and `git diff --check`.
+
+Task-to-SOP knowledge reuse:
+
+- Closed the gap between SOP storage and operational reuse: `GET /api/tasks/:id/detail` now returns up to three organization-scoped, published SOP recommendations alongside source-event and Agent evidence.
+- Added one shared task-type-to-SOP-category map and reused it when creating SOP drafts and ranking recommendations, removing the duplicate frontend mapping.
+- Kept matching deterministic and explainable. Scores use the task type plus exact structured ASIN, brand, keyword, and task-type tag matches, with a lower-weight content fallback for older SOPs without tags; every result returns its visible match reasons.
+- Excluded drafts, archived SOPs, SOPs from other organizations, and the SOP created from the current task. A sourced SOP now requires a reviewed task, while standalone manually curated SOPs remain supported.
+- Added an unframed task-detail evidence section with category, match reasons, three-line preview, expand/collapse, copy feedback, loading, and truthful no-match state.
+- Added service and route regression coverage for ranking, legacy content fallback, source-task review enforcement, current-task exclusion, publication state, and organization isolation. OpenAPI now describes the recommendation contract.
+- Verified the recommendation path against an isolated browser database: a Coupon task matched one published SOP at score 100 with five visible reasons; expand and clipboard actions succeeded, and an unrelated task displayed the expected empty state.
+- Verified 1440px and 390px layouts. The mobile document remained 390px wide, the drawer measured 390px, and its 334px SOP panel stayed contained without page-level horizontal overflow; the post-login interaction pass had zero console errors or warnings.
+- Removed the isolated SQLite database after verification and restored the original development API unchanged (2 tasks, 0 published SOPs, health 200).
+- Verified 770 monorepo tests (`59` shared, `507` API, `204` Web), the full shared/API/Web production build, API/Web type checks, OpenAPI JSON parsing, and focused 16-test recommendation/task coverage.
+
+Collector execution-log pagination:
+
+- Audited live operational volumes before changing the UI: the organization had 2 workflow tasks, 137 queue jobs, and 293 collector execution logs. Only the log history exceeded its existing 100-row Web window, so the change stayed scoped to the proven gap.
+- Added a shared `CollectTaskLogListResponse` contract and organization-scoped `countTaskLogs` Store method, preserving the legacy array endpoint while adding `GET /api/collectors/logs/page`.
+- Extended OpenAPI and the Web collection service with `{ logs, total, limit, offset }` metadata. The collection center initially loads 50 rows and reports the complete history instead of loading all evidence into the first screen.
+- Added Pinia-owned log pagination with a dedicated loading state. Changing pages refreshes only the execution-log region and does not refetch jobs, freshness, queue health, or Worker status.
+- Added a compact responsive pagination footer and truthful page summary. Empty/loading behavior and the horizontally scrollable evidence table remain unchanged.
+- Added API coverage for pagination metadata and cross-organization totals, plus Web store coverage for six-page calculation, clamped offsets, and log-only refresh behavior.
+- Verified the live API returned `total=293`, `offset=250`, and 43 rows on the final page, covering historical log IDs 43 through 1.
+- Verified an authenticated collection-center browser flow from page 1 to page 6. The UI displayed all six pages, rendered 43 final-page rows, surfaced historical failure evidence, and retained zero horizontal overflow at 1440px and 390px.
+- Verified 764 monorepo tests (`59` shared, `502` API, `203` Web) and the full shared/API/Web production build.
+
+Action Center complete daily event loading:
+
+- Removed the Web store's fixed `limit: 100`, which silently excluded later daily events from queues, ASIN cases, KPI cards, and chart inputs.
+- Added a focused API pagination helper that loads 250 events per request, preserves all active filters and sort order, deduplicates by event id, and stops safely when a repeated page makes no progress.
+- Applied complete loading to both the main Action Center feed and review-due queues while preserving the existing array API contract and AbortSignal cancellation path.
+- Removed the API route's internal 1000-event cap for derived evidence/action/review filters and trend aggregation; these paths now apply filters to the complete organization-scoped result before pagination or summarization.
+- Added regression coverage proving a 1005-event derived query can return rows after offset 1000, the one-day trend reports all 1005 events, a 501-event Web result merges across three pages, and repeated pages cannot loop forever.
+- Verified the live database contained 141 events on July 8, 144 on July 11, and 157 on July 25, all above the old 100-event ceiling.
+- Verified an authenticated Action Center request for July 25 used `limit=250&offset=0`, rendered all 157 events in its operational metrics, and retained zero horizontal overflow at 1440px and 390px.
+- Verified 762 monorepo tests (`59` shared, `502` API, `201` Web) and the full shared/API/Web production build.
+
+Agent run audit pagination:
+
+- Extended the shared `AiRunListResponse` contract and organization-scoped AI run Store with `total`, while preserving parameterized filters, clamped `limit`/`offset`, and existing role boundaries.
+- Updated `GET /api/ai/runs` and its OpenAPI description to return `{ runs, total, limit, offset }`, so the Web no longer mistakes the first page for the complete persisted `ai_runs` history.
+- Added Pinia-owned pagination state and page transitions. Refresh preserves the current page, while Agent/status/page-size changes reset to page 1 and keep the selected detail aligned with the visible page.
+- Added a compact responsive pagination footer and corrected KPI semantics: matching runs is the filtered total, while success, failure, and approval counts are explicitly page-scoped.
+- Removed the Agent view's duplicate mount fetch because the application view loader already owns initial loading and its 30-second cache behavior.
+- Added API organization/filter total assertions and focused Web store regression coverage for metadata, offsets, reset behavior, and page clamping.
+- Verified an authenticated browser with a deterministic 26-run response: page 1 rendered 25 runs, page 2 requested `offset=25` and rendered one failed run, and changing the Agent filter returned to page 1.
+- Verified 1440px and 390px layouts with zero horizontal overflow; the mobile pagination footer and run detail remained readable without overlap.
+- Verified 759 monorepo tests (`59` shared, `501` API, `199` Web) and the full shared/API/Web production build.
+
+Competitor insight-to-action navigation:
+
+- Replaced the competitor insight sidebar's dead detail button with an operational path into Action Center, preserving the generated Apple-style enterprise direction while improving the actual information flow.
+- Split each highlighted ASIN row into a primary evidence action and a compact Amazon external-link action, so operators no longer leave the workspace when they intended to inspect internal evidence.
+- Added a Pinia-owned competitor focus transition that clears stale Action Center filters, closes old detail state, selects the ASIN case workspace, and scopes either one ASIN or all core competitors.
+- Kept empty evidence truthful: a highlighted ASIN with no event for the selected date opens the filtered case workspace and explains how to clear the filter or generate insights instead of fabricating analysis.
+- Verified both navigation paths in an authenticated browser. The selected-ASIN path displayed the exact ASIN filter and case view; the generic path displayed an empty ASIN, checked the core-competitor filter, and retained the case view.
+- Verified 1440px and 390px layouts with zero horizontal overflow. The mobile insight panel measured 362px inside a 390px viewport, and the dedicated Amazon icon remained a visible 13px square after the final visual correction.
+- Verified 755 monorepo tests (`59` shared, `501` API, `195` Web) and the full shared/API/Web production build.
+
 ## 2026-07-22
 
 Competitor daily KPI evidence and truthful trend presentation:
@@ -519,6 +680,14 @@ Inventory and purchasing ingestion:
 - Replenishment recommendations now subtract the full supply position (`FBA + in transit + local warehouse`) while preserving the legacy lead-time field for existing integrations.
 - Inventory planning exposes PRD-required 7-day and 30-day sales velocity alongside FBA stock, supply position, expected arrival, stockout timing, and recommended quantity.
 - Added format-specific audit history, row-level validation, partial-import handling, incremental updates, and a legacy SQLite migration regression.
+
+Team workflow performance:
+
+- Added manager/admin-only `GET /api/tasks/team-performance?days=7|30|90`, with organization-scoped pagination across the complete task history.
+- Added explicit workload, overdue, completion, cycle-time, due-date sample, on-time, review, and confirmed-result metrics. Rate fields remain `null` when no qualifying sample exists.
+- Defined the reporting cohort as non-cancelled tasks created inside the selected window; current open and overdue counts intentionally include older unclosed work so historical backlog remains visible.
+- Added a compact Team Operations section to the task workspace with 7/30/90-day segmented controls, team totals, assignee rows, an explicit unassigned bucket, and contained mobile table scrolling.
+- Verified organization isolation, rate calculations, invalid reporting windows, OpenAPI JSON, all 765 repository tests, the production build, and real desktop/mobile browser flows. The mobile document width remained 390px and period switching refreshed the metric cohort without console errors.
 
 ## 2026-07-07
 

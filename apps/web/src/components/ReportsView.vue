@@ -32,6 +32,7 @@ import ReportReviewQueuePanel from "./reports/ReportReviewQueuePanel.vue";
 import ReportReaderCard from "./reports/ReportReaderCard.vue";
 import ReportSignalSidebar from "./reports/ReportSignalSidebar.vue";
 import ReportWorkspaceHeader from "./reports/ReportWorkspaceHeader.vue";
+import AgentDataFreshness from "./ai-agents/AgentDataFreshness.vue";
 import { useWriteAccess } from "../composables/useWriteAccess";
 import ReadOnlyNotice from "./ReadOnlyNotice.vue";
 
@@ -373,6 +374,10 @@ function selectPane(value: string): void {
       <main class="report-main">
         <ReportChartsPanel :report="periodInsightReport" :report-label="reportLabel" />
 
+        <AgentDataFreshness
+          v-if="activePane === 'writer' && reportWriter?.output.dataFreshness"
+          :freshness="reportWriter.output.dataFreshness"
+        />
         <ReportReaderCard
           :model-value="activePane"
           :options="paneOptions"

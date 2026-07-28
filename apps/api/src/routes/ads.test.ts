@@ -182,9 +182,14 @@ describe("ads routes", () => {
 
     expect(analysis.body.output.summary).toContain("Ads targets reviewed");
     expect(analysis.body.output.recommended_actions[0]).toMatchObject({
-      priority: "P0",
+      priority: "P2",
       needs_human_approval: true
     });
+    expect(analysis.body.output.dataFreshness).toMatchObject({
+      freshnessStatus: "stale",
+      maxAgeHours: 24
+    });
+    expect(analysis.body.output.confidence).toBe(0.49);
     expect(analysis.body.output.artifacts.adsOptimization).toMatchObject({
       evidenceDate: "2026-07-08",
       wasteCandidates: [
@@ -218,7 +223,7 @@ describe("ads routes", () => {
     expect(analysis.body.run).toMatchObject({
       agentType: "ads_analyst",
       status: "success",
-      model: "deterministic-ads-analyst-v2"
+      model: "deterministic-ads-analyst-v3"
     });
     expect(analysis.body.summary.riskCount).toBe(1);
     expect(analysis.body.summary.scaleCount).toBe(1);

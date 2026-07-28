@@ -249,6 +249,13 @@ export const taskListQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional()
 });
 
+export const taskTeamPerformanceQuerySchema = z.object({
+  days: z.coerce.number().int().refine(
+    (value): value is 7 | 30 | 90 => value === 7 || value === 30 || value === 90,
+    "days must be 7, 30, or 90"
+  ).default(30)
+});
+
 export const sopListQuerySchema = z.object({
   status: z.enum(["draft", "published", "archived"]).optional(),
   category: z.enum([

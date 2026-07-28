@@ -163,7 +163,7 @@
     grid-template-columns: repeat(5, minmax(128px, 1fr));
   }
 
-  .operations-metric:last-child:nth-child(5n + 4) {
+  .overview-operations__grid > .operations-metric:last-child:nth-child(5n + 4) {
     grid-column: span 2;
   }
 }
@@ -183,7 +183,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .operations-metric:last-child {
+  .overview-operations__grid > .operations-metric:last-child {
     grid-column: auto;
   }
 }
@@ -211,7 +211,7 @@
     min-height: 100px;
   }
 
-  .operations-metric:last-child:nth-child(odd) {
+  .overview-operations__grid > .operations-metric:last-child:nth-child(odd) {
     grid-column: 1 / -1;
   }
 }

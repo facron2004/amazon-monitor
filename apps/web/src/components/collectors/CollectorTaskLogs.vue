@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
+import { ElPagination } from "element-plus";
 import { useCollectorsStore } from "../../stores/collectors";
 import { formatLocalDateTime, statusText } from "../../utils/formatters";
 
 const store = useCollectorsStore();
-const { logs, loading } = storeToRefs(store);
+const { logs, logsTotal, logsLimit, logsCurrentPage, loading, logsLoading } = storeToRefs(store);
 </script>
 
 <template>
@@ -14,7 +15,7 @@ const { logs, loading } = storeToRefs(store);
         <p class="eyebrow">Execution</p>
         <h3>执行明细</h3>
       </div>
-      <span>{{ logs.length }} 条关键词采集明细</span>
+      <span>第 {{ logsCurrentPage }} 页 · 共 {{ logsTotal }} 条执行明细</span>
     </header>
     <div v-if="logs.length" class="table-wrap collector-table-wrap">
       <table>
@@ -36,5 +37,18 @@ const { logs, loading } = storeToRefs(store);
     <div v-else class="empty-state collector-empty-state">
       <p>{{ loading ? "正在读取执行明细..." : "暂无执行明细。Worker 完成关键词采集后会在这里留下页面、成功数和错误证据。" }}</p>
     </div>
+    <footer v-if="logsTotal > 0" class="collector-log-pagination">
+      <span>当前显示 {{ logs.length }} 条</span>
+      <ElPagination
+        size="small"
+        background
+        layout="prev, pager, next"
+        :current-page="logsCurrentPage"
+        :page-size="logsLimit"
+        :total="logsTotal"
+        :disabled="logsLoading"
+        @current-change="store.goToLogsPage"
+      />
+    </footer>
   </section>
 </template>

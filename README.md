@@ -13,14 +13,20 @@ v0.5.0 引入 **AI Agent 矩阵**（确定性 + 证据绑定 + approval-gated）
 | Agent                  | 端点                              | 数据源                                              | 核心用途                                                             |
 | ---------------------- | --------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
 | **AI Daily Operator**  | `POST /api/ai/daily-brief`        | insight events + open tasks + SKU risk              | PRD 要求的"今日 5 件事"                                              |
-| **Product Research**   | `POST /api/ai/research-product`   | 类目榜单快照 + 品牌矩阵 + 类目信号                  | 价格带、低 Review 切入窗口、结构化候选 ASIN 与人工确认入池           |
+| **Product Research**   | `POST /api/ai/research-product`   | 类目榜单快照 + 品牌矩阵 + 类目信号                  | 价格带、低 Review 切入窗口、候选 ASIN、可审计新品立项草案与人工确认入池 |
 | **Competitor Analyst** | `POST /api/ai/analyze-competitor` | selected insight event + related ASIN/brand signals | 竞品价格、排名、Review、活动信号研判                                 |
 | **Listing Optimizer**  | `POST /api/ai/analyze-listing`    | Listing 快照 + 核心词 + Review/Q&A 证据             | 持久化标题、Bullet、图片与 A+ 改写草案，人工审核后再进入任务         |
 | **Ads Analyst**        | `POST /api/ai/analyze-ads`        | `ad_daily_metrics`                                  | spend-waste / scale-opportunity 诊断                                 |
 | **Review VOC**         | `POST /api/ai/analyze-review-voc` | Review 文本 + 情绪 + 主题证据                       | 持久化供应商整改、Listing 建议、客服话术、新品机会和显式竞品证据缺口 |
 | **Report Writer**      | `POST /api/ai/create-report`      | daily/weekly/monthly reports + insight events       | Markdown 运营报告 + 审批动作摘要                                     |
 
-Agent 运行历史通过 `GET /api/ai/runs` 暴露给前端 `Agent 中心`，支持按 Agent 类型、状态和分页查看审计记录。所有已登录角色都可审计本组织运行记录，反馈和 Agent 执行则按工作流、竞品、Ads、报告等领域能力授权。每条审批动作可从 Agent 中心或 Listing、Ads、Review VOC 专项页面转为 `ai_run` 来源任务，保留 run id、证据、理由、风险和置信度，之后进入人工执行与复盘流程；运营也可对单条建议点赞或点踩，反馈按组织和用户留痕并可重复更新。
+Agent 运行历史通过 `GET /api/ai/runs` 暴露给前端 `Agent 中心`，响应包含组织范围内的 `total`、`limit` 和 `offset`，支持按 Agent 类型、状态和分页查看完整审计记录；刷新保留当前页，切换筛选或每页条数时回到第一页。所有已登录角色都可审计本组织运行记录，反馈和 Agent 执行则按工作流、竞品、Ads、报告等领域能力授权。每条审批动作可从 Agent 中心或 Listing、Ads、Review VOC 专项页面转为 `ai_run` 来源任务，保留 run id、证据、理由、风险和置信度，之后进入人工执行与复盘流程；运营也可对单条建议点赞或点踩，反馈按组织和用户留痕并可重复更新。管理员和经理还可通过 `GET /api/ai/quality?days=7|30|90` 与 Agent 中心质量面板查看团队反馈、含动作运行的转任务率和已复盘任务确认率；任务尚未保存动作序号，因此该指标明确按运行去重，不表述为单条建议采纳率。
+
+Product Research 的新品立项草案可在人工确认后把四项必需门槛一次拆成 Review VOC、利润、合规和供应链验证任务。转换接口按 Agent run 幂等，重复确认返回原任务，不重复写入；创建任务不代表批准立项，任务详情保留草案、证据日期、验收要求和来源运行。每次选品运行同时记录 BSR 证据日期、更新时间、来源和采集状态；超过每日新鲜度要求或采集不完整时，Agent 会把置信度降到观察级、草案切换为“保持观察”，并阻止创建立项验证任务。
+
+全部 7 个 Agent 现在统一记录证据日期、更新时间、数据来源、采集状态、失败原因和时效阈值。竞品价格/活动按 3 小时、核心排名按 6 小时，其余日报、Listing、Ads、Review、报告和 BSR 证据按 24 小时评估；过期、缺失或采集不完整时，输出置信度最高为 `0.49`，只保留 P2 数据刷新动作。Listing、Ads 与 Review 的可复制执行产物会被隐藏到证据恢复可用，切换业务日期也会立即清除上一日期的 Agent 结果。
+
+任务详情通过 `GET /api/tasks/:id/detail` 推荐最多 3 条本组织已发布 SOP，匹配只使用任务类型和结构化的 ASIN、品牌、关键词证据，并返回可见的分类、标签或正文命中原因。运营可在任务抽屉内展开或复制步骤；无匹配时保留真实空状态。带来源任务的 SOP 必须等该任务完成复盘后才能创建，避免未经验证的执行记录进入知识复用链路。
 
 > 未来切换到 LLM 实现时，只需替换 `apps/api/src/services/*-agent-service.ts` 内部，**契约（`AiRecommendedAction` 类型 + `needs_human_approval` 字段）保持不变**——前端、其他服务、审计日志都不需要改。
 
@@ -37,10 +43,17 @@ Agent 运行历史通过 `GET /api/ai/runs` 暴露给前端 `Agent 中心`，支
 
 首页 `今日经营概览` 直接聚合当前组织的精确业务日 SKU 指标，展示今日/昨日销售、7 日销售趋势、订单、广告花费、ACOS、毛利率、库存风险、重点异动和开放任务。金额始终按站点币种拆分，多站点数据不会被错误相加；缺失指标显示为 `--` 并提示补录，不以 0 冒充真实经营结果。`今日必看` 默认只保留仍需处理的 P0/P1 事件，具备权限的运营可在首页直接转任务、标记已跟进、忽略或按当前业务日期生成归档日报。
 
+SKU 详情通过 `GET /api/products/:id/operations` 聚合为一个组织隔离、业务日期一致的 360 运营工作区，覆盖销售、利润、广告、库存、关键词、BSR、Review VOC、Listing 健康、竞品、Agent 建议、任务和操作事件。界面按“经营趋势 / 健康与竞品 / 工作闭环”组织信息，并沿用 Ads 与利润域的角色级字段脱敏；无证据时明确显示数据缺口，不跨日期或跨组织拼接推断。
+
+竞品池右侧洞察将“查看证据”和“打开 Amazon 商品页”拆成独立动作。重点 ASIN 可直接进入行动中心的对应 ASIN 案卷，通用入口则聚焦核心竞品案卷；跳转会清除旧的品牌、状态和复盘筛选，避免沿用无关上下文。若当前日期没有匹配事件，行动中心显示可取消筛选或生成洞察的真实空状态，不会合成不存在的分析。
+
+行动中心会按 250 条一页自动读取当前筛选范围内的全部事件，而不是只使用前 100 条计算队列、ASIN 案卷、KPI 和图表；服务端派生筛选与趋势统计同样不再受 1000 条内部上限影响。分页读取按事件 id 去重，并在服务端重复返回同一页时停止，避免异常代理或缓存造成无限请求。
+
 | 支柱                | 数据表                                                 | API                                                            | 侧边栏视图              | 评分维度                                                                                                   |
 | ------------------- | ------------------------------------------------------ | -------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
 | **SKU 主数据**      | `product_main`                                         | `/api/products`                                                | `ProductsView.vue`      | —                                                                                                          |
 | **日指标**          | `product_daily_metrics`                                | `POST /api/products/:id/daily-metrics`                         | `ProductsView`          | —                                                                                                          |
+| **SKU 360 详情**    | 跨领域只读聚合                                         | `GET /api/products/:id/operations`                             | `ProductDetailPanel.vue` | 经营趋势 / 专项健康 / 竞品对比 / Agent 建议 / 任务与复盘                                                   |
 | **风险评分**        | `product_risk_scores`                                  | `/api/products/:id/risk`                                       | `ProductsView`          | 库存 / 销售下滑 / 广告异常 / 核心词排名 / 评分 / 关联事件                                                  |
 | **机会评分**        | `product_opportunity_scores`                           | `/api/products/:id/opportunity`                                | `ProductsView`          | 销售增长 / BSR 提升 / 广告效率 / 关键词提升 / 竞品缺口 / Review 改善                                       |
 | **Listing Health**  | `listing_snapshots`                                    | `/api/listing-health`                                          | `ListingHealthView.vue` | 6 项检查（关键词覆盖、长度、重复、图片、bullet、Q&A、Review 反射）                                         |
@@ -485,7 +498,8 @@ amazon-monitor/
 - **自营 SKU 页面**：`ProductsView` 通过 `useProductStore` 消费 `/api/products`，展示经营指标、风险/机会评分和指标录入弹窗
 - **规则中心页面**：`RulesView` 按运营场景分组展示 10 条 P0 规则，支持启停、阈值编辑、通知渠道、审批提示和一键评估；10 条规则均具备运行能力
 - **数据源中心页面**：`DataSourcesView` 管理 SP-API、Ads API、公开采集、文件导入、ERP/WMS 和手工数据源的连接与同步状态；文件数据源可从 CSV/XLSX 事务化导入自营 SKU 日指标、Ads 报表、利润成本及采购库存假设，支持部分成功、行级错误、SKU 关联、增量列更新和按数据源查询的执行历史，外部 API 授权仍保留后续接入边界
-- **采集中心页面**：`CollectorsView` 聚合 Worker、队列、新鲜度和执行明细，支持按关键词/类目发起采集并优先定位失败任务
+- **采集中心页面**：`CollectorsView` 聚合 Worker、队列、新鲜度和执行明细，支持按关键词/类目发起采集并优先定位失败任务；执行日志使用组织隔离的 `total / limit / offset` 分页，历史证据不会被首屏条数静默截断
+- **SOP 知识库**：`SopsView` 使用主从式运营布局集中呈现状态计数、分类、服务端全文检索、分页列表和执行正文；草稿可编辑并经确认发布，已发布 SOP 可归档，旧版数组接口保持兼容
 - **报告工作台**：独立 `reports` Pinia store 管理日报、周/月洞察和归档历史；运营可生成按日期版本化的 9 章节日报，以及按等长窗口比较、分站点币种统计的周报/月报，并从紧凑导出菜单交付 PDF / Markdown / Excel
 - **行动中心**：`action-center/` 子目录下 ~18 个组件，覆盖事件队列、ASIN 分组、Brand Playbook、价格时间线、归属引擎、回顾节奏、信号流和事件转任务闭环等
 - **右侧详情抽屉**：`CategoryDailyBriefingDrawer` 支持 event/brand/opportunity 三种模式，ASIN 与品牌卡片在当前页展开详情
@@ -494,16 +508,16 @@ amazon-monitor/
 
 ### 测试覆盖
 
-**78 个测试文件 / 572 个测试用例，CI 全绿 ~16s**：
+**146 个测试文件 / 785 个测试用例**：
 
-- 共享包：8 文件 / 39 用例（类型验证、业务规则、集成测试）
-- 后端 API：42 文件 / 387 用例
+- 共享包：16 文件 / 59 用例（类型验证、业务规则、集成测试）
+- 后端 API：77 文件 / 517 用例
   - Store：队列状态机、SQL 工具、identity、ai_runs、stuck job 回收
   - 采集引擎：浏览器管理、上下文配置、代理池、品牌质量、abort 路径
   - 解析器：多市场价格/货币/评分格式
   - 端到端：关键词 pipeline、类目 intelligence、API 路由（含 v0.5.0 的 products/inventory/listing-health/ads/review-voc/profit/sops/tasks/auth/ai）
-  - Worker：`runJobWithTimeout` 在 20ms 超时下必抛 `AbortError`，且 runner 必收到 abort 信号
-- 前端 Web：28 文件 / 146 用例
+- Worker：`runJobWithTimeout` 在 20ms 超时下必抛 `AbortError`，且 runner 必收到 abort 信号
+- 前端 Web：53 文件 / 209 用例
 
 ## 故障排查
 

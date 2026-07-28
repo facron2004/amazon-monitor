@@ -3,7 +3,16 @@ import type { AiActionFeedback, AiAgentOutput, AiRun, AiRunListFilter, AiRunStat
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
-type AiRunStoreMethods = Pick<Store, "createAiRun" | "getAiRun" | "listAiRuns" | "upsertAiActionFeedback" | "listAiActionFeedback">;
+type AiRunStoreMethods = Pick<
+  Store,
+  | "createAiRun"
+  | "getAiRun"
+  | "listAiRuns"
+  | "countAiRuns"
+  | "upsertAiActionFeedback"
+  | "listAiActionFeedback"
+  | "listAiActionFeedbackForRuns"
+>;
 
 interface AiRunRow {
   id: number;
@@ -71,6 +80,18 @@ export function createAiRunStore(db: DatabaseSync): AiRunStoreMethods {
       return rows.map(mapAiRun);
     },
 
+    countAiRuns(filter: AiRunListFilter = {}) {
+      const { sql, params } = buildWhere(
+        whereEq("org_id", filter.orgId),
+        whereEq("agent_type", filter.agentType),
+        whereEq("status", filter.status)
+      );
+      const row = db.prepare(`SELECT COUNT(*) AS total FROM ai_runs ${sql}`).get(...params) as
+        | { total: number }
+        | undefined;
+      return row?.total ?? 0;
+    },
+
     upsertAiActionFeedback(input) {
       const updatedAt = nowIso();
       db.prepare(
@@ -95,6 +116,18 @@ export function createAiRunStore(db: DatabaseSync): AiRunStoreMethods {
            AND run_id IN (SELECT value FROM json_each(?))
          ORDER BY run_id DESC, action_index ASC`
       ).all(input.orgId, input.userId, runIdsJson) as unknown as AiActionFeedbackRow[];
+      return rows.map(mapAiActionFeedback);
+    },
+
+    listAiActionFeedbackForRuns(input) {
+      if (input.runIds.length === 0) return [];
+      const runIdsJson = JSON.stringify(input.runIds);
+      const rows = db.prepare(
+        `SELECT * FROM ai_action_feedback
+         WHERE org_id = ?
+           AND run_id IN (SELECT value FROM json_each(?))
+         ORDER BY run_id DESC, action_index ASC, user_id ASC`
+      ).all(input.orgId, runIdsJson) as unknown as AiActionFeedbackRow[];
       return rows.map(mapAiActionFeedback);
     }
   };

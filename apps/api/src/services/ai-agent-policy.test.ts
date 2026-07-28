@@ -44,6 +44,28 @@ describe("AI Agent policy", () => {
     expect(validateAiAgentOutput(validOutput())).toEqual([]);
   });
 
+  it("requires unsafe freshness evidence to carry warnings and observation-level confidence", () => {
+    const output = validOutput();
+    output.dataFreshness = {
+      evidenceDate: "2026-07-20",
+      evaluatedAt: "2026-07-26T09:30:00.000Z",
+      dataSource: "amazon_playwright",
+      lastSyncedAt: "2026-07-20T08:00:00.000Z",
+      syncStatus: "partial",
+      freshnessStatus: "stale",
+      ageHours: 144,
+      maxAgeHours: 24,
+      failureReason: null,
+      warning: null
+    };
+
+    expect(validateAiAgentOutput(output)).toEqual(expect.arrayContaining([
+      "dataFreshness.warning is required when evidence is not fresh",
+      "dataFreshness.failureReason is required when collection is incomplete",
+      "confidence must be below 0.5 when evidence freshness is unsafe"
+    ]));
+  });
+
   it("rejects an incomplete Listing rewrite artifact", () => {
     const output = validOutput();
     output.artifacts = {
@@ -106,6 +128,45 @@ describe("AI Agent policy", () => {
       "artifacts.adsOptimization.evidenceDate is required",
       "artifacts.adsOptimization.dataGaps must contain non-empty strings",
       "artifacts.adsOptimization.riskNotes must contain non-empty strings"
+    ]));
+  });
+
+  it("rejects an incomplete Product launch brief", () => {
+    const output = validOutput();
+    output.artifacts = {
+      productLaunchBrief: {
+        title: "",
+        evidenceDate: "",
+        categoryName: "Ice Makers",
+        marketplace: "amazon.com",
+        decision: "validate",
+        opportunityThesis: "",
+        priceBand: {
+          minimum: null,
+          target: null,
+          maximum: null,
+          currency: null,
+          evidence: ""
+        },
+        customerPainEvidence: {
+          status: "data_gap",
+          conclusion: "",
+          evidence: [],
+          validationNeeded: []
+        },
+        competitorMatrix: [],
+        differentiationHypotheses: [],
+        validationChecklist: [],
+        riskNotes: []
+      }
+    };
+
+    expect(validateAiAgentOutput(output)).toEqual(expect.arrayContaining([
+      "artifacts.productLaunchBrief identity and thesis are required",
+      "artifacts.productLaunchBrief.customerPainEvidence must preserve evidence boundaries",
+      "artifacts.productLaunchBrief.competitorMatrix must contain evidence-backed rows",
+      "artifacts.productLaunchBrief.validationChecklist must define launch gates",
+      "artifacts.productLaunchBrief.riskNotes must contain non-empty strings"
     ]));
   });
 });

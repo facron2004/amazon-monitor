@@ -62,6 +62,14 @@ describe("collector routes", () => {
     const logs = await api.get("/api/collectors/logs").expect(200);
     expect(logs.body).toEqual([expect.objectContaining({ keyword: keyword.keyword, status: "success" })]);
 
+    const logPage = await api.get("/api/collectors/logs/page?limit=1&offset=0").expect(200);
+    expect(logPage.body).toMatchObject({
+      total: 1,
+      limit: 1,
+      offset: 0,
+      logs: [expect.objectContaining({ keyword: keyword.keyword, status: "success" })]
+    });
+
     const freshness = await api.get("/api/collectors/freshness").expect(200);
     expect(freshness.body).toEqual(expect.arrayContaining([
       expect.objectContaining({ taskType: "keyword", totalJobs: 1 }),

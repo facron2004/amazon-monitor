@@ -2,8 +2,9 @@
 import { computed } from "vue";
 import { ElDrawer, ElSkeleton, ElTag } from "element-plus";
 import { BookOpen, BrainCircuit, ChartNoAxesCombined, ClipboardCheck, FileText, Link2 } from "@lucide/vue";
-import { taskStatusLabels, taskTypeLabels, type AiRun, type InsightEvent, type Task } from "@amazon-monitor/shared";
+import { taskStatusLabels, taskTypeLabels, type AiRun, type InsightEvent, type Task, type TaskSopRecommendation } from "@amazon-monitor/shared";
 import { mergeTaskMetricComparisons } from "../../utils/task-metrics.js";
+import TaskSopRecommendationsPanel from "./TaskSopRecommendationsPanel.vue";
 
 interface EvidenceMetric {
   label: string;
@@ -15,6 +16,7 @@ const props = defineProps<{
   task: Task | null;
   sourceEvent: InsightEvent | null;
   sourceAiRun: AiRun | null;
+  sopRecommendations: TaskSopRecommendation[];
   loading: boolean;
 }>();
 
@@ -162,6 +164,11 @@ function formatCount(value: number | null | undefined): string | null {
         <p v-else class="task-detail__muted">暂无 AI 建议。</p>
         <p class="task-detail__guardrail">建议仅供人工判断，高风险操作仍需人工确认。</p>
       </section>
+
+      <TaskSopRecommendationsPanel
+        :recommendations="sopRecommendations"
+        :loading="loading"
+      />
 
       <section class="task-detail__section">
         <header><ClipboardCheck :size="16" /><h3>人工执行与结果</h3></header>

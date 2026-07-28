@@ -1,6 +1,7 @@
 import type { Express, Request } from "express";
 import type { OwnedProductStatus, SessionContext } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
+import { buildProductOperationsDetail } from "../services/product-operations-service.js";
 import { asyncHandler, optionalString } from "./http-utils.js";
 import {
   createOwnedProductSchema,
@@ -148,6 +149,23 @@ export function registerProductRoutes(app: Express, store: Store): void {
       return;
     }
     response.json(store.getProductOpportunityScore(id, optionalString(request.query.date)));
+  }));
+
+  app.get("/api/products/:id/operations", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    const id = validateIdParam(request.params.id);
+    const query = validateQuery(productListQuerySchema.pick({ date: true }), request.query);
+    const detail = buildProductOperationsDetail(store, {
+      productId: id,
+      orgId: ctx.organization.id,
+      role: ctx.user.role,
+      date: query.date,
+    });
+    if (!detail) {
+      response.status(404).json({ message: "Product not found" });
+      return;
+    }
+    response.json(detail);
   }));
 
   app.get("/api/products/:id", asyncHandler(async (request, response) => {

@@ -1,6 +1,6 @@
 {
   "name": "@amazon-monitor/api",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "private": true,
   "scripts": {
@@ -14,7 +14,7 @@
     "worker": "cross-env NODE_OPTIONS=--no-warnings tsx src/worker.ts"
   },
   "dependencies": {
-    "@amazon-monitor/shared": "0.6.0",
+    "@amazon-monitor/shared": "0.6.1",
     "cors": "^2.8.5",
     "csv-parse": "^7.0.1",
     "exceljs": "^4.4.0",

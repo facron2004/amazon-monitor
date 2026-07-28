@@ -1,6 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { CreateSopInput, Sop } from "@amazon-monitor/shared";
-import { nowIso, withTransaction } from "./sql-utils.js";
+import {
+  buildWhere,
+  clampLimit,
+  clampOffset,
+  nowIso,
+  whereEq,
+  withTransaction,
+  type WhereBuilder,
+} from "./sql-utils.js";
 import type { Store } from "./types.js";
 import { insertSop, mapSop, type SopRow } from "./workflow-mappers.js";
 
@@ -9,6 +17,7 @@ type SopStoreMethods = Pick<
   | "createSop"
   | "updateSop"
   | "getSop"
+  | "countSops"
   | "listSops"
   | "publishSop"
   | "archiveSop"
@@ -25,6 +34,36 @@ function isCategory(value: string): value is Sop["category"] {
     "supplier_negotiation",
     "general"
   ].includes(value);
+}
+
+interface SopFilter {
+  orgId?: number;
+  status?: Sop["status"];
+  category?: Sop["category"];
+  q?: string;
+}
+
+function buildSopFilter(filter?: SopFilter): {
+  sql: string;
+  params: Array<string | number>;
+} {
+  const query = filter?.q?.trim();
+  const search: WhereBuilder | null = query
+    ? {
+        clause: "(title LIKE ? OR body_md LIKE ? OR tags_json LIKE ?)",
+        params: [`%${query}%`, `%${query}%`, `%${query}%`],
+      }
+    : null;
+  const where = buildWhere(
+    whereEq("org_id", filter?.orgId),
+    whereEq("status", filter?.status),
+    whereEq("category", filter?.category),
+    search,
+  );
+  return {
+    sql: where.sql,
+    params: where.params as Array<string | number>,
+  };
 }
 
 export function createSopStore(db: DatabaseSync): SopStoreMethods {
@@ -85,31 +124,23 @@ export function createSopStore(db: DatabaseSync): SopStoreMethods {
       return row ? mapSop(row) : null;
     },
 
+    countSops(filter) {
+      const where = buildSopFilter(filter);
+      const row = db
+        .prepare(`SELECT COUNT(*) AS count FROM sops ${where.sql}`)
+        .get(...where.params) as { count: number };
+      return row.count;
+    },
+
     listSops(filter) {
-      const where: string[] = ["1=1"];
-      const params: Array<string | number> = [];
-      if (filter?.orgId !== undefined) {
-        where.push("org_id = ?");
-        params.push(filter.orgId);
-      }
-      if (filter?.status) {
-        where.push("status = ?");
-        params.push(filter.status);
-      }
-      if (filter?.category) {
-        where.push("category = ?");
-        params.push(filter.category);
-      }
-      if (filter?.q) {
-        where.push("(title LIKE ? OR body_md LIKE ?)");
-        const like = `%${filter.q}%`;
-        params.push(like, like);
-      }
-      const limit = filter?.limit ?? 200;
-      const offset = filter?.offset ?? 0;
+      const where = buildSopFilter(filter);
+      const limit = clampLimit(filter?.limit ?? 200);
+      const offset = clampOffset(filter?.offset);
       const rows = db
-        .prepare(`SELECT * FROM sops WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
-        .all(...params, limit, offset) as unknown as SopRow[];
+        .prepare(
+          `SELECT * FROM sops ${where.sql} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
+        )
+        .all(...where.params, limit, offset) as unknown as SopRow[];
       return rows.map(mapSop);
     },
 

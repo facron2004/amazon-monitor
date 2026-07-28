@@ -35,6 +35,38 @@ function requireOrganizationSop(store: Store, id: number, ctx: SessionContext) {
 }
 
 export function registerSopRoutes(app: Express, store: Store): void {
+  app.get("/api/sops/page", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    const filter = validateQuery(sopListQuerySchema, request.query);
+    const limit = filter.limit ?? 25;
+    const offset = filter.offset ?? 0;
+    const baseFilter = {
+      orgId: ctx.organization.id,
+      category: filter.category,
+      q: filter.q
+    };
+    response.json({
+      sops: store.listSops({
+        ...baseFilter,
+        status: filter.status,
+        limit,
+        offset
+      }),
+      total: store.countSops({
+        ...baseFilter,
+        status: filter.status
+      }),
+      limit,
+      offset,
+      statusCounts: {
+        all: store.countSops(baseFilter),
+        draft: store.countSops({ ...baseFilter, status: "draft" }),
+        published: store.countSops({ ...baseFilter, status: "published" }),
+        archived: store.countSops({ ...baseFilter, status: "archived" })
+      }
+    });
+  }));
+
   app.get("/api/sops", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
     const filter = validateQuery(sopListQuerySchema, request.query);
@@ -68,6 +100,12 @@ export function registerSopRoutes(app: Express, store: Store): void {
       }
       if (sourceTask.orgId !== ctx.user.orgId) {
         response.status(403).json({ message: "Forbidden: task belongs to another organization" });
+        return;
+      }
+      if (sourceTask.status !== "reviewed") {
+        response.status(409).json({
+          message: "Source task must be reviewed before it can be promoted to an SOP"
+        });
         return;
       }
     }

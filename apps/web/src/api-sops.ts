@@ -1,5 +1,9 @@
 import { request } from "./api-base.js";
-import type { Sop, SopStatus } from "@amazon-monitor/shared";
+import type {
+  Sop,
+  SopListResponse,
+  SopStatus,
+} from "@amazon-monitor/shared";
 
 export interface CreateSopInput {
   title: string;
@@ -17,13 +21,34 @@ export interface UpdateSopInput {
   tags?: string[];
 }
 
-export function listSops(params: { status?: SopStatus; category?: Sop["category"]; q?: string } = {}): Promise<Sop[]> {
+export interface SopListParams {
+  status?: SopStatus;
+  category?: Sop["category"];
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+function buildSopSearch(params: SopListParams): string {
   const search = new URLSearchParams();
   if (params.status) search.set("status", params.status);
   if (params.category) search.set("category", params.category);
   if (params.q) search.set("q", params.q);
-  const qs = search.toString();
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  if (params.offset !== undefined) search.set("offset", String(params.offset));
+  return search.toString();
+}
+
+export function listSops(params: SopListParams = {}): Promise<Sop[]> {
+  const qs = buildSopSearch(params);
   return request<Sop[]>(`/api/sops${qs ? `?${qs}` : ""}`);
+}
+
+export function listSopPage(
+  params: SopListParams = {},
+): Promise<SopListResponse> {
+  const qs = buildSopSearch(params);
+  return request<SopListResponse>(`/api/sops/page${qs ? `?${qs}` : ""}`);
 }
 
 export function getSop(id: number): Promise<Sop> {

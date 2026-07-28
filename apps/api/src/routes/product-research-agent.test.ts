@@ -14,6 +14,7 @@ let db: DatabaseSync;
 let store: ReturnType<typeof createStore>;
 let app: ReturnType<typeof createApiApp>;
 let token: string;
+const EVIDENCE_DATE = new Date().toISOString().slice(0, 10);
 
 beforeEach(async () => {
   db = new DatabaseSync(":memory:");
@@ -37,8 +38,8 @@ describe("Product Research Agent route", () => {
       snapshot(category, "B0RESEARCH2", "Alpha", 22, 109.99, 180),
       snapshot(category, "B0RESEARCH3", "Beta", 46, 159.99, 1200)
     ]);
-    store.replaceCategorySignals(category.id, "2026-06-19", [{
-      signalDate: "2026-06-19",
+    store.replaceCategorySignals(category.id, EVIDENCE_DATE, [{
+      signalDate: EVIDENCE_DATE,
       categoryId: category.id,
       categoryName: category.name,
       marketplace: category.marketplace,
@@ -54,7 +55,7 @@ describe("Product Research Agent route", () => {
       content: "New product breakout"
     }]);
     store.addCategoryCompetitor("B0RESEARCH2", category.id);
-    store.replaceBrandMatrix(category.id, "2026-06-19", [
+    store.replaceBrandMatrix(category.id, EVIDENCE_DATE, [
       brandEvidence(category, "Alpha", 2, 2, 1, 8),
       brandEvidence(category, "Beta", 1, 1, 0, 46)
     ]);
@@ -62,7 +63,7 @@ describe("Product Research Agent route", () => {
     const response = await request(app)
       .post("/api/ai/research-product")
       .set("x-amazon-monitor-session", token)
-      .send({ categoryId: category.id, date: "2026-06-19" })
+      .send({ categoryId: category.id, date: EVIDENCE_DATE })
       .expect(201);
     const body = response.body as AiProductResearchResponse;
 
@@ -91,13 +92,46 @@ describe("Product Research Agent route", () => {
       expect.stringContaining("价格带"),
       expect.stringContaining("Review VOC")
     ]));
+    expect(body.output.artifacts?.productLaunchBrief).toMatchObject({
+      title: "Ice Makers 新品立项草案",
+      evidenceDate: EVIDENCE_DATE,
+      decision: "validate",
+      priceBand: {
+        minimum: 89.99,
+        target: 109.99,
+        maximum: 159.99,
+        currency: "USD"
+      },
+      customerPainEvidence: {
+        status: "data_gap"
+      }
+    });
+    expect(body.output.artifacts?.productLaunchBrief?.competitorMatrix).toEqual([
+      expect.objectContaining({ asin: "B0RESEARCH1", rank: 8, signal: "新品黑马 · 低 Review" }),
+      expect.objectContaining({ asin: "B0RESEARCH2", rank: 22, signal: "Top50 · 低 Review" }),
+      expect.objectContaining({ asin: "B0RESEARCH3", rank: 46, signal: "榜单 #46" })
+    ]);
+    expect(body.output.artifacts?.productLaunchBrief?.validationChecklist).toEqual(expect.arrayContaining([
+      expect.objectContaining({ item: "Review VOC 与用户问题验证", gate: "required" }),
+      expect.objectContaining({ item: "利润安全线", gate: "required" }),
+      expect.objectContaining({ item: "新品黑马路径复核", gate: "recommended" })
+    ]));
     expect(body.output.recommended_actions.every((action) => action.needs_human_approval)).toBe(true);
+    expect(body.output.dataFreshness).toMatchObject({
+      evidenceDate: EVIDENCE_DATE,
+      dataSource: "manual",
+      syncStatus: "manual",
+      freshnessStatus: "fresh",
+      maxAgeHours: 24,
+      warning: null
+    });
     expect(body.run).toMatchObject({
       agentType: "product_research",
-      model: "deterministic-product-research-v1",
+      model: "deterministic-product-research-v3",
       status: "success"
     });
-    expect(store.listAiRuns({ agentType: "product_research" })).toHaveLength(1);
+    const persistedRun = store.listAiRuns({ agentType: "product_research" })[0];
+    expect(persistedRun?.output?.artifacts?.productLaunchBrief?.competitorMatrix).toHaveLength(3);
   });
 
   it("reports the data gap without creating a high-priority recommendation", async () => {
@@ -113,6 +147,137 @@ describe("Product Research Agent route", () => {
     expect(response.body.output.recommended_actions).toEqual([
       expect.objectContaining({ priority: "P2", needs_human_approval: true })
     ]);
+    expect(response.body.output.artifacts?.productLaunchBrief).toBeUndefined();
+  });
+
+  it("creates required launch-validation tasks once and keeps them linked to the Agent run", async () => {
+    const category = createCategory();
+    store.insertCategorySnapshots([
+      snapshot(category, "B0VALIDATE1", "Alpha", 8, 109.99, 48),
+      snapshot(category, "B0VALIDATE2", "Beta", 31, 139.99, 160)
+    ]);
+    const research = await request(app)
+      .post("/api/ai/research-product")
+      .set("x-amazon-monitor-session", token)
+      .send({ categoryId: category.id, date: EVIDENCE_DATE })
+      .expect(201);
+    const runId = research.body.run.id as number;
+
+    const created = await request(app)
+      .post(`/api/ai/runs/${runId}/product-launch-brief/tasks`)
+      .set("x-amazon-monitor-session", token)
+      .expect(201);
+
+    expect(created.body).toMatchObject({
+      runId,
+      requiredGateCount: 4,
+      createdCount: 4,
+      existingCount: 0
+    });
+    expect(created.body.tasks).toEqual([
+      expect.objectContaining({
+        sourceType: "ai_run",
+        sourceId: String(runId),
+        title: "[新品立项] Review VOC 与用户问题验证",
+        taskType: "review",
+        priority: "P1",
+        relatedCategoryId: category.id,
+        createdBy: 1
+      }),
+      expect.objectContaining({ title: "[新品立项] 利润安全线", taskType: "price" }),
+      expect.objectContaining({ title: "[新品立项] 专利与合规审查", taskType: "other" }),
+      expect.objectContaining({ title: "[新品立项] 供应链可行性", taskType: "supplier" })
+    ]);
+    expect(created.body.tasks[0].description).toContain("完成并复核证据前，不得视为通过立项");
+    expect(store.listTasks({ orgId: 1, sourceType: "ai_run", sourceId: String(runId) })).toHaveLength(4);
+
+    const repeated = await request(app)
+      .post(`/api/ai/runs/${runId}/product-launch-brief/tasks`)
+      .set("x-amazon-monitor-session", token)
+      .expect(200);
+
+    expect(repeated.body).toMatchObject({
+      requiredGateCount: 4,
+      createdCount: 0,
+      existingCount: 4
+    });
+    expect(repeated.body.tasks.map((task: { id: number }) => task.id)).toEqual(
+      created.body.tasks.map((task: { id: number }) => task.id)
+    );
+    expect(store.listTasks({ orgId: 1, sourceType: "ai_run", sourceId: String(runId) })).toHaveLength(4);
+  });
+
+  it("rejects launch-task creation without a launch brief or workflow write access", async () => {
+    const category = createCategory();
+    const research = await request(app)
+      .post("/api/ai/research-product")
+      .set("x-amazon-monitor-session", token)
+      .send({ categoryId: category.id, date: "2026-06-20" })
+      .expect(201);
+
+    await request(app)
+      .post(`/api/ai/runs/${research.body.run.id}/product-launch-brief/tasks`)
+      .set("x-amazon-monitor-session", token)
+      .expect(409);
+
+    store.createUser({
+      orgId: 1,
+      username: "launch-viewer",
+      password: "Viewer123!",
+      role: "viewer"
+    });
+    const viewer = await request(app)
+      .post("/api/auth/login")
+      .send({ username: "launch-viewer", password: "Viewer123!" })
+      .expect(200);
+
+    await request(app)
+      .post(`/api/ai/runs/${research.body.run.id}/product-launch-brief/tasks`)
+      .set("x-amazon-monitor-session", viewer.body.token as string)
+      .expect(403);
+  });
+
+  it("downgrades stale evidence to observation and blocks launch-validation tasks", async () => {
+    const category = createCategory();
+    const staleDate = "2026-01-01";
+    store.insertCategorySnapshots([
+      snapshot(category, "B0STALE001", "Archive", 9, 99.99, 42, staleDate)
+    ]);
+
+    const response = await request(app)
+      .post("/api/ai/research-product")
+      .set("x-amazon-monitor-session", token)
+      .send({ categoryId: category.id, date: staleDate })
+      .expect(201);
+
+    expect(response.body.output).toMatchObject({
+      confidence: 0.49,
+      dataFreshness: {
+        evidenceDate: staleDate,
+        freshnessStatus: "stale",
+        maxAgeHours: 24,
+        warning: expect.stringContaining("请重新采集")
+      },
+      artifacts: {
+        productLaunchBrief: {
+          decision: "hold",
+          opportunityThesis: expect.stringContaining("不可进入立项验证")
+        }
+      }
+    });
+    expect(response.body.output.summary).toContain("不可用于当前立项判断");
+    expect(response.body.output.recommended_actions).toEqual([
+      expect.objectContaining({
+        action: expect.stringContaining("重新采集"),
+        priority: "P2",
+        needs_human_approval: true
+      })
+    ]);
+
+    await request(app)
+      .post(`/api/ai/runs/${response.body.run.id}/product-launch-brief/tasks`)
+      .set("x-amazon-monitor-session", token)
+      .expect(409);
   });
 
   it("derives brand evidence from snapshots when the brand matrix is unavailable", async () => {
@@ -126,7 +291,7 @@ describe("Product Research Agent route", () => {
     const response = await request(app)
       .post("/api/ai/research-product")
       .set("x-amazon-monitor-session", token)
-      .send({ categoryId: category.id, date: "2026-06-19" })
+      .send({ categoryId: category.id, date: EVIDENCE_DATE })
       .expect(201);
 
     expect(response.body.context).toMatchObject({
@@ -176,13 +341,14 @@ function snapshot(
   brand: string,
   rank: number,
   price: number,
-  reviewCount: number
+  reviewCount: number,
+  snapshotDate = EVIDENCE_DATE
 ): BestsellerRankSnapshot {
   return {
     categoryId: category.id,
     categoryName: category.name,
     marketplace: category.marketplace,
-    snapshotDate: "2026-06-19",
+    snapshotDate,
     rank,
     asin,
     title: `${brand} research product`,
@@ -217,7 +383,7 @@ function brandEvidence(
     categoryId: category.id,
     categoryName: category.name,
     marketplace: category.marketplace,
-    snapshotDate: "2026-06-19",
+    snapshotDate: EVIDENCE_DATE,
     brand,
     productCountTop100: top100,
     productCountTop50: top50,

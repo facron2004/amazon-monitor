@@ -8,9 +8,14 @@ import type {
 import { appendDailyInsightReportMarkdown, collectDailyInsightReportData } from "../reports/insight-report.js";
 import { buildPeriodInsightReport, type InsightReportPeriod, type PeriodInsightReport } from "../reports/period-insight-report.js";
 import type { Store } from "../store.js";
+import {
+  assessDataFreshness,
+  guardAgentOutput,
+  insightEventFreshnessRecords
+} from "./ai-data-freshness.js";
 import { normalizeAiActionPriority, validateAiAgentOutput } from "./ai-agent-policy.js";
 
-const REPORT_WRITER_MODEL = "deterministic-report-writer-v1";
+const REPORT_WRITER_MODEL = "deterministic-report-writer-v2";
 
 interface ReportWriterInput {
   date: string;
@@ -35,8 +40,21 @@ interface ReportEvidence {
 
 export function createReportWithAgent(store: Store, input: ReportWriterInput): AiReportWriterResponse {
   const evidence = collectReportEvidence(store, input);
-  const confidence = calculateConfidence(evidence);
-  const output = buildReportWriterOutput(input, evidence, confidence);
+  const endDateEvents = evidence.sourceEvents.filter((event) => event.eventDate === input.date);
+  const dataFreshness = assessDataFreshness({
+    evidenceDate: input.date,
+    records: insightEventFreshnessRecords(endDateEvents),
+    maxAgeHours: 24,
+    dataLabel: "Report"
+  });
+  const baseOutput = buildReportWriterOutput(input, evidence, calculateConfidence(evidence));
+  const output = guardAgentOutput(baseOutput, dataFreshness, {
+    action: "Refresh end-date insight evidence before assigning work from this report",
+    priority: "P2",
+    reason: dataFreshness.warning ?? "Report evidence is not ready.",
+    risk: "A polished report can hide stale source evidence and create false urgency.",
+    needs_human_approval: true
+  });
   const validationErrors = validateAiAgentOutput(output);
   const markdown = buildMarkdown(input, evidence, output);
   const inputContextJson = JSON.stringify({
@@ -46,6 +64,7 @@ export function createReportWithAgent(store: Store, input: ReportWriterInput): A
     sourceEventIds: evidence.sourceEvents.slice(0, 20).map((event) => event.id),
     reviewDueCount: evidence.reviewDueEvents.length,
     reviewedCount: evidence.reviewedEvents.length,
+    dataFreshness,
     generatedAt: new Date().toISOString()
   });
 
@@ -139,6 +158,9 @@ function buildMarkdown(input: ReportWriterInput, evidence: ReportEvidence, outpu
     "## Impact",
     output.impact,
     "",
+    "## Data Freshness",
+    ...formatDataFreshness(output),
+    "",
     "## Approval-Gated Actions",
     ...output.recommended_actions.map((action, index) => (
       `${index + 1}. [${action.priority}] ${action.action}\n   - Reason: ${action.reason}\n   - Risk: ${action.risk}\n   - Human approval: required`
@@ -147,6 +169,19 @@ function buildMarkdown(input: ReportWriterInput, evidence: ReportEvidence, outpu
     "## Source Report",
     evidence.markdown.trim() || "No source report markdown was available for this date."
   ].join("\n");
+}
+
+function formatDataFreshness(output: AiAgentOutput): string[] {
+  const freshness = output.dataFreshness;
+  if (!freshness) return ["- Status: unavailable"];
+  return [
+    `- Evidence date: ${freshness.evidenceDate}`,
+    `- Source: ${freshness.dataSource}`,
+    `- Last updated: ${freshness.lastSyncedAt ?? "unavailable"}`,
+    `- Status: ${freshness.freshnessStatus} / ${freshness.syncStatus ?? "unknown"}`,
+    ...(freshness.failureReason ? [`- Failure: ${freshness.failureReason}`] : []),
+    ...(freshness.warning ? [`- Warning: ${freshness.warning}`] : [])
+  ];
 }
 
 function buildEvidenceLines(evidence: ReportEvidence): string[] {

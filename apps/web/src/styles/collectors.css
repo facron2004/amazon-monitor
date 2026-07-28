@@ -142,6 +142,22 @@
   text-align: right;
 }
 
+.collector-log-pagination {
+  align-items: center;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.collector-log-pagination > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .collector-freshness-list {
   border-top: 1px solid var(--border-color);
 }
@@ -415,5 +431,10 @@
   .collector-filters .el-button {
     width: 100%;
     margin-left: 0;
+  }
+
+  .collector-log-pagination {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

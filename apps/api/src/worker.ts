@@ -44,6 +44,8 @@ const pollIntervalMs = intEnv("AMAZON_COLLECT_POLL_INTERVAL_MS", 2000, 100, 6000
 const workerConcurrency = intEnv("AMAZON_WORKER_CONCURRENCY", 2, 1, 10);
 const jobTimeoutMs = intEnv("AMAZON_WORKER_JOB_TIMEOUT_MS", 10 * 60 * 1000, 0, 60 * 60 * 1000);
 const heartbeatIntervalMs = intEnv("AMAZON_WORKER_HEARTBEAT_MS", 5000, 1000, 60000);
+const reaperIntervalMs = intEnv("AMAZON_WORKER_REAPER_INTERVAL_MS", 30000, 5000, 300000);
+const staleJobThresholdMs = intEnv("AMAZON_WORKER_STALE_JOB_THRESHOLD_MS", 15 * 60 * 1000, 60000, 30 * 60 * 1000);
 const verboseLog = process.env.AMAZON_WORKER_VERBOSE_LOG !== "false";
 
 let running = true;
@@ -53,7 +55,7 @@ type CollectJobRunner = (store: any, job: CollectJobRef, options?: { signal?: Ab
 
 export async function startWorker(storeInstance?: any) {
   const store = storeInstance ?? openAppStore(dbPath);
-  console.log(`[${ts()}] [Worker] Started. Polling SQLite queue: ${dbPath} (poll=${pollIntervalMs}ms, maxRetries=${maxRetries}, concurrency=${workerConcurrency}, jobTimeout=${formatDuration(jobTimeoutMs)})`);
+  console.log(`[${ts()}] [Worker] Started. Polling SQLite queue: ${dbPath} (poll=${pollIntervalMs}ms, maxRetries=${maxRetries}, concurrency=${workerConcurrency}, jobTimeout=${formatDuration(jobTimeoutMs)}, staleReaper=${formatDuration(staleJobThresholdMs)} every ${reaperIntervalMs}ms)`);
 
   // Recover jobs that the previous Worker left in 'processing' state. Without
   // this, those rows would sit forever — `claimNextJob` only reads 'pending',
@@ -102,6 +104,24 @@ export async function startWorker(storeInstance?: any) {
   writeHeartbeat();
   const heartbeatTimer = setInterval(writeHeartbeat, heartbeatIntervalMs);
 
+  /**
+   * Runtime reaper: periodically recovers jobs stuck in 'processing' beyond
+   * the stale threshold. This prevents jobs from being stuck forever when a
+   * lane hangs on a non-abortable operation (e.g. Playwright browser hang).
+   * Without this, stuck jobs would only be recovered on worker restart.
+   */
+  function reapStaleJobs(): void {
+    try {
+      const ids = store.recoverStaleProcessingJobs(staleJobThresholdMs, maxRetries);
+      if (ids.length > 0) {
+        console.log(`[${ts()}] [Worker:reaper] Recovered ${ids.length} stale job(s): #${ids.join(", #")}`);
+      }
+    } catch (err) {
+      console.error(`[${ts()}] [Worker:reaper] Error:`, err);
+    }
+  }
+  const reaperTimer = setInterval(reapStaleJobs, reaperIntervalMs);
+
   async function workerLane(laneId: number): Promise<void> {
     while (running) {
       try {
@@ -148,6 +168,7 @@ export async function startWorker(storeInstance?: any) {
     await Promise.all(lanes);
   } finally {
     clearInterval(heartbeatTimer);
+    clearInterval(reaperTimer);
   }
 }
 

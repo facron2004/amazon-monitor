@@ -1,4 +1,4 @@
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type {
@@ -7,10 +7,13 @@ import type {
   Task,
   TaskExecutionInput,
   TaskPriority,
+  TaskSopRecommendation,
   TaskStatus,
+  TaskTeamPerformanceResponse,
   User,
 } from "@amazon-monitor/shared";
 import { listUsers } from "../api-auth.js";
+import { getTaskTeamPerformance } from "../api-tasks.js";
 import { useTaskStore } from "../stores/tasks.js";
 import { toErrorMessage } from "../utils/error-message.js";
 import {
@@ -31,6 +34,7 @@ export function useTaskWorkspace() {
   const detailTask = ref<Task | null>(null);
   const detailSourceEvent = ref<InsightEvent | null>(null);
   const detailSourceAiRun = ref<AiRun | null>(null);
+  const detailSopRecommendations = ref<TaskSopRecommendation[]>([]);
   const detailLoading = ref(false);
   const executionTask = ref<Task | null>(null);
   const reviewTask = ref<Task | null>(null);
@@ -40,6 +44,10 @@ export function useTaskWorkspace() {
   const savingExecution = ref(false);
   const savingReview = ref(false);
   const savingAssignment = ref(false);
+  const performanceDays = ref<7 | 30 | 90>(30);
+  const performance = ref<TaskTeamPerformanceResponse | null>(null);
+  const performanceLoading = ref(false);
+  const performanceError = ref<string | null>(null);
 
   const filteredTasks = computed(() =>
     tasks.value.filter((task) => {
@@ -68,8 +76,15 @@ export function useTaskWorkspace() {
     void loadUsers();
   });
 
+  watch(performanceDays, () => {
+    if (canAssignTasks.value) void loadPerformance();
+  });
+
   async function refresh(): Promise<void> {
-    await store.fetchTasks();
+    await Promise.all([
+      store.fetchTasks(),
+      canAssignTasks.value ? loadPerformance() : Promise.resolve(),
+    ]);
   }
 
   async function loadUsers(): Promise<void> {
@@ -79,6 +94,18 @@ export function useTaskWorkspace() {
       );
     } catch (errorValue) {
       ElMessage.error(toErrorMessage(errorValue));
+    }
+  }
+
+  async function loadPerformance(): Promise<void> {
+    performanceLoading.value = true;
+    performanceError.value = null;
+    try {
+      performance.value = await getTaskTeamPerformance(performanceDays.value);
+    } catch (errorValue) {
+      performanceError.value = toErrorMessage(errorValue);
+    } finally {
+      performanceLoading.value = false;
     }
   }
 
@@ -126,6 +153,7 @@ export function useTaskWorkspace() {
     detailTask.value = task;
     detailSourceEvent.value = null;
     detailSourceAiRun.value = null;
+    detailSopRecommendations.value = [];
     detailLoading.value = true;
     try {
       const detail = await store.fetchDetail(task.id);
@@ -133,6 +161,7 @@ export function useTaskWorkspace() {
       detailTask.value = detail.task;
       detailSourceEvent.value = detail.sourceEvent;
       detailSourceAiRun.value = detail.sourceAiRun;
+      detailSopRecommendations.value = detail.sopRecommendations;
     } catch (errorValue) {
       ElMessage.error(toErrorMessage(errorValue));
     } finally {
@@ -144,6 +173,7 @@ export function useTaskWorkspace() {
     detailTask.value = null;
     detailSourceEvent.value = null;
     detailSourceAiRun.value = null;
+    detailSopRecommendations.value = [];
     detailLoading.value = false;
   }
 
@@ -208,6 +238,7 @@ export function useTaskWorkspace() {
     detailTask,
     detailSourceEvent,
     detailSourceAiRun,
+    detailSopRecommendations,
     detailLoading,
     executionTask,
     reviewTask,
@@ -217,7 +248,12 @@ export function useTaskWorkspace() {
     savingExecution,
     savingReview,
     savingAssignment,
+    performanceDays,
+    performance,
+    performanceLoading,
+    performanceError,
     refresh,
+    loadPerformance,
     claim,
     confirmDone,
     cancel,

@@ -1,6 +1,6 @@
 [package]
 name = "amazon-monitor"
-version = "0.6.0"
+version = "0.6.1"
 description = "Amazon keyword competitor price and ranking monitor"
 authors = ["Amazon Monitor Team"]
 edition = "2021"

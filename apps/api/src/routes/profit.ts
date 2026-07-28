@@ -4,7 +4,6 @@ import {
   hasBusinessCapability,
   profitActionKinds,
   type ProfitActionKind,
-  type ProductProfitPlan,
   type ProfitPlanLevel,
   type SessionContext
 } from "@amazon-monitor/shared";
@@ -13,6 +12,7 @@ import {
   buildProfitActionTask,
   profitActionTaskSourceId
 } from "../services/profit-action-task-service.js";
+import { toProfitSummary } from "../services/domain-access.js";
 import type { Store } from "../store.js";
 import { asyncHandler } from "./http-utils.js";
 import { validateBody, validateIdParam, validateQuery } from "./validation.js";
@@ -182,30 +182,6 @@ export function registerProfitRoutes(app: Express, store: Store): void {
       plan: store.getProfitPlan(id, { orgId: ctx.organization.id })
     });
   }));
-}
-
-function toProfitSummary(plan: ProductProfitPlan): ProductProfitPlan {
-  return {
-    ...plan,
-    latestMetric: null,
-    setting: null,
-    salesAmount: null,
-    unitsSold: null,
-    adSpend: null,
-    adCostPerUnit: null,
-    tacos: null,
-    grossMargin: null,
-    scenarios: plan.scenarios.map((scenario) => ({
-      ...scenario,
-      grossRevenue: null,
-      productCost: null,
-      platformFees: null,
-      adCost: null,
-      promoCost: null,
-      netProfit: null,
-      profitPerUnit: null
-    }))
-  };
 }
 
 function ensureProductInOrg(store: Store, productId: number | undefined, orgId: number): void {

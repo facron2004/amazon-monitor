@@ -39,6 +39,388 @@
           }
         }
       },
+      "Sop": {
+        "type": "object",
+        "required": [
+          "id",
+          "orgId",
+          "title",
+          "category",
+          "bodyMd",
+          "sourceTaskId",
+          "status",
+          "tags",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "orgId": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string" },
+          "category": {
+            "type": "string",
+            "enum": [
+              "competitor_response",
+              "price_action",
+              "ad_optimization",
+              "listing_optimization",
+              "review_response",
+              "inventory_replenishment",
+              "supplier_negotiation",
+              "general"
+            ]
+          },
+          "bodyMd": { "type": "string" },
+          "sourceTaskId": { "type": "integer", "nullable": true },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "published", "archived"]
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "createdBy": { "type": "integer", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SopListResponse": {
+        "type": "object",
+        "required": ["sops", "total", "limit", "offset", "statusCounts"],
+        "properties": {
+          "sops": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Sop" }
+          },
+          "total": { "type": "integer", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+          "offset": { "type": "integer", "minimum": 0 },
+          "statusCounts": {
+            "type": "object",
+            "required": ["all", "draft", "published", "archived"],
+            "properties": {
+              "all": { "type": "integer", "minimum": 0 },
+              "draft": { "type": "integer", "minimum": 0 },
+              "published": { "type": "integer", "minimum": 0 },
+              "archived": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      },
+      "AiDataFreshness": {
+        "type": "object",
+        "required": [
+          "evidenceDate",
+          "evaluatedAt",
+          "dataSource",
+          "lastSyncedAt",
+          "syncStatus",
+          "freshnessStatus",
+          "ageHours",
+          "maxAgeHours",
+          "failureReason",
+          "warning"
+        ],
+        "properties": {
+          "evidenceDate": { "type": "string", "format": "date" },
+          "evaluatedAt": { "type": "string", "format": "date-time" },
+          "dataSource": { "type": "string" },
+          "lastSyncedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "syncStatus": {
+            "type": "string",
+            "enum": ["pending", "success", "partial", "failed", "manual"],
+            "nullable": true
+          },
+          "freshnessStatus": {
+            "type": "string",
+            "enum": ["fresh", "stale", "unknown"]
+          },
+          "ageHours": { "type": "integer", "minimum": 0, "nullable": true },
+          "maxAgeHours": { "type": "integer", "minimum": 1 },
+          "failureReason": { "type": "string", "nullable": true },
+          "warning": { "type": "string", "nullable": true }
+        }
+      },
+      "ProductLaunchBrief": {
+        "type": "object",
+        "required": [
+          "title",
+          "evidenceDate",
+          "categoryName",
+          "marketplace",
+          "decision",
+          "opportunityThesis",
+          "priceBand",
+          "customerPainEvidence",
+          "competitorMatrix",
+          "differentiationHypotheses",
+          "validationChecklist",
+          "riskNotes"
+        ],
+        "properties": {
+          "title": { "type": "string" },
+          "evidenceDate": { "type": "string", "format": "date" },
+          "categoryName": { "type": "string" },
+          "marketplace": { "type": "string" },
+          "decision": { "type": "string", "enum": ["validate", "hold"] },
+          "opportunityThesis": { "type": "string" },
+          "priceBand": {
+            "type": "object",
+            "required": ["minimum", "target", "maximum", "currency", "evidence"],
+            "properties": {
+              "minimum": { "type": "number", "nullable": true },
+              "target": { "type": "number", "nullable": true },
+              "maximum": { "type": "number", "nullable": true },
+              "currency": { "type": "string", "nullable": true },
+              "evidence": { "type": "string" }
+            }
+          },
+          "customerPainEvidence": {
+            "type": "object",
+            "required": ["status", "conclusion", "evidence", "validationNeeded"],
+            "properties": {
+              "status": { "type": "string", "enum": ["evidence_available", "data_gap"] },
+              "conclusion": { "type": "string" },
+              "evidence": { "type": "array", "items": { "type": "string" } },
+              "validationNeeded": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "competitorMatrix": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["asin", "brand", "title", "rank", "price", "reviewCount", "signal", "evidence"],
+              "properties": {
+                "asin": { "type": "string" },
+                "brand": { "type": "string", "nullable": true },
+                "title": { "type": "string" },
+                "rank": { "type": "integer", "minimum": 1 },
+                "price": { "type": "number", "nullable": true },
+                "reviewCount": { "type": "integer", "minimum": 0, "nullable": true },
+                "signal": { "type": "string" },
+                "evidence": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          "differentiationHypotheses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["hypothesis", "evidence", "validationNeeded"],
+              "properties": {
+                "hypothesis": { "type": "string" },
+                "evidence": { "type": "array", "items": { "type": "string" } },
+                "validationNeeded": { "type": "string" }
+              }
+            }
+          },
+          "validationChecklist": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["item", "gate", "evidenceRequired"],
+              "properties": {
+                "item": { "type": "string" },
+                "gate": { "type": "string", "enum": ["required", "recommended"] },
+                "evidenceRequired": { "type": "string" }
+              }
+            }
+          },
+          "riskNotes": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "ProductResearchResponse": {
+        "type": "object",
+        "required": ["date", "categoryId", "output", "run", "context"],
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "categoryId": { "type": "integer", "minimum": 1 },
+          "output": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "dataFreshness": {
+                "$ref": "#/components/schemas/AiDataFreshness"
+              },
+              "artifacts": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "productLaunchBrief": {
+                    "$ref": "#/components/schemas/ProductLaunchBrief"
+                  }
+                }
+              }
+            }
+          },
+          "run": { "type": "object", "additionalProperties": true },
+          "context": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "ProductLaunchValidationTasksResponse": {
+        "type": "object",
+        "required": [
+          "runId",
+          "requiredGateCount",
+          "createdCount",
+          "existingCount",
+          "tasks"
+        ],
+        "properties": {
+          "runId": { "type": "integer", "minimum": 1 },
+          "requiredGateCount": { "type": "integer", "minimum": 1 },
+          "createdCount": { "type": "integer", "minimum": 0 },
+          "existingCount": { "type": "integer", "minimum": 0 },
+          "tasks": {
+            "type": "array",
+            "items": { "type": "object", "additionalProperties": true }
+          }
+        }
+      },
+      "TaskSopRecommendation": {
+        "type": "object",
+        "required": ["sop", "score", "matchReasons"],
+        "properties": {
+          "sop": { "$ref": "#/components/schemas/Sop" },
+          "score": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "matchReasons": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "TaskTeamPerformanceMetrics": {
+        "type": "object",
+        "required": [
+          "assignedCount",
+          "completedCount",
+          "openCount",
+          "overdueCount",
+          "reviewedCount",
+          "confirmedCount",
+          "dueCompletedCount",
+          "onTimeCompletedCount",
+          "onTimeRate",
+          "confirmationRate",
+          "averageCycleHours"
+        ],
+        "properties": {
+          "assignedCount": { "type": "integer", "minimum": 0 },
+          "completedCount": { "type": "integer", "minimum": 0 },
+          "openCount": { "type": "integer", "minimum": 0 },
+          "overdueCount": { "type": "integer", "minimum": 0 },
+          "reviewedCount": { "type": "integer", "minimum": 0 },
+          "confirmedCount": { "type": "integer", "minimum": 0 },
+          "dueCompletedCount": { "type": "integer", "minimum": 0 },
+          "onTimeCompletedCount": { "type": "integer", "minimum": 0 },
+          "onTimeRate": { "type": "integer", "minimum": 0, "maximum": 100, "nullable": true },
+          "confirmationRate": { "type": "integer", "minimum": 0, "maximum": 100, "nullable": true },
+          "averageCycleHours": { "type": "number", "minimum": 0, "nullable": true }
+        }
+      },
+      "TaskTeamPerformanceResponse": {
+        "type": "object",
+        "required": ["windowDays", "rangeStart", "rangeEnd", "generatedAt", "totals", "members"],
+        "properties": {
+          "windowDays": { "type": "integer", "enum": [7, 30, 90] },
+          "rangeStart": { "type": "string", "format": "date-time" },
+          "rangeEnd": { "type": "string", "format": "date-time" },
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "totals": { "$ref": "#/components/schemas/TaskTeamPerformanceMetrics" },
+          "members": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/TaskTeamPerformanceMetrics" },
+                {
+                  "type": "object",
+                  "required": ["assigneeId", "assigneeName"],
+                  "properties": {
+                    "assigneeId": { "type": "integer", "nullable": true },
+                    "assigneeName": { "type": "string" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "AiQualityMetrics": {
+        "type": "object",
+        "required": [
+          "runCount",
+          "successfulRunCount",
+          "actionableRunCount",
+          "actionCount",
+          "feedbackCount",
+          "positiveFeedbackCount",
+          "negativeFeedbackCount",
+          "positiveFeedbackRate",
+          "convertedRunCount",
+          "runConversionRate",
+          "reviewedTaskCount",
+          "confirmedTaskCount",
+          "taskConfirmationRate"
+        ],
+        "properties": {
+          "runCount": { "type": "integer", "minimum": 0 },
+          "successfulRunCount": { "type": "integer", "minimum": 0 },
+          "actionableRunCount": { "type": "integer", "minimum": 0 },
+          "actionCount": { "type": "integer", "minimum": 0 },
+          "feedbackCount": { "type": "integer", "minimum": 0 },
+          "positiveFeedbackCount": { "type": "integer", "minimum": 0 },
+          "negativeFeedbackCount": { "type": "integer", "minimum": 0 },
+          "positiveFeedbackRate": { "type": "integer", "minimum": 0, "maximum": 100, "nullable": true },
+          "convertedRunCount": { "type": "integer", "minimum": 0 },
+          "runConversionRate": { "type": "integer", "minimum": 0, "maximum": 100, "nullable": true },
+          "reviewedTaskCount": { "type": "integer", "minimum": 0 },
+          "confirmedTaskCount": { "type": "integer", "minimum": 0 },
+          "taskConfirmationRate": { "type": "integer", "minimum": 0, "maximum": 100, "nullable": true }
+        }
+      },
+      "AiQualityResponse": {
+        "type": "object",
+        "required": ["windowDays", "rangeStart", "rangeEnd", "generatedAt", "totals", "agents"],
+        "properties": {
+          "windowDays": { "type": "integer", "enum": [7, 30, 90] },
+          "rangeStart": { "type": "string", "format": "date-time" },
+          "rangeEnd": { "type": "string", "format": "date-time" },
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "totals": { "$ref": "#/components/schemas/AiQualityMetrics" },
+          "agents": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/AiQualityMetrics" },
+                {
+                  "type": "object",
+                  "required": ["agentType"],
+                  "properties": {
+                    "agentType": {
+                      "type": "string",
+                      "enum": [
+                        "daily_operator",
+                        "competitor_analyst",
+                        "listing_optimizer",
+                        "ads_analyst",
+                        "product_research",
+                        "review_voc",
+                        "report_writer"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
       "DashboardOperations": {
         "type": "object",
         "required": [
@@ -101,6 +483,91 @@
                 }
               }
             }
+          }
+        }
+      },
+      "OwnedProductOperationsDetail": {
+        "type": "object",
+        "required": [
+          "asOfDate",
+          "generatedAt",
+          "product",
+          "access",
+          "ads",
+          "profit",
+          "inventory",
+          "listingHealth",
+          "reviewVoc",
+          "competitors",
+          "agentRuns",
+          "events",
+          "tasks"
+        ],
+        "properties": {
+          "asOfDate": { "type": "string", "format": "date" },
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "product": {
+            "type": "object",
+            "description": "Owned SKU identity, scores, and up to 90 dated operating metrics with role-aware Ads and profit fields.",
+            "additionalProperties": true
+          },
+          "access": {
+            "type": "object",
+            "required": ["ads", "profit"],
+            "properties": {
+              "ads": {
+                "type": "string",
+                "enum": ["full", "summary", "denied"]
+              },
+              "profit": {
+                "type": "string",
+                "enum": ["full", "summary", "denied"]
+              }
+            }
+          },
+          "ads": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "profit": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "inventory": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "listingHealth": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "reviewVoc": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "competitors": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "type": "object", "additionalProperties": true }
+          },
+          "agentRuns": {
+            "type": "array",
+            "maxItems": 8,
+            "items": { "type": "object", "additionalProperties": true }
+          },
+          "events": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "object", "additionalProperties": true }
+          },
+          "tasks": {
+            "type": "array",
+            "items": { "type": "object", "additionalProperties": true }
           }
         }
       }
@@ -220,6 +687,31 @@
         }
       }
     },
+    "/ai/quality": {
+      "get": {
+        "summary": "Get organization-scoped Agent feedback and reviewed-task quality evidence",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": { "type": "integer", "enum": [7, 30, 90], "default": 30 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent run, action, team-feedback, task-conversion, and review-outcome metrics",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AiQualityResponse" }
+              }
+            }
+          },
+          "400": { "description": "Unsupported reporting window" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Task assignment capability required" }
+        }
+      }
+    },
     "/ai/runs": {
       "get": {
         "summary": "List persisted AI Agent runs",
@@ -235,6 +727,7 @@
                 "competitor_analyst",
                 "listing_optimizer",
                 "ads_analyst",
+                "product_research",
                 "review_voc",
                 "report_writer"
               ]
@@ -265,7 +758,9 @@
           }
         ],
         "responses": {
-          "200": { "description": "Filtered AI Agent run history" },
+          "200": {
+            "description": "Filtered AI Agent run history with total, limit, and offset pagination metadata"
+          },
           "400": { "description": "Invalid filter" },
           "401": { "description": "Authentication required" }
         }
@@ -311,6 +806,47 @@
           "403": { "description": "Workflow management capability required" },
           "404": {
             "description": "AI run not found in the current organization"
+          }
+        }
+      }
+    },
+    "/ai/runs/{id}/product-launch-brief/tasks": {
+      "post": {
+        "summary": "Create idempotent approval-gated validation tasks from a Product Research launch brief",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All required validation tasks already existed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductLaunchValidationTasksResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Required validation tasks created from the persisted launch brief",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductLaunchValidationTasksResponse"
+                }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Workflow management capability required" },
+          "404": { "description": "AI run not found in the current organization" },
+          "409": {
+            "description": "Run has no validation-ready Product Research launch brief"
           }
         }
       }
@@ -870,7 +1406,12 @@
         },
         "responses": {
           "201": {
-            "description": "Product research analysis persisted to ai_runs"
+            "description": "Product research analysis and optional evidence-backed launch brief persisted to ai_runs",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProductResearchResponse" }
+              }
+            }
           },
           "401": { "description": "Authentication required" },
           "403": { "description": "Competitor management capability required" },
@@ -1597,6 +2138,40 @@
           "200": { "description": "Updated owned SKU" },
           "403": { "description": "Operator or admin required" },
           "404": { "description": "Product not found" }
+        }
+      }
+    },
+    "/products/{id}/operations": {
+      "get": {
+        "summary": "Get a dated SKU 360 operations workspace",
+        "description": "Aggregates existing sales, profit, Ads, inventory, rank, Listing, Review, competitor, Agent, event, task, and review evidence without creating a parallel data source. Ads and profit fields follow the signed-in role capability matrix.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization-scoped SKU operations detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnedProductOperationsDetail"
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid product id or business date" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Product not found in current organization" }
         }
       }
     },
@@ -4696,6 +5271,26 @@
         }
       }
     },
+    "/collectors/logs/page": {
+      "get": {
+        "summary": "List collector execution logs with pagination metadata",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Collector execution log page with total, limit, and offset" }
+        }
+      }
+    },
     "/collectors/freshness": {
       "get": {
         "summary": "Get collection freshness by target type",
@@ -4717,6 +5312,69 @@
         "summary": "Get collection worker heartbeat status",
         "responses": {
           "200": { "description": "Collection worker status" }
+        }
+      }
+    },
+    "/sops/page": {
+      "get": {
+        "summary": "List the complete organization SOP library with pagination metadata",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["draft", "published", "archived"]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "competitor_response",
+                "price_action",
+                "ad_optimization",
+                "listing_optimization",
+                "review_response",
+                "inventory_replenishment",
+                "supplier_negotiation",
+                "general"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": { "type": "string", "maxLength": 200 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 25
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Filtered SOP page and status counts",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SopListResponse" }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" }
         }
       }
     },
@@ -4841,6 +5499,31 @@
         }
       }
     },
+    "/tasks/team-performance": {
+      "get": {
+        "summary": "Get organization-scoped team workflow performance for managers",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": { "type": "integer", "enum": [7, 30, 90], "default": 30 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team workload, timeliness, cycle-time, and review-effectiveness metrics",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskTeamPerformanceResponse" }
+              }
+            }
+          },
+          "400": { "description": "Unsupported reporting window" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Task assignment capability required" }
+        }
+      }
+    },
     "/tasks/{id}/detail": {
       "get": {
         "summary": "Get an organization-scoped task with its linked insight-event context",
@@ -4854,7 +5537,40 @@
         ],
         "responses": {
           "200": {
-            "description": "Task detail with sourceEvent when the task originates from an insight event"
+            "description": "Task detail with source evidence and explainable published-SOP recommendations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "task",
+                    "sourceEvent",
+                    "sourceAiRun",
+                    "sopRecommendations"
+                  ],
+                  "properties": {
+                    "task": { "type": "object", "additionalProperties": true },
+                    "sourceEvent": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": true
+                    },
+                    "sourceAiRun": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": true
+                    },
+                    "sopRecommendations": {
+                      "type": "array",
+                      "maxItems": 3,
+                      "items": {
+                        "$ref": "#/components/schemas/TaskSopRecommendation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "401": { "description": "Authentication required" },
           "404": { "description": "Task not found in current organization" }

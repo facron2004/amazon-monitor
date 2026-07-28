@@ -1,7 +1,9 @@
 import type { InsightEvent } from "./insight-events.js";
 import type { AdsWorkflowSummary } from "./types-ads.js";
 import type { ProductListingHealthItem } from "./types-listing-health.js";
+import type { ProductSyncStatus } from "./types-products.js";
 import type { ReviewVocSummary } from "./types-review-voc.js";
+import type { Task } from "./types-workflow.js";
 
 export const aiAgentTypes = [
   "daily_operator",
@@ -163,10 +165,79 @@ export interface AiAdsOptimizationArtifact {
   riskNotes: string[];
 }
 
+export interface AiProductLaunchPriceBand {
+  minimum: number | null;
+  target: number | null;
+  maximum: number | null;
+  currency: string | null;
+  evidence: string;
+}
+
+export interface AiProductLaunchCustomerPainEvidence {
+  status: "evidence_available" | "data_gap";
+  conclusion: string;
+  evidence: string[];
+  validationNeeded: string[];
+}
+
+export interface AiProductLaunchCompetitorRow {
+  asin: string;
+  brand: string | null;
+  title: string;
+  rank: number;
+  price: number | null;
+  reviewCount: number | null;
+  signal: string;
+  evidence: string[];
+}
+
+export interface AiProductLaunchHypothesis {
+  hypothesis: string;
+  evidence: string[];
+  validationNeeded: string;
+}
+
+export interface AiProductLaunchValidationItem {
+  item: string;
+  gate: "required" | "recommended";
+  evidenceRequired: string;
+}
+
+export interface AiProductLaunchBrief {
+  title: string;
+  evidenceDate: string;
+  categoryName: string;
+  marketplace: string;
+  decision: "validate" | "hold";
+  opportunityThesis: string;
+  priceBand: AiProductLaunchPriceBand;
+  customerPainEvidence: AiProductLaunchCustomerPainEvidence;
+  competitorMatrix: AiProductLaunchCompetitorRow[];
+  differentiationHypotheses: AiProductLaunchHypothesis[];
+  validationChecklist: AiProductLaunchValidationItem[];
+  riskNotes: string[];
+}
+
 export interface AiAgentArtifacts {
   listingRewrite?: AiListingRewriteDraft;
   reviewVoc?: AiReviewVocArtifact;
   adsOptimization?: AiAdsOptimizationArtifact;
+  productLaunchBrief?: AiProductLaunchBrief;
+}
+
+export type AiDataFreshnessStatus = "fresh" | "stale" | "unknown";
+
+export interface AiDataFreshness {
+  evidenceDate: string;
+  evaluatedAt: string;
+  dataSource: string;
+  lastSyncedAt: string | null;
+  syncStatus: ProductSyncStatus | null;
+  freshnessStatus: AiDataFreshnessStatus;
+  ageHours: number | null;
+  maxAgeHours: number;
+  failureReason: string | null;
+  warning: string | null;
 }
 
 export interface AiAgentOutput {
@@ -175,6 +246,7 @@ export interface AiAgentOutput {
   impact: string;
   recommended_actions: AiRecommendedAction[];
   confidence: number;
+  dataFreshness?: AiDataFreshness;
   artifacts?: AiAgentArtifacts;
 }
 
@@ -231,8 +303,38 @@ export interface AiRunListFilter {
 
 export interface AiRunListResponse {
   runs: AiRun[];
+  total: number;
   limit: number;
   offset: number;
+}
+
+export interface AiQualityMetrics {
+  runCount: number;
+  successfulRunCount: number;
+  actionableRunCount: number;
+  actionCount: number;
+  feedbackCount: number;
+  positiveFeedbackCount: number;
+  negativeFeedbackCount: number;
+  positiveFeedbackRate: number | null;
+  convertedRunCount: number;
+  runConversionRate: number | null;
+  reviewedTaskCount: number;
+  confirmedTaskCount: number;
+  taskConfirmationRate: number | null;
+}
+
+export interface AiAgentQualityEntry extends AiQualityMetrics {
+  agentType: AiAgentType;
+}
+
+export interface AiQualityResponse {
+  windowDays: 7 | 30 | 90;
+  rangeStart: string;
+  rangeEnd: string;
+  generatedAt: string;
+  totals: AiQualityMetrics;
+  agents: AiAgentQualityEntry[];
 }
 
 export interface AiDailyBriefResponse {
@@ -321,6 +423,14 @@ export interface AiProductResearchResponse {
   output: AiAgentOutput;
   run: AiRun;
   context: AiProductResearchContext;
+}
+
+export interface AiProductLaunchValidationTasksResponse {
+  runId: number;
+  requiredGateCount: number;
+  createdCount: number;
+  existingCount: number;
+  tasks: Task[];
 }
 
 export interface AiReportWriterResponse {

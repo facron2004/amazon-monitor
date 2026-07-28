@@ -62,6 +62,11 @@ describe("keyword organization scope", () => {
     store.insertTaskLog(taskLog(secondOrg.id, secondKeyword.body.id, "second ice maker"));
     const firstLogs = await firstApi.get("/api/collectors/logs").expect(200);
     expect(firstLogs.body.map((item: { keyword: string }) => item.keyword)).toEqual(["first ice maker"]);
+    const firstLogPage = await firstApi.get("/api/collectors/logs/page?limit=1").expect(200);
+    expect(firstLogPage.body).toMatchObject({
+      total: 1,
+      logs: [expect.objectContaining({ keyword: "first ice maker" })]
+    });
 
     expect((await firstApi.get("/api/collect/jobs").expect(200)).body.map((item: { id: number }) => item.id)).toEqual([firstJob.body.id]);
     await firstApi.get(`/api/collect/jobs/${secondJob.body.id}`).expect(404);

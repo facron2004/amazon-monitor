@@ -26,6 +26,12 @@ export const useTaskStore = defineStore("tasks", () => {
     return t;
   }
 
+  function mergeTasks(incoming: Task[]): void {
+    const byId = new Map(tasks.value.map((task) => [task.id, task]));
+    for (const task of incoming) byId.set(task.id, task);
+    tasks.value = [...byId.values()].sort((left, right) => right.id - left.id);
+  }
+
   async function fetchDetail(id: number): Promise<api.TaskDetailResponse> {
     return api.getTaskDetail(id);
   }
@@ -66,5 +72,19 @@ export const useTaskStore = defineStore("tasks", () => {
     return api.listTaskNotes(id);
   }
 
-  return { tasks, loading, error, fetchTasks, createTask, fetchDetail, assign, transition, submitExecution, review, addNote, fetchNotes };
+  return {
+    tasks,
+    loading,
+    error,
+    fetchTasks,
+    createTask,
+    mergeTasks,
+    fetchDetail,
+    assign,
+    transition,
+    submitExecution,
+    review,
+    addNote,
+    fetchNotes
+  };
 });

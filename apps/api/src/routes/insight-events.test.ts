@@ -395,6 +395,46 @@ describe("insight event routes", () => {
       .expect(400);
   });
 
+  it("does not truncate derived filters or trend totals at 1000 events", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const app = createApiApp(store);
+    const api = await authenticatedAgent(app);
+
+    store.runInTransaction(() => {
+      for (let index = 0; index < 1005; index += 1) {
+        const event = sampleRouteInsightEvent();
+        const suffix = String(index).padStart(7, "0");
+        store.upsertInsightEvent({
+          ...event,
+          id: `2026-06-19|bulk:${suffix}`,
+          asin: `B${suffix}`,
+          eventTitle: `Bulk event ${suffix}`,
+          evidence: {
+            ...event.evidence,
+            rankChange: 1
+          }
+        });
+      }
+    });
+
+    await api
+      .get("/api/insight-events?date=2026-06-19&evidenceMovement=rankGain&limit=10&offset=1000")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toHaveLength(5);
+      });
+
+    await api
+      .get("/api/insight-events/trend?endDate=2026-06-19&days=1&evidenceMovement=rankGain")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].totalCount).toBe(1005);
+      });
+  });
+
   it("returns a daily Action Center trend before the dynamic id route", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);

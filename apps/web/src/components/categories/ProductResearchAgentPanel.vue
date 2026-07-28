@@ -6,6 +6,8 @@ import type { AiProductResearchResponse } from "@amazon-monitor/shared";
 import { aiApi } from "../../api-ai";
 import { useCategoryStore } from "../../stores/category";
 import { useWriteAccess } from "../../composables/useWriteAccess";
+import AgentDataFreshness from "../ai-agents/AgentDataFreshness.vue";
+import ProductLaunchBriefPanel from "./ProductLaunchBriefPanel.vue";
 
 const props = defineProps<{ date: string }>();
 
@@ -97,6 +99,11 @@ function candidateLabel(
     </div>
 
     <div v-if="result" class="research-panel__result">
+      <AgentDataFreshness
+        v-if="result.output.dataFreshness"
+        :freshness="result.output.dataFreshness"
+      />
+
       <div class="research-panel__metrics">
         <article><span>榜单样本</span><strong>{{ result.context.snapshotCount }}</strong></article>
         <article><span>品牌数</span><strong>{{ result.context.brandCount }}</strong></article>
@@ -115,6 +122,13 @@ function candidateLabel(
           <ul><li v-for="item in result.output.evidence" :key="item">{{ item }}</li></ul>
         </div>
       </div>
+
+      <ProductLaunchBriefPanel
+        v-if="result.output.artifacts?.productLaunchBrief"
+        :brief="result.output.artifacts.productLaunchBrief"
+        :run-id="result.run.id"
+        :data-freshness="result.output.dataFreshness"
+      />
 
       <section v-if="result.context.recommendedCompetitors.length" class="research-panel__candidates">
         <header>

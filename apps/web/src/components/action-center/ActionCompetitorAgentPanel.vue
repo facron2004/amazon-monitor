@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, Sparkles } from "@lucide/vue";
 import { ElSkeleton, ElTag } from "element-plus";
 import type { AiCompetitorAnalysisResponse } from "@amazon-monitor/shared";
 import { useWriteAccess } from "../../composables/useWriteAccess";
+import AgentDataFreshness from "../ai-agents/AgentDataFreshness.vue";
 
 const { canWrite } = useWriteAccess();
 
@@ -44,6 +45,10 @@ const confidencePercent = computed(() => {
     </p>
 
     <div v-else-if="analysis" class="competitor-agent__body">
+      <AgentDataFreshness
+        v-if="analysis.output.dataFreshness"
+        :freshness="analysis.output.dataFreshness"
+      />
       <div class="competitor-agent__summary">
         <CheckCircle2 :size="17" />
         <div>

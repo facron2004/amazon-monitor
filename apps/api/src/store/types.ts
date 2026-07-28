@@ -517,6 +517,7 @@ export interface OperationalStore {
     offset?: number,
     orgId?: number,
   ): CollectTaskLog[];
+  countTaskLogs(orgId?: number): number;
   saveDailyReport(
     date: string,
     keyword: string,
@@ -549,6 +550,7 @@ export interface QueueStore {
   getCollectionFreshness(orgId?: number): CollectionFreshness[];
   getQueueStats(orgId?: number): QueueStats;
   recoverStuckJobs(reason: string): number[];
+  recoverStaleProcessingJobs(staleAgeMs: number, maxRetries: number): number[];
   resetQueue(): void;
 }
 
@@ -661,10 +663,15 @@ export interface AiRunStore {
   createAiRun(input: CreateAiRunInput): AiRun;
   getAiRun(id: number, orgId: number): AiRun | null;
   listAiRuns(filter?: AiRunListFilter): AiRun[];
+  countAiRuns(filter?: AiRunListFilter): number;
   upsertAiActionFeedback(input: UpsertAiActionFeedbackInput): AiActionFeedback;
   listAiActionFeedback(input: {
     orgId: number;
     userId: number;
+    runIds: number[];
+  }): AiActionFeedback[];
+  listAiActionFeedbackForRuns(input: {
+    orgId: number;
     runIds: number[];
   }): AiActionFeedback[];
 }
@@ -876,8 +883,14 @@ export interface SopStore {
       tags: string[];
     }>,
   ): Sop;
-  getSop(id: number): Sop | null;
-  listSops(filter?: {
+    getSop(id: number): Sop | null;
+    countSops(filter?: {
+      orgId?: number;
+      status?: Sop["status"];
+      category?: Sop["category"];
+      q?: string;
+    }): number;
+    listSops(filter?: {
     orgId?: number;
     status?: Sop["status"];
     category?: Sop["category"];

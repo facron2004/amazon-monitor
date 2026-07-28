@@ -193,8 +193,9 @@ function selectCard(eventKey: string): void {
 .lane-card-meta small {
   color: var(--text-muted, #64748b);
   display: block;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .lane-card-delta {

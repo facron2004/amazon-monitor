@@ -58,13 +58,19 @@ describe("AI Agent routes", () => {
     expect(response.body.output.summary).toContain("priority insight signals");
     expect(response.body.output.evidence.length).toBeGreaterThan(0);
     expect(response.body.output.recommended_actions[0]).toMatchObject({
-      priority: "P0",
+      priority: "P2",
       needs_human_approval: true
     });
+    expect(response.body.output.dataFreshness).toMatchObject({
+      evidenceDate: "2026-06-19",
+      freshnessStatus: "stale",
+      maxAgeHours: 24
+    });
+    expect(response.body.output.confidence).toBe(0.49);
     expect(response.body.run).toMatchObject({
       agentType: "daily_operator",
       status: "success",
-      model: "deterministic-daily-operator-v1"
+      model: "deterministic-daily-operator-v2"
     });
 
     const runs = store.listAiRuns({ agentType: "daily_operator" });
@@ -100,10 +106,16 @@ describe("AI Agent routes", () => {
     expect(body.output.summary).toContain("B0AIROUTE1");
     expect(body.output.evidence.length).toBeGreaterThan(0);
     expect(body.output.recommended_actions.every((action) => action.needs_human_approval)).toBe(true);
+    expect(body.output.dataFreshness).toMatchObject({
+      evidenceDate: "2026-06-19",
+      freshnessStatus: "stale",
+      maxAgeHours: 3
+    });
+    expect(body.output.recommended_actions[0]?.priority).toBe("P2");
     expect(body.run).toMatchObject({
       agentType: "competitor_analyst",
       status: "success",
-      model: "deterministic-competitor-analyst-v1"
+      model: "deterministic-competitor-analyst-v2"
     });
 
     const runs = store.listAiRuns({ agentType: "competitor_analyst" });
@@ -124,14 +136,21 @@ describe("AI Agent routes", () => {
     expect(body.date).toBe("2026-06-19");
     expect(body.reportType).toBe("daily");
     expect(body.markdown).toContain("Report Writer Summary");
+    expect(body.markdown).toContain("## Data Freshness");
+    expect(body.markdown).toContain("- Status: stale / success");
     expect(body.markdown).toContain("Approval-Gated Actions");
     expect(body.output.evidence.length).toBeGreaterThan(0);
     expect(body.output.recommended_actions.every((action) => action.needs_human_approval)).toBe(true);
+    expect(body.output.dataFreshness).toMatchObject({
+      evidenceDate: "2026-06-19",
+      freshnessStatus: "stale",
+      maxAgeHours: 24
+    });
     expect(body.sourceEventIds).toContain("2026-06-19|category:1|asin:B0AIROUTE1|PRICE_DROP");
     expect(body.run).toMatchObject({
       agentType: "report_writer",
       status: "success",
-      model: "deterministic-report-writer-v1"
+      model: "deterministic-report-writer-v2"
     });
 
     const runs = store.listAiRuns({ agentType: "report_writer" });
@@ -160,6 +179,7 @@ describe("AI Agent routes", () => {
 
     expect(pagedBody.limit).toBe(1);
     expect(pagedBody.offset).toBe(0);
+    expect(pagedBody.total).toBe(2);
     expect(pagedBody.runs).toHaveLength(1);
     expect(pagedBody.runs[0].output?.recommended_actions[0].needs_human_approval).toBe(true);
 
@@ -169,6 +189,7 @@ describe("AI Agent routes", () => {
       .expect(200);
     const filteredBody = filteredResponse.body as AiRunListResponse;
 
+    expect(filteredBody.total).toBe(1);
     expect(filteredBody.runs).toHaveLength(1);
     expect(filteredBody.runs[0]).toMatchObject({
       agentType: "daily_operator",
@@ -220,6 +241,127 @@ describe("AI Agent routes", () => {
       .set("x-amazon-monitor-session", token)
       .send({ value: "up" })
       .expect(400, { message: "Invalid AI action index" });
+  });
+
+  it("summarizes organization-scoped Agent feedback and reviewed task outcomes for managers", async () => {
+    const run = store.createAiRun({
+      orgId: 1,
+      agentType: "daily_operator",
+      inputContextJson: "{}",
+      output: {
+        summary: "Two approval-gated actions",
+        evidence: ["Current organization evidence"],
+        impact: "Prioritize workflow",
+        recommended_actions: [
+          {
+            action: "Review price",
+            priority: "P1",
+            reason: "Price pressure",
+            risk: "Margin",
+            needs_human_approval: true
+          },
+          {
+            action: "Review ads",
+            priority: "P2",
+            reason: "Spend pressure",
+            risk: "Traffic",
+            needs_human_approval: true
+          }
+        ],
+        confidence: 0.8
+      },
+      model: "quality-test-model",
+      status: "success"
+    });
+    const operator = store.createUser({
+      orgId: 1,
+      username: "quality-operator",
+      password: "Quality123!",
+      role: "operator",
+      displayName: "Quality Operator"
+    });
+    store.upsertAiActionFeedback({
+      runId: run.id,
+      orgId: 1,
+      userId: 1,
+      actionIndex: 0,
+      value: "up"
+    });
+    store.upsertAiActionFeedback({
+      runId: run.id,
+      orgId: 1,
+      userId: operator.id,
+      actionIndex: 1,
+      value: "down"
+    });
+    const task = store.createTask({
+      orgId: 1,
+      sourceType: "ai_run",
+      sourceId: String(run.id),
+      title: "Execute Agent recommendation",
+      taskType: "other",
+      priority: "P1",
+      assigneeId: operator.id
+    });
+    store.transitionTaskStatus(task.id, "in_progress");
+    store.submitTaskForReview(task.id, { actionTaken: "Reviewed and executed recommendation" });
+    store.transitionTaskStatus(task.id, "done");
+    store.reviewTask(task.id, { reviewResult: "CONFIRMED" });
+
+    const otherOrganization = store.createOrganization({ name: "Quality other org" });
+    store.createAiRun({
+      orgId: otherOrganization.id,
+      agentType: "ads_analyst",
+      inputContextJson: "{}",
+      output: null,
+      model: "hidden-quality-model",
+      status: "failed"
+    });
+
+    const response = await request(app)
+      .get("/api/ai/quality?days=30")
+      .set("x-amazon-monitor-session", token)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      windowDays: 30,
+      totals: {
+        runCount: 1,
+        successfulRunCount: 1,
+        actionableRunCount: 1,
+        actionCount: 2,
+        feedbackCount: 2,
+        positiveFeedbackCount: 1,
+        negativeFeedbackCount: 1,
+        positiveFeedbackRate: 50,
+        convertedRunCount: 1,
+        runConversionRate: 100,
+        reviewedTaskCount: 1,
+        confirmedTaskCount: 1,
+        taskConfirmationRate: 100
+      },
+      agents: [
+        expect.objectContaining({
+          agentType: "daily_operator",
+          runCount: 1,
+          actionCount: 2,
+          positiveFeedbackRate: 50,
+          runConversionRate: 100,
+          taskConfirmationRate: 100
+        })
+      ]
+    });
+    expect(JSON.stringify(response.body)).not.toContain("hidden-quality-model");
+
+    const operatorToken = await loginAs("quality-operator", "Quality123!");
+    await request(app)
+      .get("/api/ai/quality?days=30")
+      .set("x-amazon-monitor-session", operatorToken)
+      .expect(403);
+    await request(app)
+      .get("/api/ai/quality?days=14")
+      .set("x-amazon-monitor-session", token)
+      .expect(400);
   });
 
   it("aligns Agent access with the shared business capability matrix", async () => {
@@ -314,6 +456,7 @@ describe("AI Agent routes", () => {
       .set("x-amazon-monitor-session", token)
       .expect(200);
     expect(adminRuns.body.runs).toHaveLength(1);
+    expect(adminRuns.body.total).toBe(1);
     expect(adminRuns.body.runs[0]).toMatchObject({ orgId: 1, model: "org-one-model" });
 
     const otherToken = await loginAs("other-admin", "OtherAdmin123!");
@@ -327,6 +470,7 @@ describe("AI Agent routes", () => {
       .set("x-amazon-monitor-session", otherToken)
       .expect(200);
     expect(otherRuns.body.runs).toHaveLength(1);
+    expect(otherRuns.body.total).toBe(1);
     expect(otherRuns.body.runs[0]).toMatchObject({
       orgId: otherOrganization.id,
       model: "org-two-model"

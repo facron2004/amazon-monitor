@@ -16,6 +16,9 @@ export type CollectorJobSort = "newest" | "oldest" | "failures";
 export const useCollectorsStore = defineStore("collectors", () => {
   const jobs = ref<CollectJob[]>([]);
   const logs = ref<CollectTaskLog[]>([]);
+  const logsTotal = ref(0);
+  const logsLimit = ref(50);
+  const logsOffset = ref(0);
   const freshness = ref<CollectionFreshness[]>([]);
   const queueStats = ref<QueueStats | null>(null);
   const workerStatus = ref<WorkerStatus | null>(null);
@@ -24,6 +27,7 @@ export const useCollectorsStore = defineStore("collectors", () => {
   const sort = ref<CollectorJobSort>("newest");
   const query = ref("");
   const loading = ref(false);
+  const logsLoading = ref(false);
   const running = ref(false);
   const error = ref<string | null>(null);
   const loadedAt = ref<string | null>(null);
@@ -48,6 +52,8 @@ export const useCollectorsStore = defineStore("collectors", () => {
   });
 
   const failedJobs = computed(() => jobs.value.filter((job) => job.status === "failed"));
+  const logsCurrentPage = computed(() => Math.floor(logsOffset.value / logsLimit.value) + 1);
+  const logsPageCount = computed(() => Math.max(1, Math.ceil(logsTotal.value / logsLimit.value)));
 
   async function fetchCenter(): Promise<void> {
     loading.value = true;
@@ -55,14 +61,18 @@ export const useCollectorsStore = defineStore("collectors", () => {
     try {
       const [nextJobs, nextLogs, nextFreshness, nextQueueStats, nextWorkerStatus] = await Promise.allSettled([
         collectApi.listJobs(200, 0),
-        collectApi.listLogs(100, 0),
+        collectApi.listLogsPage(logsLimit.value, logsOffset.value),
         collectApi.fetchFreshness(),
         collectApi.fetchQueueStats(),
         collectApi.fetchWorkerStatus()
       ]);
 
       if (nextJobs.status === "fulfilled") jobs.value = nextJobs.value;
-      if (nextLogs.status === "fulfilled") logs.value = nextLogs.value;
+      if (nextLogs.status === "fulfilled") {
+        logs.value = nextLogs.value.logs;
+        logsTotal.value = nextLogs.value.total;
+        logsOffset.value = nextLogs.value.offset;
+      }
       if (nextFreshness.status === "fulfilled") freshness.value = nextFreshness.value;
       if (nextQueueStats.status === "fulfilled") queueStats.value = nextQueueStats.value;
       if (nextWorkerStatus.status === "fulfilled") workerStatus.value = nextWorkerStatus.value;
@@ -92,6 +102,26 @@ export const useCollectorsStore = defineStore("collectors", () => {
     }
   }
 
+  async function goToLogsPage(page: number): Promise<void> {
+    const nextPage = Math.min(Math.max(1, page), logsPageCount.value);
+    logsLoading.value = true;
+    error.value = null;
+    try {
+      const response = await collectApi.listLogsPage(
+        logsLimit.value,
+        (nextPage - 1) * logsLimit.value
+      );
+      logs.value = response.logs;
+      logsTotal.value = response.total;
+      logsOffset.value = response.offset;
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause);
+      throw cause;
+    } finally {
+      logsLoading.value = false;
+    }
+  }
+
   async function runCollection(payload: CollectorRunPayload): Promise<CollectJob[]> {
     running.value = true;
     error.value = null;
@@ -117,6 +147,9 @@ export const useCollectorsStore = defineStore("collectors", () => {
   return {
     jobs,
     logs,
+    logsTotal,
+    logsLimit,
+    logsOffset,
     freshness,
     queueStats,
     workerStatus,
@@ -125,14 +158,18 @@ export const useCollectorsStore = defineStore("collectors", () => {
     sort,
     query,
     loading,
+    logsLoading,
     running,
     error,
     loadedAt,
     filteredJobs,
     failedJobs,
+    logsCurrentPage,
+    logsPageCount,
     fetchCenter,
     runCollection,
     restartWorker,
+    goToLogsPage,
     clearFilters
   };
 });

@@ -183,11 +183,13 @@ describe("groupEventsByAsin", () => {
 });
 
 describe("filterAndSortEvents", () => {
-  it("includes sortBy in API query contracts before pagination happens server-side", () => {
+  it("includes sortBy without imposing a fixed workspace limit", () => {
     const filters = defaultFilters({ sortBy: "rankChange", reviewDueOnly: true, actionStage: "scheduled" });
 
-    expect(buildInsightEventListQuery(filters)).toMatchObject({ sortBy: "rankChange", actionStage: "scheduled", reviewedOnDate: true, limit: 100 });
-    expect(buildInsightEventReviewDueQuery(filters)).toMatchObject({ sortBy: "rankChange", actionStage: "scheduled", limit: 100 });
+    expect(buildInsightEventListQuery(filters)).toMatchObject({ sortBy: "rankChange", actionStage: "scheduled", reviewedOnDate: true });
+    expect(buildInsightEventListQuery(filters)).not.toHaveProperty("limit");
+    expect(buildInsightEventReviewDueQuery(filters)).toMatchObject({ sortBy: "rankChange", actionStage: "scheduled" });
+    expect(buildInsightEventReviewDueQuery(filters)).not.toHaveProperty("limit");
     expect(buildInsightEventReviewDueQuery(filters)).not.toHaveProperty("reviewedOnDate");
   });
 
@@ -406,6 +408,45 @@ describe("useInsightEventsStore actions", () => {
     expect(remountedStore.workView).toBe("cases");
   });
 
+  it("opens the core competitor case workspace with a clean filter scope", () => {
+    const selected = buildEvent({ id: "selected" });
+    const store = useInsightEventsStore();
+    store.$patch({
+      selectedEvent: selected,
+      activeColumn: "mid",
+      drawerOpen: true,
+      workView: "columns",
+      filters: defaultFilters({
+        status: "WATCHING",
+        brand: "Old scope",
+        reviewDueOnly: true
+      })
+    });
+
+    store.focusCompetitorInsights("2026-06-26");
+
+    expect(store.selectedEvent).toBeNull();
+    expect(store.activeColumn).toBeNull();
+    expect(store.drawerOpen).toBe(false);
+    expect(store.workView).toBe("cases");
+    expect(store.filters).toEqual(defaultFilters({
+      date: "2026-06-26",
+      coreOnly: true
+    }));
+  });
+
+  it("focuses the competitor case workspace on a selected ASIN", () => {
+    const store = useInsightEventsStore();
+
+    store.focusCompetitorInsights("2026-06-26", "B001FOCUS");
+
+    expect(store.workView).toBe("cases");
+    expect(store.filters).toEqual(defaultFilters({
+      date: "2026-06-26",
+      asin: "B001FOCUS"
+    }));
+  });
+
   it("loads note history with the selected event detail", async () => {
     const selected = buildEvent({ id: "detail", asin: null, brand: null, categoryId: null });
     const notes: InsightEventNote[] = [
@@ -443,7 +484,7 @@ describe("useInsightEventsStore actions", () => {
 
   it("loads the review queue with the active Action Center filters", async () => {
     const dueEvent = buildEvent({ id: "due", brand: "Acme", assignee: "Alice" });
-    const fetchReviewDueEvents = vi.spyOn(insightEventApi, "fetchReviewDueEvents").mockResolvedValue([dueEvent]);
+    const fetchReviewDueEvents = vi.spyOn(insightEventApi, "fetchAllReviewDueEvents").mockResolvedValue([dueEvent]);
     const store = useInsightEventsStore();
     store.$patch({
       filters: defaultFilters({
@@ -472,17 +513,16 @@ describe("useInsightEventsStore actions", () => {
         actionStage: "reviewDue",
         scoreDriver: "promoScore",
         sortBy: "reviewChange",
-        coreOnly: true,
-        limit: 100
+        coreOnly: true
       }),
-      expect.any(Object)
+      { signal: undefined }
     );
     expect(store.reviewDueEvents).toEqual([dueEvent]);
   });
 
   it("loads the main Action Center list with same-day reviewed historical events", async () => {
     const event = buildEvent({ id: "reviewed-old", eventDate: "2026-06-19", reviewResult: "CONFIRMED" });
-    const fetchInsightEvents = vi.spyOn(insightEventApi, "fetchInsightEvents").mockResolvedValue([event]);
+    const fetchInsightEvents = vi.spyOn(insightEventApi, "fetchAllInsightEvents").mockResolvedValue([event]);
     const store = useInsightEventsStore();
     store.$patch({
       filters: defaultFilters({
@@ -500,10 +540,9 @@ describe("useInsightEventsStore actions", () => {
         brand: "Acme",
         reviewResult: "CONFIRMED",
         actionStage: "closed",
-        reviewedOnDate: true,
-        limit: 100
+        reviewedOnDate: true
       }),
-      expect.any(Object)
+      { signal: undefined }
     );
     expect(store.events).toEqual([event]);
   });

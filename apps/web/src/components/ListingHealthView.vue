@@ -5,7 +5,9 @@ import { ElButton, ElDialog, ElInput, ElMessage, ElTag } from "element-plus";
 import { ClipboardCheck, RefreshCw, Save, Sparkles } from "@lucide/vue";
 import type { ListingHealthLevel, ProductListingHealthItem } from "@amazon-monitor/shared";
 import { useListingHealthStore } from "../stores/listingHealth";
+import { isAiDataFreshnessSafe } from "../utils/ai-data-freshness";
 import AgentActionTaskButton from "./AgentActionTaskButton.vue";
+import AgentDataFreshness from "./ai-agents/AgentDataFreshness.vue";
 import ListingRewriteDraftPanel from "./listing-health/ListingRewriteDraftPanel.vue";
 
 const props = defineProps<{ date: string }>();
@@ -269,12 +271,19 @@ function splitList(value: string): string[] {
 
           <section v-if="aiAnalysis" class="listing-section agent-output">
             <h3>Listing Optimizer Agent</h3>
+            <AgentDataFreshness
+              v-if="aiAnalysis.output.dataFreshness"
+              :freshness="aiAnalysis.output.dataFreshness"
+            />
             <strong>{{ aiAnalysis.output.summary }}</strong>
             <p>{{ aiAnalysis.output.impact }}</p>
             <ListingRewriteDraftPanel
-              v-if="aiAnalysis.output.artifacts?.listingRewrite"
+              v-if="aiAnalysis.output.artifacts?.listingRewrite && isAiDataFreshnessSafe(aiAnalysis.output.dataFreshness)"
               :draft="aiAnalysis.output.artifacts.listingRewrite"
             />
+            <p v-else-if="aiAnalysis.output.artifacts?.listingRewrite">
+              证据刷新完成后再显示可复制的 Listing 改写稿。
+            </p>
             <ol>
               <li v-for="action in aiAnalysis.output.recommended_actions" :key="action.action">
                 <span>{{ action.priority }}</span>

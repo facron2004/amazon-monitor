@@ -1,12 +1,15 @@
 import type { Express, Request } from "express";
 import { aiActionFeedbackValues, aiAgentTypes, aiRunStatuses, hasBusinessCapability, type BusinessCapability, type SessionContext } from "@amazon-monitor/shared";
 import { z } from "zod";
-import { analyzeListing, generateDailyBrief } from "../services/ai-agent-service.js";
+import { generateDailyBrief } from "../services/ai-agent-service.js";
+import { analyzeListing } from "../services/listing-optimizer-agent-service.js";
 import { analyzeAds } from "../services/ads-agent-service.js";
 import { analyzeCompetitor } from "../services/competitor-agent-service.js";
 import { createReportWithAgent } from "../services/report-writer-agent-service.js";
 import { analyzeReviewVoc } from "../services/review-voc-agent-service.js";
 import { researchProductOpportunity } from "../services/product-research-agent-service.js";
+import { buildAiQuality } from "../services/ai-quality.js";
+import { createProductLaunchValidationTasks } from "../services/product-launch-validation-tasks.js";
 import type { Store } from "../store.js";
 import { asyncHandler, getDate, optionalNumber, optionalString } from "./http-utils.js";
 import { validateBody, validateIdParam, validateQuery } from "./validation.js";
@@ -55,6 +58,13 @@ const aiActionFeedbackSchema = z.object({
   value: z.enum(aiActionFeedbackValues)
 });
 
+const aiQualityQuerySchema = z.object({
+  days: z.number().int().refine(
+    (value): value is 7 | 30 | 90 => value === 7 || value === 30 || value === 90,
+    "days must be 7, 30, or 90"
+  ).default(30)
+});
+
 function requireSessionContext(request: Request): SessionContext {
   const ctx = (request as Request & { sessionContext?: SessionContext }).sessionContext;
   if (!ctx) {
@@ -74,6 +84,54 @@ function requireAdsManagement(ctx: SessionContext): void {
 }
 
 export function registerAiRoutes(app: Express, store: Store): void {
+  app.get("/api/ai/quality", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireCapability(ctx, "assign_tasks", "Forbidden: role cannot view Agent quality");
+    const { days } = validateQuery(aiQualityQuerySchema, {
+      days: optionalNumber(request.query.days)
+    });
+    const generatedAt = new Date().toISOString();
+    const rangeEnd = generatedAt;
+    const rangeStart = new Date(
+      Date.parse(generatedAt) - days * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const runs = [];
+    const tasks = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      const page = store.listAiRuns({
+        orgId: ctx.organization.id,
+        limit: pageSize,
+        offset
+      });
+      runs.push(...page);
+      if (page.length < pageSize) break;
+    }
+    for (let offset = 0; ; offset += pageSize) {
+      const page = store.listTasks({
+        orgId: ctx.organization.id,
+        sourceType: "ai_run",
+        limit: pageSize,
+        offset
+      });
+      tasks.push(...page);
+      if (page.length < pageSize) break;
+    }
+    const feedback = [];
+    for (let index = 0; index < runs.length; index += 500) {
+      feedback.push(...store.listAiActionFeedbackForRuns({
+        orgId: ctx.organization.id,
+        runIds: runs.slice(index, index + 500).map((run) => run.id)
+      }));
+    }
+    response.json(buildAiQuality(runs, feedback, tasks, {
+      windowDays: days,
+      rangeStart,
+      rangeEnd,
+      generatedAt
+    }));
+  }));
+
   app.get("/api/ai/runs", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
     const query = validateQuery(aiRunListQuerySchema, {
@@ -84,13 +142,17 @@ export function registerAiRoutes(app: Express, store: Store): void {
     });
     const limit = query.limit ?? 50;
     const offset = query.offset ?? 0;
+    const filter = {
+      orgId: ctx.organization.id,
+      agentType: query.agentType,
+      status: query.status
+    };
     const runs = store.listAiRuns({
-        orgId: ctx.organization.id,
-        agentType: query.agentType,
-        status: query.status,
-        limit,
-        offset
-      });
+      ...filter,
+      limit,
+      offset
+    });
+    const total = store.countAiRuns(filter);
     const feedback = store.listAiActionFeedback({
       orgId: ctx.organization.id,
       userId: ctx.user.id,
@@ -104,6 +166,7 @@ export function registerAiRoutes(app: Express, store: Store): void {
     }
     response.json({
       runs: runs.map((run) => ({ ...run, actionFeedback: feedbackByRun.get(run.id) ?? [] })),
+      total,
       limit,
       offset
     });
@@ -131,6 +194,23 @@ export function registerAiRoutes(app: Express, store: Store): void {
       actionIndex,
       value: body.value
     }));
+  }));
+
+  app.post("/api/ai/runs/:id/product-launch-brief/tasks", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireCapability(ctx, "manage_workflow", "Forbidden: role cannot create launch validation tasks");
+    const runId = validateIdParam(request.params.id);
+    const run = store.getAiRun(runId, ctx.organization.id);
+    if (!run) {
+      response.status(404).json({ message: "AI run not found" });
+      return;
+    }
+    const result = createProductLaunchValidationTasks(store, {
+      run,
+      orgId: ctx.organization.id,
+      userId: ctx.user.id
+    });
+    response.status(result.createdCount > 0 ? 201 : 200).json(result);
   }));
 
   app.post("/api/ai/daily-brief", asyncHandler(async (request, response) => {

@@ -6,7 +6,9 @@ import { BarChart3, Megaphone, Plus, RefreshCw, Sparkles } from "@lucide/vue";
 import type { AdsWorkflowItem, AdsWorkflowLevel } from "@amazon-monitor/shared";
 import { useAdsStore } from "../stores/ads";
 import { useWriteAccess } from "../composables/useWriteAccess";
+import { isAiDataFreshnessSafe } from "../utils/ai-data-freshness";
 import AgentActionTaskButton from "./AgentActionTaskButton.vue";
+import AgentDataFreshness from "./ai-agents/AgentDataFreshness.vue";
 import AdsOptimizationArtifactPanel from "./ads/AdsOptimizationArtifactPanel.vue";
 
 const props = defineProps<{ date: string }>();
@@ -305,12 +307,19 @@ function emptyToNull(value: string): string | null {
 
           <section v-if="aiAnalysis" class="ads-section agent-output">
             <h3>Ads Analyst Agent</h3>
+            <AgentDataFreshness
+              v-if="aiAnalysis.output.dataFreshness"
+              :freshness="aiAnalysis.output.dataFreshness"
+            />
             <strong>{{ aiAnalysis.output.summary }}</strong>
             <p>{{ aiAnalysis.output.impact }}</p>
             <AdsOptimizationArtifactPanel
-              v-if="aiAnalysis.output.artifacts?.adsOptimization"
+              v-if="aiAnalysis.output.artifacts?.adsOptimization && isAiDataFreshnessSafe(aiAnalysis.output.dataFreshness)"
               :artifact="aiAnalysis.output.artifacts.adsOptimization"
             />
+            <p v-else-if="aiAnalysis.output.artifacts?.adsOptimization">
+              证据刷新完成后再显示可复制的广告优化行动包。
+            </p>
             <ol>
               <li v-for="action in aiAnalysis.output.recommended_actions" :key="action.action">
                 <span>{{ action.priority }}</span>

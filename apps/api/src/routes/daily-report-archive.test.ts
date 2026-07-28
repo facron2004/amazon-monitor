@@ -222,7 +222,10 @@ describe("daily report archive routes", () => {
       syncError: "Token expired"
     });
     const failedKeywordJob = store.pushJob("keyword", 1, "2026-07-10");
-    store.failJob(failedKeywordJob.id, "CAPTCHA blocked", 1);
+    const claimedKeywordJob = store.claimNextJob();
+    expect(claimedKeywordJob?.id).toBe(failedKeywordJob.id);
+    store.failJob(claimedKeywordJob!.id, "CAPTCHA blocked", 1);
+    expect(store.getJobStatus(failedKeywordJob.id)?.status).toBe("failed");
 
     await request(app)
       .post("/api/reports/daily/generate")

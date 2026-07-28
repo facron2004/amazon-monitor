@@ -21,6 +21,7 @@ import {
   type InsightEventStatus
 } from "@amazon-monitor/shared";
 import InsightScoreBadge from "./action-center/InsightScoreBadge.vue";
+import AgentDataFreshness from "./ai-agents/AgentDataFreshness.vue";
 import OverviewTopActionsFilters from "./OverviewTopActionsFilters.vue";
 import { useWriteAccess } from "../composables/useWriteAccess";
 import {
@@ -93,6 +94,10 @@ function feedbackLoadingKey(actionIndex: number): string | null {
     <OverviewTopActionsFilters />
 
     <section v-if="dailyBrief" class="agent-brief">
+      <AgentDataFreshness
+        v-if="dailyBrief.output.dataFreshness"
+        :freshness="dailyBrief.output.dataFreshness"
+      />
       <div class="brief-main">
         <div class="brief-kicker">
           <span>Daily Operator Agent</span>

@@ -35,6 +35,30 @@ export function validateAiAgentOutput(output: AiAgentOutput): string[] {
       errors.push(`recommended_actions.${index}.priority cannot be P0 when confidence is below ${MIN_ACTIONABLE_CONFIDENCE}`);
     }
   }
+  const dataFreshness = output.dataFreshness;
+  if (dataFreshness) {
+    if (!dataFreshness.evidenceDate.trim() || !dataFreshness.evaluatedAt.trim() || !dataFreshness.dataSource.trim()) {
+      errors.push("dataFreshness identity fields are required");
+    }
+    if (!Number.isFinite(dataFreshness.maxAgeHours) || dataFreshness.maxAgeHours <= 0) {
+      errors.push("dataFreshness.maxAgeHours must be positive");
+    }
+    if (dataFreshness.freshnessStatus !== "fresh" && !dataFreshness.warning?.trim()) {
+      errors.push("dataFreshness.warning is required when evidence is not fresh");
+    }
+    if (
+      (dataFreshness.syncStatus === "failed" || dataFreshness.syncStatus === "partial")
+      && !dataFreshness.failureReason?.trim()
+    ) {
+      errors.push("dataFreshness.failureReason is required when collection is incomplete");
+    }
+    if (
+      (dataFreshness.freshnessStatus !== "fresh" || dataFreshness.syncStatus === "failed" || dataFreshness.syncStatus === "partial")
+      && output.confidence >= MIN_ACTIONABLE_CONFIDENCE
+    ) {
+      errors.push(`confidence must be below ${MIN_ACTIONABLE_CONFIDENCE} when evidence freshness is unsafe`);
+    }
+  }
   const listingRewrite = output.artifacts?.listingRewrite;
   if (listingRewrite) {
     if (!listingRewrite.proposedTitle.trim()) errors.push("artifacts.listingRewrite.proposedTitle is required");
@@ -104,6 +128,43 @@ export function validateAiAgentOutput(output: AiAgentOutput): string[] {
     }
     if (adsOptimization.riskNotes.length === 0 || adsOptimization.riskNotes.some((item) => !item.trim())) {
       errors.push("artifacts.adsOptimization.riskNotes must contain non-empty strings");
+    }
+  }
+  const productLaunchBrief = output.artifacts?.productLaunchBrief;
+  if (productLaunchBrief) {
+    if (!productLaunchBrief.title.trim() || !productLaunchBrief.evidenceDate.trim() || !productLaunchBrief.opportunityThesis.trim()) {
+      errors.push("artifacts.productLaunchBrief identity and thesis are required");
+    }
+    if (!productLaunchBrief.priceBand.evidence.trim()) {
+      errors.push("artifacts.productLaunchBrief.priceBand must contain evidence");
+    }
+    if (
+      !productLaunchBrief.customerPainEvidence.conclusion.trim()
+      || productLaunchBrief.customerPainEvidence.evidence.length === 0
+      || productLaunchBrief.customerPainEvidence.validationNeeded.length === 0
+    ) {
+      errors.push("artifacts.productLaunchBrief.customerPainEvidence must preserve evidence boundaries");
+    }
+    if (
+      productLaunchBrief.competitorMatrix.length === 0
+      || productLaunchBrief.competitorMatrix.some((item) => !item.asin.trim() || !item.title.trim() || item.evidence.length === 0)
+    ) {
+      errors.push("artifacts.productLaunchBrief.competitorMatrix must contain evidence-backed rows");
+    }
+    if (
+      productLaunchBrief.differentiationHypotheses.length === 0
+      || productLaunchBrief.differentiationHypotheses.some((item) => !item.hypothesis.trim() || item.evidence.length === 0 || !item.validationNeeded.trim())
+    ) {
+      errors.push("artifacts.productLaunchBrief.differentiationHypotheses must remain evidence-backed hypotheses");
+    }
+    if (
+      productLaunchBrief.validationChecklist.length === 0
+      || productLaunchBrief.validationChecklist.some((item) => !item.item.trim() || !item.evidenceRequired.trim())
+    ) {
+      errors.push("artifacts.productLaunchBrief.validationChecklist must define launch gates");
+    }
+    if (productLaunchBrief.riskNotes.length === 0 || productLaunchBrief.riskNotes.some((item) => !item.trim())) {
+      errors.push("artifacts.productLaunchBrief.riskNotes must contain non-empty strings");
     }
   }
   return errors;

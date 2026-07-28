@@ -7,9 +7,10 @@ import type {
   ReviewVocSummary
 } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
+import { assessDataFreshness, guardAgentOutput } from "./ai-data-freshness.js";
 import { normalizeAiActionPriority, validateAiAgentOutput } from "./ai-agent-policy.js";
 
-const REVIEW_VOC_MODEL = "deterministic-review-voc-v2";
+const REVIEW_VOC_MODEL = "deterministic-review-voc-v3";
 
 interface ReviewVocAnalysisInput {
   date: string;
@@ -25,8 +26,23 @@ export function analyzeReviewVoc(store: Store, input: ReviewVocAnalysisInput): A
   if (!summary) {
     throw Object.assign(new Error("Review VOC summary not found"), { statusCode: 404 });
   }
-  const confidence = summary.reviewCount === 0 ? 0.35 : Math.min(0.82, 0.55 + summary.reviewCount * 0.03);
-  const output = buildReviewVocOutput(summary, confidence);
+  const dataFreshness = assessDataFreshness({
+    evidenceDate: summary.date ?? input.date,
+    records: summary.reviewCount > 0 ? [summary.freshness] : [],
+    maxAgeHours: 24,
+    dataLabel: "Review VOC"
+  });
+  const baseOutput = buildReviewVocOutput(
+    summary,
+    summary.reviewCount === 0 ? 0.35 : Math.min(0.82, 0.55 + summary.reviewCount * 0.03)
+  );
+  const output = guardAgentOutput(baseOutput, dataFreshness, {
+    action: `Refresh Review evidence for ${summary.sku} before changing product, Listing, or support workflows`,
+    priority: "P2",
+    reason: dataFreshness.warning ?? "Review VOC evidence is not ready.",
+    risk: "Stale or incomplete review language can misidentify buyer pain points and root causes.",
+    needs_human_approval: true
+  });
   const validationErrors = validateAiAgentOutput(output);
   const inputContextJson = JSON.stringify({
     date: input.date,
@@ -34,6 +50,7 @@ export function analyzeReviewVoc(store: Store, input: ReviewVocAnalysisInput): A
     productId: input.productId,
     reviewCount: summary.reviewCount,
     negativeCount: summary.negativeCount,
+    dataFreshness,
     generatedAt: new Date().toISOString()
   });
 

@@ -15,6 +15,7 @@ import "./styles/operations-workspace-v3.css";
 import "./styles/overview-workspace.css";
 import "./styles/overview-action-queue.css";
 import "./styles/operations-polish.css";
+import "./styles/operations-apple.css";
 import "./styles/tasks.css";
 
 const app = createApp(App);

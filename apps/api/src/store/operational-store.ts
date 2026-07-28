@@ -21,6 +21,7 @@ type OperationalStoreMethods = Pick<
   | "updateAlertStatus"
   | "insertTaskLog"
   | "listTaskLogs"
+  | "countTaskLogs"
   | "saveDailyReport"
   | "getDailyReport"
 >;
@@ -167,6 +168,13 @@ export function createOperationalStore(db: DatabaseSync): OperationalStoreMethod
         ? db.prepare("SELECT * FROM amazon_collect_task_log ORDER BY id DESC LIMIT ? OFFSET ?").all(clamped, off)
         : db.prepare("SELECT * FROM amazon_collect_task_log WHERE org_id = ? ORDER BY id DESC LIMIT ? OFFSET ?").all(orgId, clamped, off);
       return (rows as unknown as TaskLogRow[]).map(mapTaskLog);
+    },
+
+    countTaskLogs(orgId) {
+      const row = orgId === undefined
+        ? db.prepare("SELECT COUNT(*) AS total FROM amazon_collect_task_log").get()
+        : db.prepare("SELECT COUNT(*) AS total FROM amazon_collect_task_log WHERE org_id = ?").get(orgId);
+      return (row as { total: number } | undefined)?.total ?? 0;
     },
 
     saveDailyReport(date, keyword, markdown, orgId = 1) {

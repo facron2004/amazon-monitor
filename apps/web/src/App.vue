@@ -155,7 +155,8 @@ const {
   authError,
   handleAuthSubmit,
   switchMode,
-  openActionCenterForEvent
+  openActionCenterForEvent,
+  openCompetitorInsights
 } = app;
 
 onMounted(async () => {
@@ -214,6 +215,7 @@ onMounted(async () => {
         @refresh="loadAll"
         @poll-worker-status="loadWorkerStatus"
         @restart-worker="restartWorker"
+        @navigate="activeTab = $event"
       />
 
       <AppViewState
@@ -247,8 +249,8 @@ onMounted(async () => {
       />
       <CategoriesView v-if="activeTab === 'categories'" :date="date" :collecting="collecting" @run-category-collection="runCategoryCollection" @toggle-category="toggleCategory" @create-category="createCategory" />
       <KeywordsView v-if="activeTab === 'keywords'" :keywords="keywords" :selected-keyword="selectedKeyword" :selected-keyword-id="selectedKeywordId" :top-snapshots="topSnapshots" :keyword-form="keywordForm" :collecting="collecting" @chart-ready="handleKeywordChartReady" @update:selected-keyword-id="selectedKeywordId = $event" @run-collection="runCollection" @create-keyword="createKeyword" @toggle-keyword="toggleKeyword" @update-keyword-priority="updateKeywordPriority" @delete-keyword="deleteKeyword" />
-      <CompetitorsView v-if="activeTab === 'competitors'" :competitor-folders="competitorFolders" :visible-competitors="visibleCompetitors" :total-competitors="competitors.length" :competitor-query="competitorQuery" :competitor-source-filter="competitorSourceFilter" :competitor-tier-filter="competitorTierFilter" :watch-states="watchStates" :watch-state-updating-asin="watchStateUpdatingAsin" :selected-competitor-keyword-id="selectedCompetitorKeywordId" :selected-competitor="selectedCompetitor" :product-activity-calendar="productActivityCalendar" :competitor-kpis="competitorKpis" :competitor-insight-suggestion="competitorInsightSuggestion" @update:competitor-query="competitorQuery = $event" @update:competitor-source-filter="competitorSourceFilter = $event" @update:competitor-tier-filter="competitorTierFilter = $event" @select-competitor-folder="selectCompetitorFolder" @open-competitor-drawer="openCompetitorDrawer" @close-competitor-drawer="closeCompetitorDrawer" @toggle-key-competitor="toggleKeyCompetitor" @set-watch-state="setWatchState" @open-product-activity-calendar="openProductActivityCalendar" @open-amazon="openAmazon" />
-      <ProductsView v-if="activeTab === 'products'" :date="date" />
+      <CompetitorsView v-if="activeTab === 'competitors'" :competitor-folders="competitorFolders" :visible-competitors="visibleCompetitors" :total-competitors="competitors.length" :competitor-query="competitorQuery" :competitor-source-filter="competitorSourceFilter" :competitor-tier-filter="competitorTierFilter" :watch-states="watchStates" :watch-state-updating-asin="watchStateUpdatingAsin" :selected-competitor-keyword-id="selectedCompetitorKeywordId" :selected-competitor="selectedCompetitor" :product-activity-calendar="productActivityCalendar" :competitor-kpis="competitorKpis" :competitor-insight-suggestion="competitorInsightSuggestion" @update:competitor-query="competitorQuery = $event" @update:competitor-source-filter="competitorSourceFilter = $event" @update:competitor-tier-filter="competitorTierFilter = $event" @select-competitor-folder="selectCompetitorFolder" @open-competitor-drawer="openCompetitorDrawer" @close-competitor-drawer="closeCompetitorDrawer" @toggle-key-competitor="toggleKeyCompetitor" @set-watch-state="setWatchState" @open-product-activity-calendar="openProductActivityCalendar" @open-amazon="openAmazon" @open-competitor-insights="openCompetitorInsights" />
+      <ProductsView v-if="activeTab === 'products'" :date="date" @navigate="activeTab = $event" />
       <InventoryView v-if="activeTab === 'inventory'" :date="date" />
       <ProfitView v-if="activeTab === 'profit'" :date="date" />
       <ListingHealthView v-if="activeTab === 'listing-health'" :date="date" />

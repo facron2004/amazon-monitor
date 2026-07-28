@@ -23,6 +23,7 @@ import type {
   TopInsightFilters
 } from "@amazon-monitor/shared";
 import { request, withSignal, type RequestOptions } from "./api-base";
+import { fetchAllInsightEventPages } from "./api-insight-event-pagination";
 
 export interface InsightEventQuery {
   date?: string;
@@ -115,9 +116,28 @@ export interface AsinWatchStatePayload {
   lastEventDate?: string | null;
 }
 
+function fetchInsightEventsPage(params: InsightEventQuery, options: { signal?: AbortSignal } = {}) {
+  return request<InsightEvent[]>(
+    `/insight-events?${buildInsightEventQuery(params).toString()}`,
+    withSignal(options.signal)
+  );
+}
+
+function fetchReviewDueEventsPage(
+  date: string,
+  params: Omit<InsightEventQuery, "date">,
+  options: { signal?: AbortSignal } = {}
+) {
+  return request<InsightEvent[]>(
+    `/insight-events/review-due?${buildInsightEventQuery({ ...params, date }).toString()}`,
+    withSignal(options.signal)
+  );
+}
+
 export const insightEventApi = {
-  fetchInsightEvents: (params: InsightEventQuery = {}, options: { signal?: AbortSignal } = {}) =>
-    request<InsightEvent[]>(`/insight-events?${buildInsightEventQuery(params).toString()}`, withSignal(options.signal)),
+  fetchInsightEvents: fetchInsightEventsPage,
+  fetchAllInsightEvents: (params: InsightEventQuery = {}, options: { signal?: AbortSignal } = {}) =>
+    fetchAllInsightEventPages((page) => fetchInsightEventsPage(page, options), params),
   fetchInsightEvent: (id: string, options: { signal?: AbortSignal } = {}) =>
     request<InsightEvent>(`/insight-events/${encodeURIComponent(id)}`, withSignal(options.signal)),
   fetchInsightEventNotes: (id: string, options: { signal?: AbortSignal } = {}) =>
@@ -147,8 +167,12 @@ export const insightEventApi = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  fetchReviewDueEvents: (date: string, params: Omit<InsightEventQuery, "date"> = {}, options: { signal?: AbortSignal } = {}) =>
-    request<InsightEvent[]>(`/insight-events/review-due?${buildInsightEventQuery({ ...params, date }).toString()}`, withSignal(options.signal)),
+  fetchReviewDueEvents: fetchReviewDueEventsPage,
+  fetchAllReviewDueEvents: (
+    date: string,
+    params: Omit<InsightEventQuery, "date"> = {},
+    options: { signal?: AbortSignal } = {}
+  ) => fetchAllInsightEventPages((page) => fetchReviewDueEventsPage(date, page, options), params),
   fetchInsightEventTrend: (params: InsightEventTrendQuery, options: { signal?: AbortSignal } = {}) =>
     request<InsightEventTrendPoint[]>(`/insight-events/trend?${buildInsightEventTrendQuery(params).toString()}`, withSignal(options.signal)),
   evaluateReviewDueEvents: (date: string) =>

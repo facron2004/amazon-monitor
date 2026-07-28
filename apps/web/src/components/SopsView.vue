@@ -1,133 +1,179 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { watchDebounced } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { ElButton, ElCard, ElDialog, ElInput, ElMessage, ElOption, ElSelect, ElTag } from "element-plus";
-import { Archive, Edit3, FileText, Loader2, Plus, RefreshCw, Send } from "@lucide/vue";
-import { sopCategories, sopCategoryLabels, sopStatuses, sopStatusLabels, type Sop, type SopStatus } from "@amazon-monitor/shared";
+import {
+  ElButton,
+  ElInput,
+  ElMessage,
+  ElMessageBox,
+  ElOption,
+  ElSegmented,
+  ElSelect,
+  ElTooltip,
+} from "element-plus";
+import { BookOpen, Plus, RefreshCw, Search } from "@lucide/vue";
+import {
+  sopCategories,
+  sopCategoryLabels,
+  type Sop,
+} from "@amazon-monitor/shared";
+import type { CreateSopInput } from "../api-sops.js";
 import { useSopStore } from "../stores/sops.js";
-import { useWriteAccess } from "../composables/useWriteAccess";
+import { toErrorMessage } from "../utils/error-message.js";
+import { useWriteAccess } from "../composables/useWriteAccess.js";
 import ReadOnlyNotice from "./ReadOnlyNotice.vue";
+import SopDetailPanel from "./sops/SopDetailPanel.vue";
+import SopEditorDialog from "./sops/SopEditorDialog.vue";
+import SopLibraryList from "./sops/SopLibraryList.vue";
 
 const store = useSopStore();
-const { sops, loading, error } = storeToRefs(store);
+const {
+  sops,
+  selectedSop,
+  selectedSopId,
+  status,
+  category,
+  query,
+  limit,
+  total,
+  statusCounts,
+  currentPage,
+  loading,
+  error,
+} = storeToRefs(store);
 const { canWrite } = useWriteAccess();
 
-const filterStatus = ref<SopStatus | "all">("all");
-const filterCategory = ref<Sop["category"] | "all">("all");
-const searchQuery = ref("");
+const editorOpen = ref(false);
+const editorMode = ref<"create" | "edit">("create");
+const saving = ref(false);
+const actionLoading = ref(false);
 
-const filtered = computed<Sop[]>(() => {
-  return sops.value.filter((s) => {
-    if (filterStatus.value !== "all" && s.status !== filterStatus.value) return false;
-    if (filterCategory.value !== "all" && s.category !== filterCategory.value) return false;
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase();
-      if (!s.title.toLowerCase().includes(q) && !s.bodyMd.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+const statusOptions = computed(() => [
+  { label: `全部 ${statusCounts.value.all}`, value: "" },
+  { label: `草稿 ${statusCounts.value.draft}`, value: "draft" },
+  { label: `已发布 ${statusCounts.value.published}`, value: "published" },
+  { label: `已归档 ${statusCounts.value.archived}`, value: "archived" },
+]);
+
+watch([status, category], () => {
+  void store.resetAndFetch();
 });
 
-const STATUS_COLORS: Record<SopStatus, "info" | "success" | "warning"> = {
-  draft: "info",
-  published: "success",
-  archived: "warning"
-};
+watchDebounced(
+  query,
+  () => {
+    void store.resetAndFetch();
+  },
+  { debounce: 350, maxWait: 800 },
+);
 
-const newOpen = ref(false);
-const newTitle = ref("");
-const newCategory = ref<Sop["category"]>("general");
-const newBody = ref("");
-const newTags = ref("");
-const saving = ref(false);
-
-const detailOpen = ref(false);
-const detailSop = ref<Sop | null>(null);
-
-async function refresh(): Promise<void> {
-  await store.fetchSops();
+function openCreate(): void {
+  if (!canWrite.value) return;
+  editorMode.value = "create";
+  editorOpen.value = true;
 }
 
-onMounted(refresh);
-
-function openNew(): void {
-  if (!canWrite.value) return;
-  newTitle.value = "";
-  newCategory.value = "general";
-  newBody.value = "";
-  newTags.value = "";
-  newOpen.value = true;
+function openEdit(): void {
+  if (!canWrite.value || selectedSop.value?.status !== "draft") return;
+  editorMode.value = "edit";
+  editorOpen.value = true;
 }
 
-async function createNew(): Promise<void> {
+async function submitEditor(input: CreateSopInput): Promise<void> {
   if (!canWrite.value) return;
-  if (!newTitle.value.trim() || !newBody.value.trim()) {
-    ElMessage.warning("请填写标题和正文");
-    return;
-  }
   saving.value = true;
   try {
-    await store.createSop({
-      title: newTitle.value.trim(),
-      category: newCategory.value,
-      bodyMd: newBody.value.trim(),
-      tags: newTags.value.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
-    });
-    newOpen.value = false;
-    ElMessage.success("SOP 已创建（草稿）");
-  } catch (err) {
-    ElMessage.error((err as Error).message);
+    if (editorMode.value === "edit" && selectedSop.value) {
+      await store.update(selectedSop.value.id, input);
+      ElMessage.success("SOP 草稿已更新");
+    } else {
+      await store.createSop(input);
+      ElMessage.success("SOP 草稿已创建");
+    }
+    editorOpen.value = false;
+  } catch (errorValue) {
+    ElMessage.error(toErrorMessage(errorValue));
   } finally {
     saving.value = false;
   }
 }
 
-async function publish(s: Sop): Promise<void> {
-  if (!canWrite.value) return;
+async function publishSelected(): Promise<void> {
+  const sop = selectedSop.value;
+  if (!sop || !canWrite.value) return;
   try {
-    await store.publish(s.id);
-    ElMessage.success("已发布");
-  } catch (err) {
-    ElMessage.error((err as Error).message);
+    await ElMessageBox.confirm(
+      `发布「${sop.title}」后，它将参与任务 SOP 推荐。`,
+      "确认发布",
+      { type: "warning", confirmButtonText: "发布" },
+    );
+  } catch {
+    return;
   }
+  await runAction(
+    () => store.publish(sop.id),
+    "SOP 已发布并进入知识复用范围",
+  );
 }
 
-async function archive(s: Sop): Promise<void> {
-  if (!canWrite.value) return;
+async function archiveSelected(): Promise<void> {
+  const sop = selectedSop.value;
+  if (!sop || !canWrite.value) return;
   try {
-    await store.archive(s.id);
-    ElMessage.success("已归档");
-  } catch (err) {
-    ElMessage.error((err as Error).message);
+    await ElMessageBox.confirm(
+      `归档「${sop.title}」后，新的任务将不再推荐它。`,
+      "确认归档",
+      { type: "warning", confirmButtonText: "归档" },
+    );
+  } catch {
+    return;
   }
+  await runAction(() => store.archive(sop.id), "SOP 已归档");
 }
 
-function openDetail(s: Sop): void {
-  detailSop.value = s;
-  detailOpen.value = true;
+async function runAction(
+  action: () => Promise<Sop>,
+  successMessage: string,
+): Promise<void> {
+  actionLoading.value = true;
+  try {
+    await action();
+    ElMessage.success(successMessage);
+  } catch (errorValue) {
+    ElMessage.error(toErrorMessage(errorValue));
+  } finally {
+    actionLoading.value = false;
+  }
 }
 </script>
 
 <template>
-  <div class="sops-view">
+  <main class="sops-view">
     <header class="sops-view__header">
-      <h2>SOP 知识库</h2>
-      <div class="sops-view__filters">
-        <ElInput v-model="searchQuery" placeholder="搜索标题/正文" style="width: 200px" clearable />
-        <ElSelect v-model="filterStatus" placeholder="状态" style="width: 120px" clearable>
-          <ElOption label="全部状态" value="all" />
-          <ElOption v-for="s in sopStatuses" :key="s" :label="sopStatusLabels[s]" :value="s" />
-        </ElSelect>
-        <ElSelect v-model="filterCategory" placeholder="分类" style="width: 160px" clearable>
-          <ElOption label="全部分类" value="all" />
-          <ElOption v-for="c in sopCategories" :key="c" :label="sopCategoryLabels[c]" :value="c" />
-        </ElSelect>
-        <ElButton @click="refresh" :loading="loading">
-          <template #icon><RefreshCw :size="14" /></template>
-          刷新
-        </ElButton>
-        <ElButton type="primary" :disabled="!canWrite" @click="openNew">
-          <template #icon><Plus :size="14" /></template>
+      <div class="sops-view__title">
+        <span>KNOWLEDGE OPERATIONS</span>
+        <h2><BookOpen :size="20" />SOP 知识库</h2>
+        <p>把已验证动作整理成可检索、可治理、可回到任务现场的执行经验。</p>
+      </div>
+      <div class="sops-view__commands">
+        <ElTooltip content="刷新 SOP">
+          <ElButton
+            circle
+            aria-label="刷新 SOP"
+            :loading="loading"
+            @click="store.fetchSops"
+          >
+            <RefreshCw :size="15" />
+          </ElButton>
+        </ElTooltip>
+        <ElButton
+          type="primary"
+          aria-label="新建 SOP"
+          :disabled="!canWrite"
+          @click="openCreate"
+        >
+          <Plus :size="15" />
           新建 SOP
         </ElButton>
       </div>
@@ -135,82 +181,212 @@ function openDetail(s: Sop): void {
 
     <ReadOnlyNotice v-if="!canWrite" />
 
-    <p v-if="error" class="sops-view__error">{{ error }}</p>
-
-    <div v-if="loading && !sops.length" class="sops-view__loading">
-      <Loader2 :size="20" class="spin" /> 加载中…
-    </div>
-
-    <div class="sops-view__grid">
-      <ElCard v-for="s in filtered" :key="s.id" class="sops-view__card" shadow="hover" @click="openDetail(s)">
-        <header class="sops-view__card-header">
-          <ElTag :type="STATUS_COLORS[s.status]" size="small">{{ sopStatusLabels[s.status] }}</ElTag>
-          <ElTag size="small" type="info">{{ sopCategoryLabels[s.category] }}</ElTag>
-        </header>
-        <h4 class="sops-view__card-title">
-          <FileText :size="14" /> {{ s.title }}
-        </h4>
-        <p class="sops-view__card-body">{{ s.bodyMd.slice(0, 120) }}{{ s.bodyMd.length > 120 ? '…' : '' }}</p>
-        <footer v-if="s.tags.length" class="sops-view__card-tags">
-          <ElTag v-for="t in s.tags" :key="t" size="small" effect="plain">{{ t }}</ElTag>
-        </footer>
-        <div class="sops-view__actions" @click.stop>
-          <ElButton v-if="s.status === 'draft'" size="small" type="primary" :disabled="!canWrite" @click="publish(s)">
-            <template #icon><Send :size="12" /></template>
-            发布
-          </ElButton>
-          <ElButton v-if="s.status === 'published'" size="small" type="warning" :disabled="!canWrite" @click="archive(s)">
-            <template #icon><Archive :size="12" /></template>
-            归档
-          </ElButton>
-        </div>
-      </ElCard>
-    </div>
-
-    <ElDialog v-model="newOpen" title="新建 SOP" width="640px">
-      <ElInput v-model="newTitle" placeholder="标题" style="margin-bottom: 12px" />
-      <ElSelect v-model="newCategory" placeholder="分类" style="width: 100%; margin-bottom: 12px">
-        <ElOption v-for="c in sopCategories" :key="c" :label="sopCategoryLabels[c]" :value="c" />
-      </ElSelect>
-      <ElInput v-model="newTags" placeholder="标签（逗号分隔）" style="margin-bottom: 12px" />
-      <ElInput v-model="newBody" type="textarea" :rows="10" placeholder="正文（支持 Markdown）" />
-      <template #footer>
-        <ElButton @click="newOpen = false">取消</ElButton>
-        <ElButton type="primary" :loading="saving" :disabled="!canWrite" @click="createNew">创建</ElButton>
-      </template>
-    </ElDialog>
-
-    <ElDialog v-model="detailOpen" :title="detailSop?.title ?? 'SOP 详情'" width="720px">
-      <div v-if="detailSop" class="sops-view__detail">
-        <header class="sops-view__detail-header">
-          <ElTag :type="STATUS_COLORS[detailSop.status]" size="small">{{ sopStatusLabels[detailSop.status] }}</ElTag>
-          <ElTag size="small" type="info">{{ sopCategoryLabels[detailSop.category] }}</ElTag>
-        </header>
-        <pre class="sops-view__detail-body">{{ detailSop.bodyMd }}</pre>
+    <section class="sops-view__toolbar" aria-label="SOP 筛选">
+      <div class="sops-view__status-scroll">
+        <ElSegmented
+          v-model="status"
+          :options="statusOptions"
+          aria-label="SOP 状态"
+        />
       </div>
-      <template #footer>
-        <ElButton @click="detailOpen = false">关闭</ElButton>
-      </template>
-    </ElDialog>
-  </div>
+      <div class="sops-view__filters">
+        <ElInput
+          v-model="query"
+          clearable
+          maxlength="200"
+          placeholder="搜索标题、正文或标签"
+          aria-label="搜索 SOP"
+        >
+          <template #prefix><Search :size="15" /></template>
+        </ElInput>
+        <ElSelect
+          v-model="category"
+          aria-label="筛选 SOP 分类"
+          placeholder="全部分类"
+        >
+          <ElOption label="全部分类" value="" />
+          <ElOption
+            v-for="item in sopCategories"
+            :key="item"
+            :label="sopCategoryLabels[item]"
+            :value="item"
+          />
+        </ElSelect>
+      </div>
+    </section>
+
+    <div v-if="error" class="sops-view__error" role="alert">
+      <span>{{ error }}</span>
+      <button type="button" @click="store.fetchSops">重试</button>
+    </div>
+
+    <div class="sops-view__workspace">
+      <SopLibraryList
+        :sops="sops"
+        :selected-id="selectedSopId"
+        :loading="loading"
+        :total="total"
+        :current-page="currentPage"
+        :page-size="limit"
+        @select="store.selectSop"
+        @page="store.goToPage"
+      />
+      <SopDetailPanel
+        :sop="selectedSop"
+        :can-write="canWrite"
+        :action-loading="actionLoading"
+        @edit="openEdit"
+        @publish="publishSelected"
+        @archive="archiveSelected"
+      />
+    </div>
+
+    <SopEditorDialog
+      :open="editorOpen"
+      :mode="editorMode"
+      :sop="selectedSop"
+      :saving="saving"
+      @close="editorOpen = false"
+      @submit="submitEditor"
+    />
+  </main>
 </template>
 
 <style scoped>
-.sops-view { padding: 16px; }
-.sops-view__header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.sops-view__header h2 { margin: 0; font-size: 18px; }
-.sops-view__filters { margin-left: auto; display: flex; gap: 8px; }
-.sops-view__error { color: #d03050; }
-.sops-view__loading { display: flex; gap: 8px; align-items: center; padding: 16px; color: #909399; }
-.sops-view__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
-.sops-view__card { cursor: pointer; }
-.sops-view__card-header { display: flex; gap: 4px; margin-bottom: 6px; }
-.sops-view__card-title { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 0; font-size: 14px; font-weight: 600; }
-.sops-view__card-body { margin: 0 0 6px 0; font-size: 12px; color: #606266; line-height: 1.4; white-space: pre-wrap; }
-.sops-view__card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.sops-view__actions { display: flex; gap: 4px; }
-.sops-view__detail-header { display: flex; gap: 4px; margin-bottom: 12px; }
-.sops-view__detail-body { background: #f7f8fa; padding: 12px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; max-height: 480px; overflow-y: auto; white-space: pre-wrap; }
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.sops-view {
+  margin: 0 auto;
+  max-width: 1440px;
+  padding: 28px 32px 48px;
+}
+
+.sops-view__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+}
+
+.sops-view__title > span {
+  color: #1677ff;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.sops-view__title h2 {
+  align-items: center;
+  color: #101828;
+  display: flex;
+  font-size: 22px;
+  gap: 8px;
+  margin: 7px 0 0;
+}
+
+.sops-view__title p {
+  color: #667085;
+  font-size: 13px;
+  margin: 7px 0 0;
+}
+
+.sops-view__commands,
+.sops-view__filters {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.sops-view__toolbar {
+  align-items: center;
+  border-bottom: 1px solid #e5e7eb;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin-top: 24px;
+  padding: 14px 0;
+}
+
+.sops-view__status-scroll {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.sops-view__filters :deep(.el-input) {
+  width: 240px;
+}
+
+.sops-view__filters :deep(.el-select) {
+  width: 170px;
+}
+
+.sops-view__error {
+  align-items: center;
+  background: #fff1f0;
+  color: #b42318;
+  display: flex;
+  font-size: 12px;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 10px 12px;
+}
+
+.sops-view__error button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.sops-view__workspace {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.4fr);
+  margin-top: 20px;
+}
+
+@media (max-width: 900px) {
+  .sops-view {
+    padding: 22px 20px 40px;
+  }
+
+  .sops-view__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sops-view__filters :deep(.el-input),
+  .sops-view__filters :deep(.el-select) {
+    flex: 1 1 0;
+    width: auto;
+  }
+
+  .sops-view__workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .sops-view {
+    padding: 18px 14px 36px;
+  }
+
+  .sops-view__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sops-view__commands {
+    justify-content: flex-end;
+  }
+
+  .sops-view__filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sops-view__filters :deep(.el-input),
+  .sops-view__filters :deep(.el-select) {
+    width: 100%;
+  }
+}
 </style>

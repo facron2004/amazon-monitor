@@ -163,6 +163,91 @@ describe("tasks & sops routes (e2e)", () => {
       agentType: "ads_analyst",
       model: "deterministic-ads-analyst-v1"
     });
+    expect(detail.body.sopRecommendations).toEqual([]);
+  });
+
+  it("recommends only matching published SOPs from the current organization", async () => {
+    const taskResponse = await request
+      .post("/api/tasks")
+      .set("x-amazon-monitor-session", token)
+      .send({
+        sourceType: "manual",
+        title: "Reduce Acme bid",
+        taskType: "ad",
+        priority: "P1",
+        relatedAsin: "B0MATCH123",
+        relatedBrand: "Acme",
+        relatedKeyword: "ice maker"
+      });
+    const taskId = taskResponse.body.id as number;
+
+    const exact = await request
+      .post("/api/sops")
+      .set("x-amazon-monitor-session", token)
+      .send({
+        title: "Acme Ads recovery",
+        category: "ad_optimization",
+        bodyMd: "# Steps\nReview placement and bid changes.",
+        tags: ["ad", "B0MATCH123", "Acme"]
+      });
+    await request
+      .post(`/api/sops/${exact.body.id as number}/publish`)
+      .set("x-amazon-monitor-session", token)
+      .expect(200);
+
+    const keyword = await request
+      .post("/api/sops")
+      .set("x-amazon-monitor-session", token)
+      .send({
+        title: "Ice maker checklist",
+        category: "general",
+        bodyMd: "# Steps",
+        tags: ["ice maker"]
+      });
+    await request
+      .post(`/api/sops/${keyword.body.id as number}/publish`)
+      .set("x-amazon-monitor-session", token)
+      .expect(200);
+
+    const draft = await request
+      .post("/api/sops")
+      .set("x-amazon-monitor-session", token)
+      .send({
+        title: "Unpublished Ads SOP",
+        category: "ad_optimization",
+        bodyMd: "# Draft",
+        tags: ["ad"]
+      });
+
+    const otherOrganization = store.createOrganization({ name: "Other SOP organization" });
+    const otherSop = store.createSop({
+      orgId: otherOrganization.id,
+      title: "Other organization Ads SOP",
+      category: "ad_optimization",
+      bodyMd: "# Hidden",
+      tags: ["ad", "B0MATCH123"]
+    });
+    store.publishSop(otherSop.id);
+
+    const detail = await request
+      .get(`/api/tasks/${taskId}/detail`)
+      .set("x-amazon-monitor-session", token);
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.sopRecommendations.map(
+      (item: { sop: { id: number } }) => item.sop.id
+    )).toEqual([exact.body.id, keyword.body.id]);
+    expect(detail.body.sopRecommendations[0]).toMatchObject({
+      score: 100,
+      matchReasons: [
+        "任务类型匹配：广告优化",
+        "标签匹配：广告",
+        "标签匹配：ASIN B0MATCH123",
+        "标签匹配：品牌 Acme"
+      ]
+    });
+    expect(JSON.stringify(detail.body)).not.toContain(draft.body.title);
+    expect(JSON.stringify(detail.body)).not.toContain(otherSop.title);
   });
 
   it("rejects a task linked to an AI run from another organization", async () => {
@@ -383,6 +468,99 @@ describe("tasks & sops routes (e2e)", () => {
       .expect(404);
   });
 
+  it("reports organization-scoped team throughput, timeliness, and review effectiveness", async () => {
+    const assignee = store.createUser({
+      orgId: 1,
+      username: "performance-owner",
+      password: "Performance123!",
+      role: "operator",
+      displayName: "Performance Owner"
+    });
+    const now = new Date();
+    const createdAt = new Date(now.getTime() - 2 * 86_400_000).toISOString();
+    const completedAt = new Date(now.getTime() - 86_400_000).toISOString();
+    const overdueDate = new Date(now.getTime() - 2 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    const completed = store.createTask({
+      orgId: 1,
+      sourceType: "manual",
+      title: "Completed performance task",
+      taskType: "other",
+      priority: "P1",
+      assigneeId: assignee.id
+    });
+    store.transitionTaskStatus(completed.id, "in_progress");
+    store.submitTaskForReview(completed.id, { actionTaken: "Completed the requested operation" });
+    store.transitionTaskStatus(completed.id, "done");
+    store.reviewTask(completed.id, { reviewResult: "CONFIRMED" });
+    db.prepare(
+      `UPDATE tasks
+       SET created_at = ?, completed_at = ?, reviewed_at = ?, due_date = ?
+       WHERE id = ?`
+    ).run(createdAt, completedAt, completedAt, completedAt.slice(0, 10), completed.id);
+
+    const overdue = store.createTask({
+      orgId: 1,
+      sourceType: "manual",
+      title: "Overdue performance task",
+      taskType: "other",
+      priority: "P0",
+      assigneeId: assignee.id,
+      dueDate: overdueDate
+    });
+    db.prepare("UPDATE tasks SET created_at = ? WHERE id = ?").run(createdAt, overdue.id);
+
+    const otherOrganization = store.createOrganization({ name: "Performance other org" });
+    store.createTask({
+      orgId: otherOrganization.id,
+      sourceType: "manual",
+      title: "Hidden task",
+      taskType: "other",
+      priority: "P1"
+    });
+
+    const response = await request
+      .get("/api/tasks/team-performance?days=7")
+      .set("x-amazon-monitor-session", token)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      windowDays: 7,
+      totals: {
+        assignedCount: 2,
+        completedCount: 1,
+        openCount: 1,
+        overdueCount: 1,
+        reviewedCount: 1,
+        confirmedCount: 1,
+        dueCompletedCount: 1,
+        onTimeCompletedCount: 1,
+        onTimeRate: 100,
+        confirmationRate: 100
+      }
+    });
+    expect(response.body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        assigneeId: assignee.id,
+        assigneeName: "Performance Owner",
+        assignedCount: 2,
+        completedCount: 1,
+        openCount: 1,
+        overdueCount: 1,
+        onTimeRate: 100,
+        confirmationRate: 100
+      })
+    ]));
+    expect(JSON.stringify(response.body)).not.toContain("Hidden task");
+
+    await request
+      .get("/api/tasks/team-performance?days=14")
+      .set("x-amazon-monitor-session", token)
+      .expect(400);
+  });
+
   it("creates an SOP and publishes it", async () => {
     const create = await request
       .post("/api/sops")
@@ -408,6 +586,57 @@ describe("tasks & sops routes (e2e)", () => {
     expect(list.body).toHaveLength(1);
   });
 
+  it("pages the complete organization SOP library with filter-aware status counts", async () => {
+    const createdIds: number[] = [];
+    for (let index = 0; index < 205; index += 1) {
+      createdIds.push(store.createSop({
+        orgId: 1,
+        title: `SOP ${String(index).padStart(3, "0")}`,
+        category: index % 2 === 0 ? "price_action" : "general",
+        bodyMd: "# Steps",
+        tags: index === 204 ? ["final-page"] : []
+      }).id);
+    }
+    store.publishSop(createdIds[0]);
+    store.publishSop(createdIds[1]);
+    store.archiveSop(createdIds[1]);
+
+    const otherOrganization = store.createOrganization({ name: "Hidden SOP organization" });
+    store.createSop({
+      orgId: otherOrganization.id,
+      title: "Hidden SOP",
+      category: "price_action",
+      bodyMd: "# Hidden"
+    });
+
+    const finalPage = await request
+      .get("/api/sops/page?limit=25&offset=200")
+      .set("x-amazon-monitor-session", token);
+    expect(finalPage.status).toBe(200);
+    expect(finalPage.body).toMatchObject({
+      total: 205,
+      limit: 25,
+      offset: 200,
+      statusCounts: {
+        all: 205,
+        draft: 203,
+        published: 1,
+        archived: 1
+      }
+    });
+    expect(finalPage.body.sops).toHaveLength(5);
+    expect(JSON.stringify(finalPage.body)).not.toContain("Hidden SOP");
+
+    const filtered = await request
+      .get("/api/sops/page?category=price_action&q=final-page&limit=25")
+      .set("x-amazon-monitor-session", token);
+    expect(filtered.body).toMatchObject({
+      total: 1,
+      statusCounts: { all: 1, draft: 1, published: 0, archived: 0 }
+    });
+    expect(filtered.body.sops[0].tags).toContain("final-page");
+  });
+
   it("promotes a reviewed task into an SOP and marks the task", async () => {
     const taskRes = await request
       .post("/api/tasks")
@@ -421,6 +650,39 @@ describe("tasks & sops routes (e2e)", () => {
       });
     expect(taskRes.status).toBe(201);
     const taskId = taskRes.body.id as number;
+
+    const unreviewed = await request
+      .post("/api/sops")
+      .set("x-amazon-monitor-session", token)
+      .send({
+        title: "竞品 Deal 复盘 SOP",
+        category: "competitor_response",
+        bodyMd: "# SOP\n记录证据、动作和结果",
+        sourceTaskId: taskId,
+        tags: ["deal", "review"]
+      });
+    expect(unreviewed.status).toBe(409);
+
+    await request
+      .post(`/api/tasks/${taskId}/transition`)
+      .set("x-amazon-monitor-session", token)
+      .send({ status: "in_progress" })
+      .expect(200);
+    await request
+      .post(`/api/tasks/${taskId}/submit`)
+      .set("x-amazon-monitor-session", token)
+      .send({ actionTaken: "记录竞品 Deal 周期并观察排名回落。" })
+      .expect(200);
+    await request
+      .post(`/api/tasks/${taskId}/complete`)
+      .set("x-amazon-monitor-session", token)
+      .send({})
+      .expect(200);
+    await request
+      .post(`/api/tasks/${taskId}/review`)
+      .set("x-amazon-monitor-session", token)
+      .send({ reviewResult: "CONFIRMED", reviewNote: "动作有效，可复用。" })
+      .expect(200);
 
     const createSop = await request
       .post("/api/sops")
@@ -493,11 +755,10 @@ describe("tasks & sops routes (e2e)", () => {
         .send({
           title: "legacy SOP",
           category: "general",
-          bodyMd: "# SOP",
-          sourceTaskId: task.body.id
+          bodyMd: "# SOP"
         });
       expect(sop.status).toBe(201);
-      expect(sop.body.sourceTaskId).toBe(task.body.id);
+      expect(sop.body.sourceTaskId).toBeNull();
     } finally {
       legacyDb.close();
       if (originalApiKey) {

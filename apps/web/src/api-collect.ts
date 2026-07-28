@@ -1,6 +1,7 @@
 import type {
   CollectJob,
   CollectTaskLog,
+  CollectTaskLogListResponse,
   CollectionFreshness,
   QueueStats,
   WorkerStatus
@@ -24,6 +25,8 @@ export const collectApi = {
   collectJob: (id: number) => request<CollectJob>(`/collectors/jobs/${id}`),
   listJobs: (limit = 50, offset = 0) => request<CollectJob[]>(`/collectors/jobs?limit=${limit}&offset=${offset}`),
   listLogs: (limit = 50, offset = 0) => request<CollectTaskLog[]>(`/collectors/logs?limit=${limit}&offset=${offset}`),
+  listLogsPage: (limit = 50, offset = 0) =>
+    request<CollectTaskLogListResponse>(`/collectors/logs/page?limit=${limit}&offset=${offset}`),
   fetchFreshness: () => request<CollectionFreshness[]>("/collectors/freshness"),
   fetchQueueStats: () => request<QueueStats>("/collectors/queue-stats"),
   fetchWorkerStatus: () => request<WorkerStatus>("/collectors/worker-status"),

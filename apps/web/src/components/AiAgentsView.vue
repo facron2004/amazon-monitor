@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ElButton, ElOption, ElSelect } from "element-plus";
 import { RefreshCw } from "@lucide/vue";
@@ -7,10 +7,29 @@ import { aiAgentTypes, aiRunStatuses, type AiRun } from "@amazon-monitor/shared"
 import { useAiRunsStore } from "../stores/aiRuns";
 import AgentRunDetail from "./ai-agents/AgentRunDetail.vue";
 import AgentRunList from "./ai-agents/AgentRunList.vue";
+import AgentQualityPanel from "./ai-agents/AgentQualityPanel.vue";
 import { agentLabels } from "./ai-agents/ai-agent-display";
+import { useWriteAccess } from "../composables/useWriteAccess";
 
 const store = useAiRunsStore();
-const { runs, selectedRun, selectedRunId, agentType, status, limit, loading, feedbackLoadingKey, error } = storeToRefs(store);
+const {
+  runs,
+  selectedRun,
+  selectedRunId,
+  agentType,
+  status,
+  limit,
+  total,
+  currentPage,
+  loading,
+  feedbackLoadingKey,
+  error,
+  qualityDays,
+  quality,
+  qualityLoading,
+  qualityError
+} = storeToRefs(store);
+const { canWrite: canViewQuality } = useWriteAccess("assign_tasks");
 
 const successCount = computed(() => runs.value.filter((run) => run.status === "success").length);
 const failedCount = computed(() => runs.value.filter((run) => run.status === "failed").length);
@@ -19,11 +38,24 @@ const approvalActionCount = computed(() =>
 );
 const latestRunTime = computed(() => runs.value[0]?.createdAt ?? "");
 
-onMounted(() => store.fetchRuns());
-
 function selectRun(run: AiRun): void {
   store.selectRun(run.id);
 }
+
+async function refresh(): Promise<void> {
+  await Promise.all([
+    store.fetchRuns(),
+    canViewQuality.value ? store.fetchQuality() : Promise.resolve(),
+  ]);
+}
+
+watch(qualityDays, () => {
+  if (canViewQuality.value) void store.fetchQuality();
+});
+
+onMounted(() => {
+  if (canViewQuality.value) void store.fetchQuality();
+});
 </script>
 
 <template>
@@ -34,29 +66,38 @@ function selectRun(run: AiRun): void {
         <h2>AI Agent 运行台</h2>
       </div>
       <div class="agent-toolbar__actions">
-        <ElSelect v-model="agentType" clearable placeholder="Agent" style="width: 180px" @change="store.fetchRuns">
+        <ElSelect v-model="agentType" clearable placeholder="Agent" style="width: 180px" @change="store.resetAndFetch">
           <ElOption v-for="item in aiAgentTypes" :key="item" :label="agentLabels[item]" :value="item" />
         </ElSelect>
-        <ElSelect v-model="status" clearable placeholder="状态" style="width: 132px" @change="store.fetchRuns">
+        <ElSelect v-model="status" clearable placeholder="状态" style="width: 132px" @change="store.resetAndFetch">
           <ElOption v-for="item in aiRunStatuses" :key="item" :label="item" :value="item" />
         </ElSelect>
-        <ElSelect v-model="limit" placeholder="数量" style="width: 110px" @change="store.fetchRuns">
+        <ElSelect v-model="limit" placeholder="数量" style="width: 110px" @change="store.resetAndFetch">
           <ElOption label="25" :value="25" />
           <ElOption label="50" :value="50" />
           <ElOption label="100" :value="100" />
         </ElSelect>
-        <ElButton :loading="loading" @click="store.fetchRuns">
+        <ElButton :loading="loading || qualityLoading" @click="refresh">
           <template #icon><RefreshCw :size="14" /></template>
           刷新
         </ElButton>
       </div>
     </header>
 
+    <AgentQualityPanel
+      v-if="canViewQuality"
+      v-model:days="qualityDays"
+      :quality="quality"
+      :loading="qualityLoading"
+      :error="qualityError"
+      @retry="store.fetchQuality"
+    />
+
     <div class="metrics agent-metrics">
-      <article class="metric review-metric"><span>运行次数</span><strong>{{ runs.length }}</strong></article>
-      <article class="metric"><span>成功</span><strong>{{ successCount }}</strong></article>
-      <article class="metric hot"><span>失败</span><strong>{{ failedCount }}</strong></article>
-      <article class="metric"><span>待人工确认动作</span><strong>{{ approvalActionCount }}</strong></article>
+      <article class="metric review-metric"><span>匹配运行</span><strong>{{ total }}</strong></article>
+      <article class="metric"><span>本页成功</span><strong>{{ successCount }}</strong></article>
+      <article class="metric hot"><span>本页失败</span><strong>{{ failedCount }}</strong></article>
+      <article class="metric"><span>本页待确认动作</span><strong>{{ approvalActionCount }}</strong></article>
     </div>
 
     <p v-if="error" class="agent-error">{{ error }}</p>
@@ -67,7 +108,11 @@ function selectRun(run: AiRun): void {
         :selected-run-id="selectedRunId"
         :loading="loading"
         :latest-run-time="latestRunTime"
+        :total="total"
+        :current-page="currentPage"
+        :page-size="limit"
         @select-run="selectRun"
+        @change-page="store.goToPage"
       />
       <AgentRunDetail
         :run="selectedRun"

@@ -14,6 +14,7 @@ type QueueStoreMethods = Pick<
   | "getCollectionFreshness"
   | "getQueueStats"
   | "recoverStuckJobs"
+  | "recoverStaleProcessingJobs"
   | "resetQueue"
 >;
 
@@ -130,13 +131,13 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
 
     completeJob(id) {
       const now = nowIso();
-      // Clear any stale error_message from a previous failed attempt —
-      // a successful retry shouldn't surface the old failure reason to
-      // the operator looking at the job history.
+      // Guard: only transition from 'processing' to 'completed'. If the
+      // reaper already recovered this job, the lane's stale runner must
+      // not overwrite the recovered state.
       db.prepare(`
         UPDATE amazon_collect_job_queue
         SET status = 'completed', completed_at = ?, error_message = NULL
-        WHERE id = ?
+        WHERE id = ? AND status = 'processing'
       `).run(now, id);
     },
 
@@ -146,6 +147,9 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       `).get(id) as unknown as CollectJobRow | undefined;
 
       if (!job) return;
+      // Reaper may have already recovered this job — bail out so we don't
+      // double-count retries or overwrite recovered state.
+      if (job.status !== "processing") return;
 
       const nextRetryCount = job.retry_count + 1;
       const now = nowIso();
@@ -274,6 +278,57 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       `).all(...ids, now, reason) as Array<{ id: number }>;
 
       return recoveredRows.map((row) => row.id);
+    },
+
+    /**
+     * Periodically recover jobs stuck in 'processing' beyond the stale
+     * threshold. Unlike recoverStuckJobs (which runs at startup and marks
+     * everything failed), this runs at runtime and marks jobs back to
+     * 'pending' so they can be retried — unless retry_count is already
+     * exhausted, in which case they go to 'failed'.
+     */
+    recoverStaleProcessingJobs(staleAgeMs, maxRetries) {
+      const threshold = new Date(Date.now() - staleAgeMs).toISOString();
+      const stuck = db.prepare(`
+        SELECT id, retry_count FROM amazon_collect_job_queue
+        WHERE status = 'processing' AND started_at IS NOT NULL AND started_at < ?
+        ORDER BY id ASC
+        LIMIT 100
+      `).all(threshold) as Array<{ id: number; retry_count: number }>;
+
+      if (stuck.length === 0) return [];
+
+      const now = nowIso();
+      const recovered: number[] = [];
+
+      withTransaction(db, () => {
+        for (const job of stuck) {
+          // Double-check it's still processing (defensive against race)
+          const row = db.prepare(`
+            SELECT status, retry_count FROM amazon_collect_job_queue WHERE id = ?
+          `).get(job.id) as { status: string; retry_count: number } | undefined;
+
+          if (!row || row.status !== "processing") continue;
+
+          const nextRetry = row.retry_count + 1;
+          if (nextRetry >= maxRetries) {
+            db.prepare(`
+              UPDATE amazon_collect_job_queue
+              SET status = 'failed', completed_at = ?, error_message = ?
+              WHERE id = ?
+            `).run(now, `任务卡住超过 ${Math.round(staleAgeMs / 60000)} 分钟，已自动回收`, job.id);
+          } else {
+            db.prepare(`
+              UPDATE amazon_collect_job_queue
+              SET status = 'pending', started_at = NULL, error_message = ?, retry_count = ?
+              WHERE id = ?
+            `).run(`任务卡住超过 ${Math.round(staleAgeMs / 60000)} 分钟，已自动回收，准备重试`, nextRetry, job.id);
+          }
+          recovered.push(job.id);
+        }
+      });
+
+      return recovered;
     }
   };
 }

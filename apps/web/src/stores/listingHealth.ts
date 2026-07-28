@@ -15,6 +15,7 @@ export const useListingHealthStore = defineStore("listingHealth", () => {
   const query = ref("");
 
   async function fetchItems(date: string): Promise<void> {
+    if (aiAnalysis.value?.date !== date) aiAnalysis.value = null;
     loading.value = true;
     error.value = null;
     try {
@@ -38,6 +39,7 @@ export const useListingHealthStore = defineStore("listingHealth", () => {
     try {
       await listingHealthApi.upsertSnapshot(productId, payload);
       selectedProductId.value = productId;
+      aiAnalysis.value = null;
       await fetchItems(date);
     } catch (err) {
       error.value = (err as Error).message;

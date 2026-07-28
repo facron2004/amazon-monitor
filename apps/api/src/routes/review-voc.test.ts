@@ -134,9 +134,14 @@ describe("review VOC routes", () => {
 
     expect(analysis.body.output.summary).toContain("ICE-VOC-001");
     expect(analysis.body.output.recommended_actions[0]).toMatchObject({
-      priority: "P0",
+      priority: "P2",
       needs_human_approval: true
     });
+    expect(analysis.body.output.dataFreshness).toMatchObject({
+      freshnessStatus: "stale",
+      maxAgeHours: 24
+    });
+    expect(analysis.body.output.confidence).toBe(0.49);
     expect(analysis.body.output.artifacts.reviewVoc).toMatchObject({
       supplierActions: expect.arrayContaining([
         expect.objectContaining({
@@ -165,7 +170,7 @@ describe("review VOC routes", () => {
     expect(analysis.body.run).toMatchObject({
       agentType: "review_voc",
       status: "success",
-      model: "deterministic-review-voc-v2"
+      model: "deterministic-review-voc-v3"
     });
     const runs = store.listAiRuns({ agentType: "review_voc" });
     expect(runs).toHaveLength(1);

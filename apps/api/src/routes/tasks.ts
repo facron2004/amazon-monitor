@@ -2,6 +2,8 @@ import type { Express, Request, Response } from "express";
 import { hasBusinessCapability, isoDate, type SessionContext, type Task, type TaskStatus } from "@amazon-monitor/shared";
 import { createTaskFromEvent } from "../services/task-service.js";
 import { buildTaskExecutionCsv } from "../services/task-execution-export.js";
+import { buildTaskSopRecommendations } from "../services/task-sop-recommendations.js";
+import { buildTaskTeamPerformance } from "../services/task-team-performance.js";
 import type { Store } from "../store.js";
 import { asyncHandler } from "./http-utils.js";
 import {
@@ -10,6 +12,7 @@ import {
   taskExecutionSchema,
   taskListQuerySchema,
   taskNoteSchema,
+  taskTeamPerformanceQuerySchema,
   taskTransitionSchema,
   updateTaskSchema,
   validateBody,
@@ -123,6 +126,37 @@ export function registerTaskRoutes(app: Express, store: Store): void {
     response.send(buildTaskExecutionCsv(tasks, users));
   }));
 
+  app.get("/api/tasks/team-performance", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    requireTaskAssignment(ctx);
+    const { days } = validateQuery(taskTeamPerformanceQuerySchema, request.query);
+    const generatedAt = new Date().toISOString();
+    const rangeEnd = generatedAt;
+    const rangeStart = new Date(
+      Date.parse(generatedAt) - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const tasks: Task[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      const page = store.listTasks({
+        orgId: ctx.organization.id,
+        limit: pageSize,
+        offset,
+      });
+      tasks.push(...page);
+      if (page.length < pageSize) break;
+    }
+    const users = store
+      .listUsers()
+      .filter((user) => user.orgId === ctx.organization.id);
+    response.json(buildTaskTeamPerformance(tasks, users, {
+      windowDays: days,
+      rangeStart,
+      rangeEnd,
+      generatedAt,
+    }));
+  }));
+
   app.get("/api/tasks/:id/detail", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
     const task = requireOrganizationTask(store, validateIdParam(request.params.id), ctx);
@@ -135,7 +169,17 @@ export function registerTaskRoutes(app: Express, store: Store): void {
     const sourceAiRun = Number.isInteger(sourceAiRunId) && sourceAiRunId > 0
       ? store.getAiRun(sourceAiRunId, ctx.organization.id)
       : null;
-    response.json({ task, sourceEvent, sourceAiRun });
+    const publishedSops = store.listSops({
+      orgId: ctx.organization.id,
+      status: "published",
+      limit: 500,
+    });
+    response.json({
+      task,
+      sourceEvent,
+      sourceAiRun,
+      sopRecommendations: buildTaskSopRecommendations(task, publishedSops),
+    });
   }));
 
   app.get("/api/tasks/:id", asyncHandler(async (request, response) => {
