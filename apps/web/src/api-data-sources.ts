@@ -7,8 +7,12 @@ import type {
   DataSourceInventoryImportResult,
   DataSourceProductImportResult,
   DataSourceListFilter,
+  DataSourceMappingIssue,
   DataSourceSyncRun,
   DataSourceSyncRunListFilter,
+  SpApiConnectionHealth,
+  SpApiRegion,
+  SpApiSyncDomain,
   UpdateDataSourceInput
 } from "@amazon-monitor/shared";
 import { request } from "./api-base";
@@ -16,6 +20,22 @@ import { request } from "./api-base";
 export type CreateDataSourcePayload = Omit<CreateDataSourceInput, "orgId">;
 export type UpdateDataSourcePayload = UpdateDataSourceInput;
 export type DataSourceSyncRunQuery = Omit<DataSourceSyncRunListFilter, "orgId" | "dataSourceId">;
+
+export interface SaveSpApiCredentialsPayload {
+  region: SpApiRegion;
+  commerceStoreIds: number[];
+  lwaClientId: string;
+  lwaClientSecret: string;
+  lwaRefreshToken: string;
+}
+
+export interface SpApiSyncPayload {
+  domains: SpApiSyncDomain[];
+  mode: "incremental" | "full" | "backfill";
+  marketplaces?: string[];
+  fromDate?: string;
+  toDate?: string;
+}
 
 function buildQuery(params: DataSourceListFilter = {}): string {
   const query = new URLSearchParams();
@@ -55,6 +75,27 @@ export const dataSourceApi = {
 
   listSyncRuns: (id: number, params: DataSourceSyncRunQuery = {}) =>
     request<DataSourceSyncRun[]>(`/data-sources/${id}/runs${buildSyncRunQuery(params)}`),
+
+  saveSpApiCredentials: (id: number, payload: SaveSpApiCredentialsPayload) =>
+    request<void>(`/data-sources/${id}/sp-api/credentials`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+
+  testSpApiConnection: (id: number) =>
+    request<{ runId: number; status: DataSourceSyncRun["status"] }>(`/data-sources/${id}/test-connection`, {
+      method: "POST"
+    }),
+
+  syncSpApi: (id: number, payload: SpApiSyncPayload) =>
+    request<{ runs: DataSourceSyncRun[] }>(`/data-sources/${id}/sync`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+
+  getSpApiHealth: (id: number) => request<SpApiConnectionHealth>(`/data-sources/${id}/health`),
+
+  listSpApiMappingIssues: (id: number) => request<DataSourceMappingIssue[]>(`/data-sources/${id}/mapping-issues?status=open&limit=50`),
 
   importProductsFile: (id: number, payload: DataSourceImportPayload) =>
     request<DataSourceProductImportResult>(`/data-sources/${id}/import/products`, {

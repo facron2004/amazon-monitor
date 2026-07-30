@@ -12,10 +12,13 @@
   "workspaces": [
     "packages/shared",
     "apps/api",
-    "apps/web"
+    "apps/web",
+    "apps/agent",
+    "apps/desktop"
   ],
   "scripts": {
     "build:shared": "npm --workspace @amazon-monitor/shared run build",
+    "build:agent": "npm --workspace @amazon-monitor/agent run build",
     "dev": "npm run build:shared && npm-run-all --parallel dev:api dev:web",
     "dev:api": "npm --workspace @amazon-monitor/api run dev",
     "dev:web": "npm --workspace @amazon-monitor/web run dev",
@@ -23,10 +26,11 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "test": "npm run test:unit",
-    "test:unit": "npm --workspace @amazon-monitor/shared run test && npm --workspace @amazon-monitor/api run test:unit && npm --workspace @amazon-monitor/web run test",
+    "test:unit": "npm --workspace @amazon-monitor/shared run test && npm --workspace @amazon-monitor/agent run test && npm --workspace @amazon-monitor/api run test:unit && npm --workspace @amazon-monitor/web run test && npm --workspace @amazon-monitor/desktop run test",
     "typecheck": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
     "test:browser": "npm --workspace @amazon-monitor/api run test:browser",
-    "build": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build",
+    "build": "npm run build:shared && npm run build:agent && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build && npm --workspace @amazon-monitor/desktop run build",
     "start": "node apps/api/dist/index.js",
     "collect": "cross-env ENABLE_CRON=false tsx apps/api/src/cli.ts collect",
     "collect:keyword": "cross-env ENABLE_CRON=false tsx apps/api/src/cli.ts keyword",
@@ -44,6 +48,8 @@
     "vitest": "^4.0.13"
   },
   "overrides": {
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "brace-expansion": "5.0.8",
+    "postcss": "8.5.23"
   }
 }

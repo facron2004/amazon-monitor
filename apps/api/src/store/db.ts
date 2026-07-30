@@ -99,6 +99,9 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_keyword_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_bestseller_category_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_collect_job_queue", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_job_queue", "lease_owner", "TEXT");
+  ensureColumn(db, "amazon_collect_job_queue", "lease_token", "TEXT");
+  ensureColumn(db, "amazon_collect_job_queue", "lease_expires_at", "TEXT");
   ensureColumn(db, "amazon_collect_task_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_competitor_pool", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_competitor_daily_change", "org_id", "INTEGER NOT NULL DEFAULT 1");
@@ -106,6 +109,25 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_daily_report", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_notification_schedule", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_notification_send_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "data_source_sync_runs", "domain", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "trigger", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "mode", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "idempotency_key", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "credential_version", "INTEGER");
+  ensureColumn(db, "data_source_sync_runs", "marketplaces_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "data_source_sync_runs", "requested_from_date", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "requested_to_date", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "checkpoint_summary", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "external_request_id", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "retry_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "sp_api_sales_traffic_daily", "source_document_id", "TEXT");
+  ensureColumn(db, "sp_api_sales_traffic_daily", "content_hash", "TEXT");
+  ensureColumn(db, "sp_api_inventory_snapshots", "inbound_quantity", "INTEGER");
+  ensureColumn(db, "sp_api_inventory_snapshots", "source_document_id", "TEXT");
+  ensureColumn(db, "sp_api_inventory_snapshots", "content_hash", "TEXT");
+  ensureColumn(db, "sp_api_inventory_latest", "inbound_quantity", "INTEGER");
+  ensureColumn(db, "sp_api_inventory_latest", "source_document_id", "TEXT");
+  ensureColumn(db, "sp_api_inventory_latest", "content_hash", "TEXT");
   db.exec("DROP INDEX IF EXISTS idx_queue_dedup_active");
 
   // 创建所有表
@@ -115,6 +137,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureDefaultIdentity(db);
 
   // 添加新列（向后兼容旧数据库）——针对新表或已存在表
+  ensureColumn(db, "agent_messages", "sdk_item_json", "TEXT");
   ensureColumn(db, "product_inventory_settings", "production_lead_time_days", "REAL");
   ensureColumn(db, "product_inventory_settings", "inbound_lead_time_days", "REAL");
   ensureColumn(db, "product_inventory_settings", "in_transit_units", "INTEGER");
@@ -125,7 +148,29 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_keyword_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_bestseller_category_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_collect_job_queue", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_job_queue", "lease_owner", "TEXT");
+  ensureColumn(db, "amazon_collect_job_queue", "lease_token", "TEXT");
+  ensureColumn(db, "amazon_collect_job_queue", "lease_expires_at", "TEXT");
   ensureColumn(db, "amazon_collect_task_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "data_source_sync_runs", "domain", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "trigger", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "mode", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "idempotency_key", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "credential_version", "INTEGER");
+  ensureColumn(db, "data_source_sync_runs", "marketplaces_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "data_source_sync_runs", "requested_from_date", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "requested_to_date", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "checkpoint_summary", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "external_request_id", "TEXT");
+  ensureColumn(db, "data_source_sync_runs", "retry_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "sp_api_sales_traffic_daily", "source_document_id", "TEXT");
+  ensureColumn(db, "sp_api_sales_traffic_daily", "content_hash", "TEXT");
+  ensureColumn(db, "sp_api_inventory_snapshots", "inbound_quantity", "INTEGER");
+  ensureColumn(db, "sp_api_inventory_snapshots", "source_document_id", "TEXT");
+  ensureColumn(db, "sp_api_inventory_snapshots", "content_hash", "TEXT");
+  ensureColumn(db, "sp_api_inventory_latest", "inbound_quantity", "INTEGER");
+  ensureColumn(db, "sp_api_inventory_latest", "source_document_id", "TEXT");
+  ensureColumn(db, "sp_api_inventory_latest", "content_hash", "TEXT");
   db.exec("CREATE INDEX IF NOT EXISTS idx_keyword_monitor_org_status ON amazon_keyword_monitor(org_id, status, id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_category_monitor_org_status ON amazon_bestseller_category_monitor(org_id, status, id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_collect_task_log_org_id ON amazon_collect_task_log(org_id, id DESC)");

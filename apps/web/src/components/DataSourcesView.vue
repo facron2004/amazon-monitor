@@ -20,6 +20,7 @@ import StoreAccountsPanel from "./data-sources/StoreAccountsPanel.vue";
 
 const store = useDataSourcesStore();
 const { canWrite } = useWriteAccess("manage_data_sources");
+const { canWrite: canCollect } = useWriteAccess("manage_collection");
 const { sources, selectedSource, selectedId, sourceType, status, query, loading, saving, error } = storeToRefs(store);
 
 const dialogOpen = ref(false);
@@ -127,7 +128,7 @@ async function saveSource(payload: DataSourceDialogPayload): Promise<void> {
         :loading="loading"
         @select="store.selectSource($event.id)"
       />
-      <DataSourceDetail :source="selectedSource" :can-edit="canWrite" @edit="openEdit" />
+      <DataSourceDetail :source="selectedSource" :can-edit="canWrite" :can-collect="canCollect" @edit="openEdit" />
     </div>
 
     <DataSourceDialog

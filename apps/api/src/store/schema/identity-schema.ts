@@ -9,8 +9,8 @@
  * Migration key: identity_v1
  *
  * The AuthModal previously used a single AMAZON_MONITOR_API_KEY env var; this
- * schema is the new path. The old env var continues to work as a fallback
- * (see server.ts auth middleware) so existing deployments are not broken.
+ * schema is the session-based replacement. Global keys are not tenant-safe
+ * and are intentionally not accepted as an authentication fallback.
  */
 export const identitySchemaSql = `
 CREATE TABLE IF NOT EXISTS organizations (

@@ -32,7 +32,7 @@ describe("commerce store routes", () => {
 
     const response = await request(app)
       .get("/api/stores?status=active")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(response.body).toEqual([expect.objectContaining({
@@ -53,14 +53,14 @@ describe("commerce store routes", () => {
     expect(assigned.storeId).toBe(account.id);
     const filtered = await request(app)
       .get(`/api/products?storeId=${account.id}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(filtered.body).toHaveLength(1);
     expect(filtered.body[0]).toMatchObject({ sku: "SKU-ASSIGNED", storeId: account.id });
 
     const all = await request(app)
       .get("/api/products")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(all.body).toEqual(expect.arrayContaining([
       expect.objectContaining({ sku: "SKU-LEGACY", storeId: null })
@@ -68,14 +68,14 @@ describe("commerce store routes", () => {
 
     const reassigned = await request(app)
       .patch(`/api/products/${assigned.id}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ storeId: outlet.id })
       .expect(200);
     expect(reassigned.body.storeId).toBe(outlet.id);
 
     const unassigned = await request(app)
       .patch(`/api/products/${assigned.id}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ storeId: null })
       .expect(200);
     expect(unassigned.body.storeId).toBeNull();
@@ -93,31 +93,31 @@ describe("commerce store routes", () => {
 
     await request(app)
       .post("/api/products")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(productPayload("SKU-CROSS", "B0CROSSORG1", otherStore.id, "US"))
       .expect(404);
 
     await request(app)
       .post("/api/products")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(productPayload("SKU-JP", "B0JPMISMAT1", account.id, "JP"))
       .expect(400);
 
     await createProduct("SKU-US", "B0USMATCH01", account.id);
     await request(app)
       .patch(`/api/stores/${account.id}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ marketplace: "JP" })
       .expect(409);
 
     await request(app)
       .patch(`/api/stores/${account.id}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ status: "paused" })
       .expect(200);
     await request(app)
       .post("/api/products")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(productPayload("SKU-PAUSED", "B0PAUSED01", account.id, "US"))
       .expect(409);
   });
@@ -132,10 +132,10 @@ describe("commerce store routes", () => {
     });
     const operatorToken = await login("store-operator", "Operator123!");
 
-    await request(app).get("/api/stores").set("x-amazon-monitor-session", operatorToken).expect(200);
+    await request(app).get("/api/stores").set("Cookie", operatorToken).expect(200);
     await request(app)
       .post("/api/stores")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ name: "Blocked", marketplace: "US", sellerId: "BLOCKED" })
       .expect(403);
   });
@@ -143,13 +143,13 @@ describe("commerce store routes", () => {
 
 async function login(username: string, password: string): Promise<string> {
   const response = await request(app).post("/api/auth/login").send({ username, password }).expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 async function createStoreAccount(name: string, marketplace: string, sellerId: string): Promise<{ id: number }> {
   const response = await request(app)
     .post("/api/stores")
-    .set("x-amazon-monitor-session", token)
+    .set("Cookie", token)
     .send({ name, marketplace, sellerId, authStatus: "connected" })
     .expect(201);
   return response.body as { id: number };
@@ -158,7 +158,7 @@ async function createStoreAccount(name: string, marketplace: string, sellerId: s
 async function createProduct(sku: string, asin: string, storeId: number | null): Promise<{ id: number; storeId: number | null }> {
   const response = await request(app)
     .post("/api/products")
-    .set("x-amazon-monitor-session", token)
+    .set("Cookie", token)
     .send(productPayload(sku, asin, storeId, "US"))
     .expect(201);
   return response.body as { id: number; storeId: number | null };

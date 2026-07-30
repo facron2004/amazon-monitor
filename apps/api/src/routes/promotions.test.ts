@@ -30,19 +30,19 @@ describe("promotion plan routes", () => {
 
     const preparation = await request(app)
       .get("/api/promotions?asOf=2026-07-10")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(preparation.body[0]).toMatchObject({ monitorState: "preparation_due", daysUntilStart: 5 });
 
     const active = await request(app)
       .get("/api/promotions?asOf=2026-07-16")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(active.body[0]).toMatchObject({ id: created.id, monitorState: "active" });
 
     const reviewDue = await request(app)
       .get("/api/promotions?asOf=2026-07-21")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(reviewDue.body[0].monitorState).toBe("review_due");
   });
@@ -64,14 +64,14 @@ describe("promotion plan routes", () => {
     const { storeId, productId } = seedStoreAndProduct();
     await request(app)
       .post("/api/promotions")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(planPayload(storeId, productId, "JP"))
       .expect(400);
 
     const outlet = store.createCommerceStore({ orgId: 1, name: "US Outlet", marketplace: "US", sellerId: "OUTLET" });
     await request(app)
       .post("/api/promotions")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(planPayload(outlet.id, productId, "US"))
       .expect(409);
 
@@ -79,7 +79,7 @@ describe("promotion plan routes", () => {
     const otherStore = store.createCommerceStore({ orgId: otherOrg.id, name: "Other", marketplace: "US", sellerId: "OTHER" });
     await request(app)
       .post("/api/promotions")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(planPayload(otherStore.id, null, "US"))
       .expect(404);
   });
@@ -90,10 +90,10 @@ describe("promotion plan routes", () => {
     store.createUser({ orgId: 1, username: "promo-viewer", password: "Viewer123!", role: "viewer", displayName: "Viewer" });
     const viewerToken = await login("promo-viewer", "Viewer123!");
 
-    await request(app).get("/api/promotions").set("x-amazon-monitor-session", viewerToken).expect(200);
+    await request(app).get("/api/promotions").set("Cookie", viewerToken).expect(200);
     await request(app)
       .post("/api/promotions")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .send(planPayload(storeId, productId, "US"))
       .expect(403);
   });
@@ -101,7 +101,7 @@ describe("promotion plan routes", () => {
 
 async function login(username: string, password: string): Promise<string> {
   const response = await request(app).post("/api/auth/login").send({ username, password }).expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 function seedStoreAndProduct(): { storeId: number; productId: number } {
@@ -121,7 +121,7 @@ function seedStoreAndProduct(): { storeId: number; productId: number } {
 async function createPlan(storeId: number, productId: number) {
   const response = await request(app)
     .post("/api/promotions")
-    .set("x-amazon-monitor-session", token)
+    .set("Cookie", token)
     .send(planPayload(storeId, productId, "US"))
     .expect(201);
   return response.body as { id: number; monitorState: string; daysUntilStart: number };
@@ -130,7 +130,7 @@ async function createPlan(storeId: number, productId: number) {
 function createPlanTask(id: number, kind: "preparation" | "review", status: number) {
   return request(app)
     .post(`/api/promotions/${id}/tasks`)
-    .set("x-amazon-monitor-session", token)
+    .set("Cookie", token)
     .send({ kind })
     .expect(status);
 }

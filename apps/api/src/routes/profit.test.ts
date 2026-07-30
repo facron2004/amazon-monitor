@@ -16,7 +16,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 async function loginAs(username: string, password: string): Promise<string> {
@@ -24,7 +24,7 @@ async function loginAs(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -54,7 +54,7 @@ describe("profit routes", () => {
   it("saves cost assumptions and returns price safety scenarios", async () => {
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-07-08",
         salesAmount: 2200,
@@ -67,7 +67,7 @@ describe("profit routes", () => {
 
     const save = await request(app)
       .post(`/api/products/${productId}/profit-setting`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         purchaseCost: 80,
         inboundFreight: 10,
@@ -107,7 +107,7 @@ describe("profit routes", () => {
 
     const list = await request(app)
       .get("/api/profit/plans?date=2026-07-08&level=watch")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(list.body).toHaveLength(1);
     expect(list.body[0]).toMatchObject({
@@ -117,13 +117,13 @@ describe("profit routes", () => {
 
     const detail = await request(app)
       .get(`/api/products/${productId}/profit-plan?date=2026-07-08`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(detail.body.scenarios).toHaveLength(4);
 
     const taskResponse = await request(app)
       .post(`/api/products/${productId}/profit-plan/task`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08", actionKind: "target_margin" })
       .expect(201);
     expect(taskResponse.body).toMatchObject({
@@ -148,7 +148,7 @@ describe("profit routes", () => {
 
     const repeated = await request(app)
       .post(`/api/products/${productId}/profit-plan/task`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08", actionKind: "target_margin" })
       .expect(200);
     expect(repeated.body).toMatchObject({
@@ -158,7 +158,7 @@ describe("profit routes", () => {
 
     await request(app)
       .post(`/api/products/${productId}/profit-plan/task`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08", actionKind: "coupon_15" })
       .expect(409);
   });
@@ -170,12 +170,12 @@ describe("profit routes", () => {
   it("returns summary profit data to partial roles and reserves costs for managers", async () => {
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08", salesAmount: 2200, unitsSold: 10, adSpend: 100, tacos: 0.045 })
       .expect(201);
     await request(app)
       .post(`/api/products/${productId}/profit-setting`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         purchaseCost: 80,
         inboundFreight: 10,
@@ -198,7 +198,7 @@ describe("profit routes", () => {
 
     const summary = await request(app)
       .get("/api/profit/plans?date=2026-07-08")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .expect(200);
     expect(summary.body[0]).toMatchObject({
       setting: null,
@@ -220,24 +220,24 @@ describe("profit routes", () => {
     });
     await request(app)
       .post(`/api/products/${productId}/profit-plan/task`)
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ date: "2026-07-08", actionKind: "target_margin" })
       .expect(201);
     await request(app)
       .post(`/api/products/${productId}/profit-setting`)
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ minimumMarginRate: 0.18 })
       .expect(403);
 
     const full = await request(app)
       .get(`/api/products/${productId}/profit-plan?date=2026-07-08`)
-      .set("x-amazon-monitor-session", managerToken)
+      .set("Cookie", managerToken)
       .expect(200);
     expect(full.body.setting).toMatchObject({ purchaseCost: 80, fbaFee: 20 });
     expect(full.body.scenarios[0]).toMatchObject({ productCost: 112, adCost: 10 });
     await request(app)
       .post(`/api/products/${productId}/profit-setting`)
-      .set("x-amazon-monitor-session", managerToken)
+      .set("Cookie", managerToken)
       .send({
         purchaseCost: 80,
         inboundFreight: 10,
@@ -253,7 +253,7 @@ describe("profit routes", () => {
 
     await request(app)
       .get("/api/profit/plans")
-      .set("x-amazon-monitor-session", adsToken)
+      .set("Cookie", adsToken)
       .expect(403);
   });
 });

@@ -16,7 +16,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 async function loginAs(username: string, password: string): Promise<string> {
@@ -24,7 +24,7 @@ async function loginAs(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -43,7 +43,7 @@ describe("rule routes", () => {
   it("returns the PRD P0 rule catalog with default configs", async () => {
     const response = await request(app)
       .get("/api/rules")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(response.body).toHaveLength(10);
@@ -140,7 +140,7 @@ describe("rule routes", () => {
 
     const result = await request(app)
       .post("/api/rules/run")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-17" })
       .expect(200);
 
@@ -181,12 +181,12 @@ describe("rule routes", () => {
 
     await request(app)
       .patch("/api/rules/inventory_low_stock_001")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ cooldownHours: 48 })
       .expect(200);
     const cooldownRun = await request(app)
       .post("/api/rules/run")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-18", ruleIds: ["inventory_low_stock_001"] })
       .expect(200);
     expect(cooldownRun.body).toMatchObject({
@@ -197,12 +197,12 @@ describe("rule routes", () => {
 
     await request(app)
       .patch("/api/rules/listing_health_low_001")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ conditions: [{ metric: "listing_health_score", operator: "<", value: 20 }] })
       .expect(200);
     const rerun = await request(app)
       .post("/api/rules/run")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-17", ruleIds: ["listing_health_low_001"] })
       .expect(200);
     expect(rerun.body).toMatchObject({ evaluatedRuleCount: 1, triggeredCount: 0 });
@@ -211,7 +211,7 @@ describe("rule routes", () => {
   it("persists overrides, filters by enabled state, and resets to defaults", async () => {
     const patch = await request(app)
       .patch("/api/rules/ads_acos_over_target_001")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         enabled: false,
         severity: "medium",
@@ -239,13 +239,13 @@ describe("rule routes", () => {
 
     const disabled = await request(app)
       .get("/api/rules?enabled=false")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(disabled.body.map((rule: { ruleId: string }) => rule.ruleId)).toEqual(["ads_acos_over_target_001"]);
 
     const reset = await request(app)
       .delete("/api/rules/ads_acos_over_target_001/config")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(reset.body.config).toMatchObject({
       enabled: true,
@@ -270,7 +270,7 @@ describe("rule routes", () => {
 
     await request(app)
       .patch("/api/rules/competitor_price_drop_001")
-      .set("x-amazon-monitor-session", managerToken)
+      .set("Cookie", managerToken)
       .send({ enabled: false, notes: "Manager-approved pause" })
       .expect(200)
       .expect(({ body }) => {
@@ -292,12 +292,12 @@ describe("rule routes", () => {
 
     await request(app)
       .patch("/api/rules/competitor_price_drop_001")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ enabled: true })
       .expect(403);
     await request(app)
       .post("/api/rules/run")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ date: "2026-07-17" })
       .expect(403);
   });

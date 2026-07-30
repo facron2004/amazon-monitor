@@ -6,10 +6,17 @@ loadEnv();
 import cron from "node-cron";
 import { sendDueNotificationSchedules } from "./notifier.js";
 import { createApiApp } from "./server.js";
+import { enqueueScheduledSpApiSyncs } from "./services/sp-api-scheduler.js";
 import { isoDate } from "./pipeline.js";
 import { attachCronDiagnostics, createExclusiveCronRunner } from "./scheduler.js";
 import { openAppStore } from "./store.js";
 import { startWorker } from "./worker.js";
+import {
+  configureDesktopAgentRecoveryStarter,
+  configureDesktopAgentStore,
+  startRecoveryForJob,
+} from "./services/desktop-agent-transport.js";
+import { AgentRuntimeService } from "./services/agent-runtime-service.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const defaultDbPath = (() => {
@@ -31,6 +38,11 @@ if (!process.env.WEB_DIST_PATH) {
 }
 
 const store = openAppStore(process.env.DB_PATH ?? defaultDbPath);
+configureDesktopAgentStore(store);
+const agentRuntime = new AgentRuntimeService(store);
+configureDesktopAgentRecoveryStarter((run, freshnessInput) => {
+  agentRuntime.start(run, freshnessInput);
+});
 
 function startCron() {
   if (process.env.ENABLE_CRON === "false") return;
@@ -57,16 +69,47 @@ function startCron() {
     { timezone: "Asia/Shanghai", name: "notifications", noOverlap: true }
   );
   attachCronDiagnostics(notificationTask, "notifications");
+
+  const spApiSalesTask = cron.schedule(
+    "15 8 * * *",
+    createExclusiveCronRunner("sp-api-sales-daily", () => {
+      enqueueScheduledSpApiSyncs(store, "sales_daily");
+    }),
+    { timezone: "Asia/Shanghai", name: "sp-api-sales-daily", noOverlap: true }
+  );
+  attachCronDiagnostics(spApiSalesTask, "sp-api-sales-daily");
+
+  const spApiInventoryTask = cron.schedule(
+    "*/30 * * * *",
+    createExclusiveCronRunner("sp-api-fba-incremental", () => {
+      enqueueScheduledSpApiSyncs(store, "fba_incremental");
+    }),
+    { timezone: "Asia/Shanghai", name: "sp-api-fba-incremental", noOverlap: true }
+  );
+  attachCronDiagnostics(spApiInventoryTask, "sp-api-fba-incremental");
+
+  const spApiReconcileTask = cron.schedule(
+    "30 2 * * *",
+    createExclusiveCronRunner("sp-api-fba-full-reconcile", () => {
+      enqueueScheduledSpApiSyncs(store, "fba_full");
+    }),
+    { timezone: "Asia/Shanghai", name: "sp-api-fba-full-reconcile", noOverlap: true }
+  );
+  attachCronDiagnostics(spApiReconcileTask, "sp-api-fba-full-reconcile");
 }
 
 export function startServer(silent = false) {
   startCron();
   if (process.env.RUN_WORKER === "true") {
-    startWorker(store).catch((err) => {
+    startWorker(store, {
+      onJobCompleted: (job) => {
+        startRecoveryForJob(job.id);
+      },
+    }).catch((err) => {
       console.error("[Worker] Failed to start background worker thread:", err);
     });
   }
-  return createApiApp(store).listen(port, () => {
+  return createApiApp(store, { agentRuntime }).listen(port, () => {
     if (!silent) console.log(`Amazon monitor API listening on http://localhost:${port}`);
   });
 }

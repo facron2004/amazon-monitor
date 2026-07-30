@@ -97,14 +97,16 @@ function readRow(row: ExcelJS.Row): string[] {
   return headers;
 }
 
-function cellText(value: ExcelJS.CellValue): string {
+type CellTextValue = ExcelJS.CellValue | { error: ExcelJS.CellErrorValue };
+
+function cellText(value: CellTextValue): string {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === "object") {
     if ("result" in value) return cellText(value.result ?? null);
     if ("text" in value) return value.text.trim();
     if ("richText" in value) return value.richText.map((part) => part.text).join("").trim();
-    if ("error" in value) return value.error;
+    if ("error" in value) return String(value.error);
   }
   return String(value).trim();
 }

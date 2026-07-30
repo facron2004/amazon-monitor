@@ -667,7 +667,7 @@ describe("category competitor intelligence", () => {
 
     const calendar = await request(app)
       .get("/api/products/B0API00001/activity-calendar?date=2026-05-19")
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .expect(200);
     expect(calendar.body.summary).toMatchObject({
       activeDays: 2,
@@ -679,7 +679,7 @@ describe("category competitor intelligence", () => {
       .get(
         `/api/category-products/B0API00001/open?categoryId=${created.body.id}`,
       )
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .expect(302)
       .expect("Location", /\/dp\/B0API00001/);
   });

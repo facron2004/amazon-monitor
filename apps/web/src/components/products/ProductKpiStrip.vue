@@ -17,7 +17,7 @@ const lowInventoryCount = computed(
 );
 const totalSales = computed(() =>
   props.products.reduce(
-    (sum, item) => sum + (item.latestMetric?.salesAmount ?? 0),
+    (sum, item) => sum + (item.spApiEvidence.sales?.salesAmount ?? item.latestMetric?.salesAmount ?? 0),
     0,
   ),
 );

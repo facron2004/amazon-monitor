@@ -17,7 +17,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" });
   expect(res.status).toBe(200);
-  return res.body.token as string;
+  return res.headers["set-cookie"][0] as string;
 }
 
 async function loginAs(username: string, password: string): Promise<string> {
@@ -25,7 +25,7 @@ async function loginAs(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password });
   expect(response.status).toBe(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 describe("tasks & sops routes (e2e)", () => {
@@ -41,7 +41,7 @@ describe("tasks & sops routes (e2e)", () => {
   it("logs in, creates a manual task, transitions it, and reviews it", async () => {
     const create = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         sourceType: "manual",
         title: "降价",
@@ -55,7 +55,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const updated = await request
       .put(`/api/tasks/${taskId}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ title: "PRD compatible task update" });
     expect(updated.status).toBe(200);
     expect(updated.body.title).toBe("PRD compatible task update");
@@ -63,7 +63,7 @@ describe("tasks & sops routes (e2e)", () => {
     // pending → in_progress
     const t1 = await request
       .post(`/api/tasks/${taskId}/transition`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ status: "in_progress" });
     expect(t1.status).toBe(200);
     expect(t1.body.status).toBe("in_progress");
@@ -71,14 +71,14 @@ describe("tasks & sops routes (e2e)", () => {
     // A bare transition cannot bypass the execution record.
     const missingExecution = await request
       .post(`/api/tasks/${taskId}/transition`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ status: "awaiting_review" });
     expect(missingExecution.status).toBe(409);
 
     // in_progress → awaiting_review with an execution record and before/after metrics.
     const t2 = await request
       .post(`/api/tasks/${taskId}/submit`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         actionTaken: "已将主推款价格下调 5%，并保护核心词预算。",
         resultBefore: [{ label: "到手价", value: "189.99", unit: "USD" }],
@@ -94,21 +94,21 @@ describe("tasks & sops routes (e2e)", () => {
     // illegal: awaiting_review → reviewed
     const bad = await request
       .post(`/api/tasks/${taskId}/review`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ reviewResult: "CONFIRMED" });
     expect(bad.status).toBe(409);
 
     // awaiting_review → done
     const t3 = await request
       .post(`/api/tasks/${taskId}/complete`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({});
     expect(t3.body.status).toBe("done");
 
     // review with CONFIRMED
     const review = await request
       .post(`/api/tasks/${taskId}/review`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ reviewResult: "CONFIRMED", reviewNote: "已落实" });
     expect(review.body.status).toBe("reviewed");
     expect(review.body.reviewResult).toBe("CONFIRMED");
@@ -116,7 +116,7 @@ describe("tasks & sops routes (e2e)", () => {
     // list by status
     const list = await request
       .get("/api/tasks?status=reviewed")
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(list.body).toHaveLength(1);
   });
 
@@ -131,7 +131,7 @@ describe("tasks & sops routes (e2e)", () => {
     });
     const created = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         sourceType: "ai_run",
         sourceId: String(run.id),
@@ -156,7 +156,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const detail = await request
       .get(`/api/tasks/${created.body.id as number}/detail`)
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(detail.status).toBe(200);
     expect(detail.body.sourceAiRun).toMatchObject({
       id: run.id,
@@ -169,7 +169,7 @@ describe("tasks & sops routes (e2e)", () => {
   it("recommends only matching published SOPs from the current organization", async () => {
     const taskResponse = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         sourceType: "manual",
         title: "Reduce Acme bid",
@@ -183,7 +183,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const exact = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         title: "Acme Ads recovery",
         category: "ad_optimization",
@@ -192,12 +192,12 @@ describe("tasks & sops routes (e2e)", () => {
       });
     await request
       .post(`/api/sops/${exact.body.id as number}/publish`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     const keyword = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         title: "Ice maker checklist",
         category: "general",
@@ -206,12 +206,12 @@ describe("tasks & sops routes (e2e)", () => {
       });
     await request
       .post(`/api/sops/${keyword.body.id as number}/publish`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     const draft = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         title: "Unpublished Ads SOP",
         category: "ad_optimization",
@@ -231,7 +231,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const detail = await request
       .get(`/api/tasks/${taskId}/detail`)
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
 
     expect(detail.status).toBe(200);
     expect(detail.body.sopRecommendations.map(
@@ -263,7 +263,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         sourceType: "ai_run",
         sourceId: String(otherRun.id),
@@ -280,7 +280,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const create = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         sourceType: "insight_event",
         sourceId: event.id,
@@ -302,7 +302,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const detail = await request
       .get(`/api/tasks/${create.body.id}/detail`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(detail.body).toMatchObject({
       task: { id: create.body.id, sourceId: event.id },
@@ -311,7 +311,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const linked = await request
       .get(`/api/insight-events/${encodeURIComponent(event.id)}/tasks`)
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(linked.status).toBe(200);
     expect(linked.body.map((task: { id: number }) => task.id)).toEqual([create.body.id]);
   });
@@ -332,11 +332,11 @@ describe("tasks & sops routes (e2e)", () => {
       .post("/api/auth/login")
       .send({ username: "dev1", password: "dev1pass" });
     expect(login.status).toBe(200);
-    const devToken = login.body.token as string;
+    const devToken = login.headers["set-cookie"][0] as string;
 
     const create = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", devToken)
+      .set("Cookie", devToken)
       .send({ sourceType: "manual", title: "x", taskType: "other", priority: "P1" });
     expect(create.status).toBe(403);
   });
@@ -368,13 +368,13 @@ describe("tasks & sops routes (e2e)", () => {
 
     const created = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ sourceType: "manual", title: "Operator task", taskType: "other", priority: "P1" })
       .expect(201);
 
     await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({
         sourceType: "manual",
         title: "Pre-assigned task",
@@ -386,18 +386,18 @@ describe("tasks & sops routes (e2e)", () => {
 
     await request
       .patch(`/api/tasks/${created.body.id}`)
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ title: "Operator-updated task" })
       .expect(200);
     await request
       .patch(`/api/tasks/${created.body.id}`)
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ assigneeId: assignee.id })
       .expect(403);
 
     const assigned = await request
       .patch(`/api/tasks/${created.body.id}`)
-      .set("x-amazon-monitor-session", managerToken)
+      .set("Cookie", managerToken)
       .send({ assigneeId: assignee.id })
       .expect(200);
     expect(assigned.body).toMatchObject({ assigneeId: assignee.id, title: "Operator-updated task" });
@@ -406,12 +406,12 @@ describe("tasks & sops routes (e2e)", () => {
   it("isolates task and SOP reads and writes by organization", async () => {
     const task = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ sourceType: "manual", title: "Org 1 task", taskType: "other", priority: "P1" })
       .expect(201);
     const sop = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ title: "Org 1 SOP", category: "general", bodyMd: "# Private SOP" })
       .expect(201);
     store.linkEventToTask("org-1-event", task.body.id as number);
@@ -428,43 +428,43 @@ describe("tasks & sops routes (e2e)", () => {
       .post("/api/auth/login")
       .send({ username: "other-operator", password: "Other123!" })
       .expect(200);
-    const otherToken = otherLogin.body.token as string;
+    const otherToken = otherLogin.headers["set-cookie"][0] as string;
 
     await request
       .get("/api/tasks")
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(200)
       .expect([]);
     await request
       .get(`/api/tasks/${task.body.id}`)
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(404);
     await request
       .get(`/api/tasks/${task.body.id}/detail`)
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(404);
     await request
       .post(`/api/tasks/${task.body.id}/submit`)
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .send({ actionTaken: "Attempt cross-org write" })
       .expect(404);
     await request
       .get(`/api/insight-events/${encodeURIComponent("org-1-event")}/tasks`)
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(404);
 
     await request
       .get("/api/sops")
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(200)
       .expect([]);
     await request
       .get(`/api/sops/${sop.body.id}`)
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(404);
     await request
       .post(`/api/sops/${sop.body.id}/publish`)
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(404);
   });
 
@@ -523,7 +523,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const response = await request
       .get("/api/tasks/team-performance?days=7")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(response.body).toMatchObject({
@@ -557,14 +557,14 @@ describe("tasks & sops routes (e2e)", () => {
 
     await request
       .get("/api/tasks/team-performance?days=14")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(400);
   });
 
   it("creates an SOP and publishes it", async () => {
     const create = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         title: "调价 SOP",
         category: "price_action",
@@ -577,12 +577,12 @@ describe("tasks & sops routes (e2e)", () => {
 
     const pub = await request
       .post(`/api/sops/${id}/publish`)
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(pub.body.status).toBe("published");
 
     const list = await request
       .get("/api/sops?status=published")
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(list.body).toHaveLength(1);
   });
 
@@ -611,7 +611,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const finalPage = await request
       .get("/api/sops/page?limit=25&offset=200")
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(finalPage.status).toBe(200);
     expect(finalPage.body).toMatchObject({
       total: 205,
@@ -629,7 +629,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const filtered = await request
       .get("/api/sops/page?category=price_action&q=final-page&limit=25")
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(filtered.body).toMatchObject({
       total: 1,
       statusCounts: { all: 1, draft: 1, published: 0, archived: 0 }
@@ -640,7 +640,7 @@ describe("tasks & sops routes (e2e)", () => {
   it("promotes a reviewed task into an SOP and marks the task", async () => {
     const taskRes = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         sourceType: "manual",
         title: "复盘竞品 Deal",
@@ -653,7 +653,7 @@ describe("tasks & sops routes (e2e)", () => {
 
     const unreviewed = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         title: "竞品 Deal 复盘 SOP",
         category: "competitor_response",
@@ -665,28 +665,28 @@ describe("tasks & sops routes (e2e)", () => {
 
     await request
       .post(`/api/tasks/${taskId}/transition`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ status: "in_progress" })
       .expect(200);
     await request
       .post(`/api/tasks/${taskId}/submit`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ actionTaken: "记录竞品 Deal 周期并观察排名回落。" })
       .expect(200);
     await request
       .post(`/api/tasks/${taskId}/complete`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({})
       .expect(200);
     await request
       .post(`/api/tasks/${taskId}/review`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ reviewResult: "CONFIRMED", reviewNote: "动作有效，可复用。" })
       .expect(200);
 
     const createSop = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         title: "竞品 Deal 复盘 SOP",
         category: "competitor_response",
@@ -699,14 +699,14 @@ describe("tasks & sops routes (e2e)", () => {
 
     const task = await request
       .get(`/api/tasks/${taskId}`)
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(task.body.promotedToSopId).toBe(createSop.body.id);
   });
 
   it("returns 404 when creating an SOP from a missing task", async () => {
     const createSop = await request
       .post("/api/sops")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         title: "不存在任务 SOP",
         category: "general",
@@ -719,23 +719,25 @@ describe("tasks & sops routes (e2e)", () => {
   it("adds a note and lists it", async () => {
     const create = await request
       .post("/api/tasks")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ sourceType: "manual", title: "x", taskType: "other", priority: "P1" });
     const id = create.body.id as number;
     const note = await request
       .post(`/api/tasks/${id}/notes`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ body: "first" });
     expect(note.status).toBe(201);
     const notes = await request
       .get(`/api/tasks/${id}/notes`)
-      .set("x-amazon-monitor-session", token);
+      .set("Cookie", token);
     expect(notes.body).toHaveLength(1);
     expect(notes.body[0].body).toBe("first");
   });
 
-  it("allows legacy API key auth to create tasks and SOPs", async () => {
+  it("rejects the retired global API key for task automation", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
     const originalApiKey = process.env.AMAZON_MONITOR_API_KEY;
+    process.env.NODE_ENV = "development";
     process.env.AMAZON_MONITOR_API_KEY = "legacy-key";
     const legacyDb = new DatabaseSync(":memory:");
     try {
@@ -747,20 +749,14 @@ describe("tasks & sops routes (e2e)", () => {
         .post("/api/tasks")
         .set("Authorization", "Bearer legacy-key")
         .send({ sourceType: "manual", title: "legacy task", taskType: "other", priority: "P1" });
-      expect(task.status).toBe(201);
-
-      const sop = await legacyRequest
-        .post("/api/sops")
-        .set("Authorization", "Bearer legacy-key")
-        .send({
-          title: "legacy SOP",
-          category: "general",
-          bodyMd: "# SOP"
-        });
-      expect(sop.status).toBe(201);
-      expect(sop.body.sourceTaskId).toBeNull();
+      expect(task.status).toBe(401);
     } finally {
       legacyDb.close();
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
       if (originalApiKey) {
         process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
       } else {

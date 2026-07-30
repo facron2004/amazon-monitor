@@ -52,24 +52,24 @@ describe("QueueStore", () => {
     const job1 = store.pushJob("keyword", 101, "2026-06-11");
     const job2 = store.pushJob("keyword", 102, "2026-06-11");
 
-    const claimed1 = store.claimNextJob();
+    const claimed1 = store.claimNextJob("test-worker", 60_000);
     expect(claimed1).not.toBeNull();
     expect(claimed1?.id).toBe(job1.id);
     expect(claimed1?.status).toBe("processing");
     expect(claimed1?.startedAt).not.toBeNull();
 
-    const claimed2 = store.claimNextJob();
+    const claimed2 = store.claimNextJob("test-worker", 60_000);
     expect(claimed2?.id).toBe(job2.id);
 
-    const claimed3 = store.claimNextJob();
+    const claimed3 = store.claimNextJob("test-worker", 60_000);
     expect(claimed3).toBeNull();
   });
 
   it("completes jobs successfully", () => {
     const job = store.pushJob("category", 10, "2026-06-11");
-    const claimed = store.claimNextJob()!;
+    const claimed = store.claimNextJob("test-worker", 60_000)!;
     
-    store.completeJob(claimed.id);
+    store.completeJob(claimed.id, claimed.leaseOwner, claimed.leaseToken);
     const finished = store.getJobStatus(job.id)!;
     expect(finished.status).toBe("completed");
     expect(finished.completedAt).not.toBeNull();
@@ -77,10 +77,10 @@ describe("QueueStore", () => {
 
   it("handles job failures and retries appropriately", () => {
     const job = store.pushJob("keyword", 99, "2026-06-11");
-    const claimed = store.claimNextJob()!;
+    const claimed = store.claimNextJob("test-worker", 60_000)!;
 
     // Max retries = 2. First failure -> should retry (goes back to pending, increments retry_count)
-    store.failJob(claimed.id, "Attempt 1 failed", 2);
+    store.failJob(claimed.id, claimed.leaseOwner, claimed.leaseToken, "Attempt 1 failed", 2);
 
     const status1 = store.getJobStatus(job.id)!;
     expect(status1.status).toBe("pending");
@@ -89,12 +89,12 @@ describe("QueueStore", () => {
     expect(status1.startedAt).toBeNull();
 
     // Claim again
-    const claimedAgain = store.claimNextJob()!;
+    const claimedAgain = store.claimNextJob("test-worker", 60_000)!;
     expect(claimedAgain.id).toBe(job.id);
     expect(claimedAgain.retryCount).toBe(1);
 
     // Second failure -> reaches max retries, should set status to failed
-    store.failJob(claimedAgain.id, "Attempt 2 failed", 2);
+    store.failJob(claimedAgain.id, claimedAgain.leaseOwner, claimedAgain.leaseToken, "Attempt 2 failed", 2);
 
     const status2 = store.getJobStatus(job.id)!;
     expect(status2.status).toBe("failed");
@@ -125,11 +125,11 @@ describe("QueueStore", () => {
       // Two completed keyword jobs. lastCompletedAt should reflect the
       // most recent completion timestamp on disk.
       store.pushJob("keyword", 1, "2026-06-01");
-      store.claimNextJob();
-      store.completeJob(1);
+      const firstClaim = store.claimNextJob("test-worker", 60_000)!;
+      store.completeJob(firstClaim.id, firstClaim.leaseOwner, firstClaim.leaseToken);
       store.pushJob("keyword", 2, "2026-06-02");
-      store.claimNextJob();
-      store.completeJob(2);
+      const secondClaim = store.claimNextJob("test-worker", 60_000)!;
+      store.completeJob(secondClaim.id, secondClaim.leaseOwner, secondClaim.leaseToken);
 
       // One pending category job
       store.pushJob("category", 9, "2026-06-01");
@@ -160,8 +160,8 @@ describe("QueueStore", () => {
 
     it("counts failed jobs separately", () => {
       const job = store.pushJob("keyword", 1, "2026-06-01");
-      const claimed = store.claimNextJob()!;
-      store.failJob(claimed.id, "boom", 1); // maxRetries=1 → immediate failed
+      const claimed = store.claimNextJob("test-worker", 60_000)!;
+      store.failJob(claimed.id, claimed.leaseOwner, claimed.leaseToken, "boom", 1); // maxRetries=1 → immediate failed
 
       const result = store.getCollectionFreshness();
       const kw = result.find((r) => r.taskType === "keyword")!;
@@ -201,13 +201,13 @@ describe("QueueStore", () => {
       const d = store.pushJob("category", 2, "2026-06-01");
 
       // a: complete
-      store.claimNextJob();
-      store.completeJob(a.id);
+      const completeClaim = store.claimNextJob("test-worker", 60_000)!;
+      store.completeJob(completeClaim.id, completeClaim.leaseOwner, completeClaim.leaseToken);
       // b: fail immediately (maxRetries=1)
-      store.claimNextJob();
-      store.failJob(b.id, "boom", 1);
+      const failedClaim = store.claimNextJob("test-worker", 60_000)!;
+      store.failJob(failedClaim.id, failedClaim.leaseOwner, failedClaim.leaseToken, "boom", 1);
       // c: claimed (processing) — DON'T complete; should remain processing.
-      const cClaim = store.claimNextJob();
+      const cClaim = store.claimNextJob("test-worker", 60_000);
       expect(cClaim?.id).toBe(c.id);
       // d: still pending.
 
@@ -234,48 +234,74 @@ describe("QueueStore", () => {
     });
   });
 
-  describe("recoverStuckJobs", () => {
+  describe("lease recovery", () => {
     it("returns an empty list when nothing is stuck", () => {
       expect(store.recoverStuckJobs("reason")).toEqual([]);
     });
 
-    it("marks 'processing' rows as 'failed' so a new worker can resume", () => {
+    it("recovers expired leases so another worker can resume", async () => {
       const a = store.pushJob("keyword", 1, "2026-06-01");
       const b = store.pushJob("category", 1, "2026-06-01");
 
       // a is claimed → processing
-      store.claimNextJob();
+      store.claimNextJob("test-worker", 1);
       // b is claimed → processing
-      store.claimNextJob();
+      store.claimNextJob("test-worker", 1);
 
       expect(store.getJobStatus(a.id)!.status).toBe("processing");
       expect(store.getJobStatus(b.id)!.status).toBe("processing");
 
-      const recovered = store.recoverStuckJobs("worker restarted");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const recovered = store.recoverExpiredJobLeases(1);
       expect(recovered.sort()).toEqual([a.id, b.id].sort());
 
       const aAfter = store.getJobStatus(a.id)!;
       const bAfter = store.getJobStatus(b.id)!;
       expect(aAfter.status).toBe("failed");
-      expect(aAfter.errorMessage).toBe("worker restarted");
+      expect(aAfter.errorMessage).toBe("任务租约已过期，已自动回收");
       expect(aAfter.completedAt).not.toBeNull();
       expect(bAfter.status).toBe("failed");
-      expect(bAfter.errorMessage).toBe("worker restarted");
+      expect(bAfter.errorMessage).toBe("任务租约已过期，已自动回收");
     });
 
     it("does not touch already completed or failed jobs", () => {
       const a = store.pushJob("keyword", 1, "2026-06-01");
-      store.claimNextJob();
-      store.completeJob(a.id);
+      const completedClaim = store.claimNextJob("test-worker", 60_000)!;
+      store.completeJob(completedClaim.id, completedClaim.leaseOwner, completedClaim.leaseToken);
       const completedError = store.getJobStatus(a.id)!.errorMessage;
       const completedAt = store.getJobStatus(a.id)!.completedAt;
 
       // a stays 'completed', nothing stuck.
-      expect(store.recoverStuckJobs("worker restarted")).toEqual([]);
+      expect(store.recoverExpiredJobLeases(1)).toEqual([]);
       const after = store.getJobStatus(a.id)!;
       expect(after.status).toBe("completed");
       expect(after.errorMessage).toBe(completedError);
       expect(after.completedAt).toBe(completedAt);
+    });
+
+    it("prevents an expired lease holder from completing a re-claimed job", async () => {
+      const job = store.pushJob("keyword", 1, "2026-06-01");
+      const firstLease = store.claimNextJob("first-worker", 1)!;
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(store.recoverExpiredJobLeases(2)).toEqual([job.id]);
+
+      const secondLease = store.claimNextJob("second-worker", 60_000)!;
+      expect(secondLease.id).toBe(job.id);
+      expect(secondLease.leaseToken).not.toBe(firstLease.leaseToken);
+      expect(store.completeJob(firstLease.id, firstLease.leaseOwner, firstLease.leaseToken)).toBe(false);
+      expect(store.completeJob(secondLease.id, secondLease.leaseOwner, secondLease.leaseToken)).toBe(true);
+      expect(store.getJobStatus(job.id)?.status).toBe("completed");
+    });
+
+    it("renews an active lease before it expires", async () => {
+      const job = store.pushJob("keyword", 1, "2026-06-01");
+      const lease = store.claimNextJob("test-worker", 100)!;
+
+      expect(store.renewJobLease(job.id, lease.leaseOwner, lease.leaseToken, 60_000)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(store.recoverExpiredJobLeases(1)).toEqual([]);
+      expect(store.isJobLeaseActive(job.id, lease.leaseOwner, lease.leaseToken)).toBe(true);
     });
   });
 });

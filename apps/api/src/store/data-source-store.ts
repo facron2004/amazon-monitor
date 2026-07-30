@@ -10,6 +10,9 @@ import {
   type DataSourceSyncRun,
   type DataSourceSyncRunStatus,
   type DataSourceType,
+  type SpApiSyncDomain,
+  type SpApiSyncMode,
+  type SpApiSyncTrigger,
   type UpdateDataSourceInput
 } from "@amazon-monitor/shared";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, type WhereBuilder } from "./sql-utils.js";
@@ -22,6 +25,8 @@ type DataSourceStoreMethods = Pick<
   | "getDataSource"
   | "listDataSources"
   | "createDataSourceSyncRun"
+  | "getDataSourceSyncRun"
+  | "setDataSourceSyncRunExternalRequest"
   | "finishDataSourceSyncRun"
   | "listDataSourceSyncRuns"
 >;
@@ -48,6 +53,17 @@ interface DataSourceSyncRunRow {
   org_id: number;
   data_source_id: number;
   operation: string;
+  domain: string | null;
+  trigger: string | null;
+  mode: string | null;
+  idempotency_key: string | null;
+  credential_version: number | null;
+  marketplaces_json: string;
+  requested_from_date: string | null;
+  requested_to_date: string | null;
+  checkpoint_summary: string | null;
+  external_request_id: string | null;
+  retry_count: number;
   status: string;
   total_rows: number;
   imported_rows: number;
@@ -155,28 +171,78 @@ export function createDataSourceStore(db: DatabaseSync): DataSourceStoreMethods 
     },
 
     createDataSourceSyncRun(input) {
+      const source = db.prepare(
+        "SELECT id FROM data_source_configs WHERE id = ? AND org_id = ?"
+      ).get(input.dataSourceId, input.orgId);
+      if (!source) {
+        throw Object.assign(new Error("Data source not found"), { statusCode: 404 });
+      }
+      if (input.idempotencyKey) {
+        const existing = getDataSourceSyncRunByIdempotencyKey(db, input.dataSourceId, input.idempotencyKey);
+        if (existing) return existing;
+      }
       const startedAt = input.startedAt ?? nowIso();
-      const result = db.prepare(
-        `INSERT INTO data_source_sync_runs
-         (org_id, data_source_id, operation, status, initiated_by_id, started_at)
-         VALUES (?, ?, ?, 'pending', ?, ?)`
-      ).run(
-        input.orgId,
-        input.dataSourceId,
-        input.operation,
-        input.initiatedById ?? null,
-        startedAt
-      );
+      let result: { lastInsertRowid: number | bigint };
+      try {
+        result = db.prepare(
+          `INSERT INTO data_source_sync_runs
+           (org_id, data_source_id, operation, domain, trigger, mode, idempotency_key, credential_version,
+            marketplaces_json, requested_from_date, requested_to_date, checkpoint_summary,
+            external_request_id, retry_count, status, initiated_by_id, started_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+        ).run(
+          input.orgId,
+          input.dataSourceId,
+          input.operation,
+          input.domain ?? null,
+          input.trigger ?? null,
+          input.mode ?? null,
+          input.idempotencyKey ?? null,
+          input.credentialVersion ?? null,
+          JSON.stringify(input.marketplaces ?? []),
+          input.requestedFromDate ?? null,
+          input.requestedToDate ?? null,
+          input.checkpointSummary ?? null,
+          input.externalRequestId ?? null,
+          input.retryCount ?? 0,
+          input.initiatedById ?? null,
+          startedAt
+        );
+      } catch (error) {
+        if (!input.idempotencyKey || !isUniqueConstraintError(error)) throw error;
+        const existing = getDataSourceSyncRunByIdempotencyKey(db, input.dataSourceId, input.idempotencyKey);
+        if (existing) return existing;
+        throw error;
+      }
       const run = getDataSourceSyncRun(db, Number(result.lastInsertRowid));
       if (!run) throw new Error("Failed to create data source sync run");
       return run;
+    },
+
+    getDataSourceSyncRun(id, orgId) {
+      const row = db.prepare(
+        `${syncRunSelectSql} WHERE r.id = ? AND r.org_id = ?`
+      ).get(id, orgId) as unknown as DataSourceSyncRunRow | undefined;
+      return row ? mapSyncRun(row) : null;
+    },
+
+    setDataSourceSyncRunExternalRequest(id, orgId, externalRequestId) {
+      db.prepare(`
+        UPDATE data_source_sync_runs
+        SET external_request_id = ?
+        WHERE id = ? AND org_id = ?
+      `).run(externalRequestId, id, orgId);
+      return this.getDataSourceSyncRun(id, orgId);
     },
 
     finishDataSourceSyncRun(id, input) {
       db.prepare(
         `UPDATE data_source_sync_runs SET
           status = ?, total_rows = ?, imported_rows = ?, failed_rows = ?,
-          created_records = ?, updated_records = ?, error_summary = ?, finished_at = ?
+          created_records = ?, updated_records = ?, error_summary = ?,
+          checkpoint_summary = COALESCE(?, checkpoint_summary),
+          external_request_id = COALESCE(?, external_request_id),
+          retry_count = COALESCE(?, retry_count), finished_at = ?
          WHERE id = ?`
       ).run(
         input.status,
@@ -186,6 +252,9 @@ export function createDataSourceStore(db: DatabaseSync): DataSourceStoreMethods 
         input.createdRecords,
         input.updatedRecords,
         input.errorSummary ?? null,
+        input.checkpointSummary ?? null,
+        input.externalRequestId ?? null,
+        input.retryCount ?? null,
         input.finishedAt ?? nowIso(),
         id
       );
@@ -219,12 +288,38 @@ function getDataSourceSyncRun(db: DatabaseSync, id: number): DataSourceSyncRun |
   return row ? mapSyncRun(row) : null;
 }
 
+function getDataSourceSyncRunByIdempotencyKey(
+  db: DatabaseSync,
+  dataSourceId: number,
+  idempotencyKey: string
+): DataSourceSyncRun | null {
+  const row = db.prepare(
+    `${syncRunSelectSql} WHERE r.data_source_id = ? AND r.idempotency_key = ?`
+  ).get(dataSourceId, idempotencyKey) as unknown as DataSourceSyncRunRow | undefined;
+  return row ? mapSyncRun(row) : null;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("UNIQUE constraint failed");
+}
+
 function mapSyncRun(row: DataSourceSyncRunRow): DataSourceSyncRun {
   return {
     id: row.id,
     orgId: row.org_id,
     dataSourceId: row.data_source_id,
     operation: mapSyncOperation(row.operation),
+    domain: mapSyncDomain(row.domain),
+    trigger: mapSyncTrigger(row.trigger),
+    mode: mapSyncMode(row.mode),
+    idempotencyKey: row.idempotency_key,
+    credentialVersion: row.credential_version,
+    marketplaces: parseMarketplaces(row.marketplaces_json),
+    requestedFromDate: row.requested_from_date,
+    requestedToDate: row.requested_to_date,
+    checkpointSummary: row.checkpoint_summary,
+    externalRequestId: row.external_request_id,
+    retryCount: row.retry_count,
     status: mapSyncRunStatus(row.status),
     totalRows: row.total_rows,
     importedRows: row.imported_rows,
@@ -304,6 +399,33 @@ function mapSyncOperation(value: string): DataSourceSyncOperation {
 function mapSyncRunStatus(value: string): DataSourceSyncRunStatus {
   if (value === "pending" || value === "success" || value === "partial" || value === "failed") return value;
   return "failed";
+}
+
+function mapSyncDomain(value: string | null): SpApiSyncDomain | null {
+  if (value === "sales_traffic" || value === "fba_inventory") return value;
+  return null;
+}
+
+function mapSyncTrigger(value: string | null): SpApiSyncTrigger | null {
+  if (value === "manual" || value === "scheduled" || value === "retry") return value;
+  return null;
+}
+
+function mapSyncMode(value: string | null): SpApiSyncMode | null {
+  if (value === "incremental" || value === "full" || value === "backfill") return value;
+  return null;
+}
+
+function parseMarketplaces(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+      return parsed;
+    }
+  } catch {
+    // Legacy rows without a valid marketplace list are treated as unscoped.
+  }
+  return [];
 }
 
 export type { DataSourceRow, DataSourceSyncRunRow };

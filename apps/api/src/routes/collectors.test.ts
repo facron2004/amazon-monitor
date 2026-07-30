@@ -120,4 +120,47 @@ describe("collector routes", () => {
       .send({ taskType: "category", targetId: 99999 })
       .expect(404);
   });
+
+  it("aligns collection route access with the shared capability matrix", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const keyword = store.createKeyword({
+      keyword: "collection capability keyword",
+      marketplace: "amazon.com",
+      crawlPages: 1,
+      status: "enabled"
+    });
+    const category = store.createCategoryMonitor({
+      name: "Collection Capability Category",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/Best-Sellers/collection-capability",
+      crawlTopN: 100,
+      status: "enabled"
+    });
+    const users = [
+      { username: "collection-admin", password: "Admin123!", role: "admin", allowed: true },
+      { username: "collection-manager", password: "Manager123!", role: "manager", allowed: true },
+      { username: "collection-operator", password: "Operator123!", role: "operator", allowed: true },
+      { username: "collection-viewer", password: "Viewer123!", role: "viewer", allowed: false }
+    ] as const;
+    for (const user of users) {
+      store.createUser({ orgId: 1, ...user });
+    }
+
+    for (const user of users) {
+      const api = request.agent(createApiApp(store));
+      await api.post("/api/auth/login").send({ username: user.username, password: user.password }).expect(200);
+
+      const expectedStatus = user.allowed ? 202 : 403;
+      await api.post("/api/collect/run").send({ keywordId: keyword.id, date: "2026-07-11" }).expect(expectedStatus);
+      await api.post("/api/collectors/run").send({ taskType: "keyword", targetId: keyword.id, date: "2026-07-11" }).expect(expectedStatus);
+      await api.post("/api/categories/collect/run").send({ date: "2026-07-11" }).expect(expectedStatus);
+      await api.post(`/api/categories/${category.id}/collect`).send({ date: "2026-07-11" }).expect(expectedStatus);
+
+      if (user.role === "manager" || user.role === "operator") {
+        await api.post("/api/collectors/worker-restart").expect(403);
+      }
+    }
+  });
 });

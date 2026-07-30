@@ -2,7 +2,6 @@ import type { SessionContext, User } from "@amazon-monitor/shared";
 import { request } from "./api-base";
 
 export interface LoginResponse {
-  token: string;
   expiresAt: string;
   context: SessionContext;
 }
@@ -21,21 +20,14 @@ export async function registerBootstrapAdmin(username: string, password: string)
   });
 }
 
-function sessionHeaders(token?: string | null): Record<string, string> | undefined {
-  return token ? { "x-amazon-monitor-session": token } : undefined;
-}
-
-export async function logout(token?: string | null): Promise<void> {
+export async function logout(): Promise<void> {
   await request<void>("/api/auth/logout", {
-    method: "POST",
-    headers: sessionHeaders(token)
+    method: "POST"
   });
 }
 
-export async function fetchMe(token?: string | null): Promise<SessionContext> {
-  return request<SessionContext>("/api/auth/me", {
-    headers: sessionHeaders(token)
-  });
+export async function fetchMe(): Promise<SessionContext> {
+  return request<SessionContext>("/api/auth/me");
 }
 
 export function listUsers(): Promise<User[]> {

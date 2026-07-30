@@ -3,6 +3,7 @@ import {
   taskStatusLabels,
   type AdsWorkflowSummary,
   type BsrRankChange,
+  type DashboardOperationsSummary,
   type DailyChange,
   type DailyReportArchive,
   type DailyReportCoverage,
@@ -45,6 +46,7 @@ interface GenerateDailyWorkflowReportInput {
 
 interface DailyWorkflowEvidence {
   products: OwnedProductListItem[];
+  operations: DashboardOperationsSummary;
   changes: DailyChange[];
   bsrChanges: BsrRankChange[];
   events: InsightEvent[];
@@ -92,6 +94,7 @@ function collectEvidence(
   input: Pick<GenerateDailyWorkflowReportInput, "date" | "orgId">
 ): DailyWorkflowEvidence {
   const dashboard = store.getDashboardSummary(input.date, input.orgId);
+  const operations = store.getDashboardOperationsSummary(input.orgId, input.date);
   const products = store.listProducts({ orgId: input.orgId, status: "active", date: input.date, limit: 1000 });
   const changes = store.listDailyChanges({ orgId: input.orgId, date: input.date });
   const bsrChanges = store.listBsrRankChanges({ orgId: input.orgId, date: input.date, includeUnchanged: false, limit: 1000 });
@@ -106,6 +109,7 @@ function collectEvidence(
 
   return {
     products,
+    operations,
     changes,
     bsrChanges,
     events,
@@ -115,7 +119,7 @@ function collectEvidence(
     keywordReport: store.getDailyReport(input.date, undefined, input.orgId),
     categoryReport: store.getCategoryReport(input.date, undefined, input.orgId),
     coverage: {
-      ownSkuMetrics: products.filter((product) => product.latestMetric !== null).length,
+      ownSkuMetrics: products.filter(hasOperationalEvidence).length,
       keywordSnapshots: dashboard.todaySnapshotCount,
       categorySnapshots: dashboard.categorySnapshotCount,
       competitorChanges: changes.filter((change) => competitorChangeTypes.has(change.changeType)).length
@@ -123,7 +127,10 @@ function collectEvidence(
       bsrChanges: bsrChanges.length,
       insightEvents: events.length,
       adsMetrics: ads.items.length,
-      inventoryPlans: inventoryPlans.filter((plan) => plan.latestMetric !== null).length,
+      inventoryPlans: inventoryPlans.filter((plan) => (
+        plan.latestMetric !== null
+        || (plan.spApiInventoryEvidence !== null && plan.spApiInventoryEvidence !== undefined)
+      )).length,
       openTasks: openTasks.length
     }
   };
@@ -141,9 +148,7 @@ function buildDailyWorkflowMarkdown(
   const keywordRuleEvents = evidence.events.filter((event) => keywordRuleEventTypes.has(event.eventType));
   const adIssues = evidence.ads.items.flatMap((item) => item.insights.map((insight) => ({ item, insight })));
   const inventoryIssues = evidence.inventoryPlans.flatMap((plan) => plan.issues.map((issue) => ({ plan, issue })));
-  const metrics = evidence.products.flatMap((product) => product.latestMetric ? [product.latestMetric] : []);
-  const totalSales = metrics.reduce((sum, metric) => sum + (metric.salesAmount ?? 0), 0);
-  const totalOrders = metrics.reduce((sum, metric) => sum + (metric.orders ?? 0), 0);
+  const operatingProductCount = evidence.products.filter(hasOperationalEvidence).length;
   const highRiskSkus = evidence.products.filter((product) => product.riskScore.level === "high").length;
 
   return [
@@ -156,8 +161,8 @@ function buildDailyWorkflowMarkdown(
     "> 本报告只基于系统内已记录证据生成；价格、广告、Listing 等高风险动作仍需人工审批。",
     "",
     "## 1. 今日经营概览",
-    `- 活跃自营 SKU：${evidence.products.length}，有当期指标 ${metrics.length}，高风险 SKU ${highRiskSkus}`,
-    `- 订单：${formatNumber(totalOrders)}，销售额汇总（未做汇率换算）：${formatNumber(totalSales, 2)}`,
+    `- 活跃自营 SKU：${evidence.products.length}，有当期经营证据 ${operatingProductCount}，高风险 SKU ${highRiskSkus}`,
+    `- 站点经营（原币金额，未做汇率换算）：${formatMarketplaceOperations(evidence.operations)}`,
     `- 关键词快照：${evidence.coverage.keywordSnapshots}，类目快照：${evidence.coverage.categorySnapshots}`,
     `- 洞察事件：${evidence.events.length}，开放任务：${evidence.openTasks.length}`,
     "",
@@ -291,6 +296,19 @@ function formatCoverage(coverage: DailyReportCoverage): string[] {
     `- 竞品异动 ${coverage.competitorChanges} / BSR 变化 ${coverage.bsrChanges} / 洞察事件 ${coverage.insightEvents}`,
     `- 广告指标 ${coverage.adsMetrics} / 库存计划 ${coverage.inventoryPlans} / 开放任务 ${coverage.openTasks}`
   ];
+}
+
+function hasOperationalEvidence(product: OwnedProductListItem): boolean {
+  return product.latestMetric !== null
+    || product.spApiEvidence.sales !== null
+    || product.spApiEvidence.inventory !== null;
+}
+
+function formatMarketplaceOperations(operations: DashboardOperationsSummary): string {
+  const values = operations.marketplaces
+    .filter((marketplace) => marketplace.salesAmount !== null || marketplace.orders !== null)
+    .map((marketplace) => `${marketplace.marketplace}${marketplace.currency ? `（${marketplace.currency}）` : ""}：订单 ${formatNumber(marketplace.orders ?? 0)}，销售额 ${formatNumber(marketplace.salesAmount ?? 0, 2)}`);
+  return values.length > 0 ? values.join("；") : "暂无销售事实";
 }
 
 function appendSourceReport(title: string, markdown: string): string[] {

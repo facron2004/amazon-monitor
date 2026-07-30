@@ -6,7 +6,7 @@ import type {
   PeriodReportHistoryResponse,
   WorkflowReportPeriod
 } from "@amazon-monitor/shared";
-import { buildRequestUrl, request, withSignal } from "./api-base";
+import { downloadFile, request, withSignal } from "./api-base";
 import type {
   CategoryReportResponse,
   DailyReportResponse,
@@ -124,30 +124,6 @@ function buildReportDownloadUrl(path: string, date: string, baseUrl: string): st
   return `${normalizedBaseUrl}/reports/${path}?date=${encodeURIComponent(date)}`;
 }
 
-async function downloadReportFile(url: string, filename: string): Promise<void> {
-  const token = localStorage.getItem("amazon_monitor_auth_token");
-  const response = await fetch(buildRequestUrl(url), {
-    credentials: "include",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined
-  });
-  if (!response.ok) {
-    if (response.status === 401) {
-      localStorage.removeItem("amazon_monitor_auth_token");
-      window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
-    }
-    const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(error.message ?? response.statusText);
-  }
-
-  const blobUrl = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = blobUrl;
-  link.download = filename;
-  document.body.appendChild(link);
-  try {
-    link.click();
-  } finally {
-    link.remove();
-    URL.revokeObjectURL(blobUrl);
-  }
+function downloadReportFile(url: string, filename: string): Promise<void> {
+  return downloadFile(url, filename);
 }

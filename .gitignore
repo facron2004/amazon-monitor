@@ -30,6 +30,7 @@ tmp-ui-check/
 .playwright-cli/
 playwright-report/
 test-results/
+apps/desktop/browser-bundle/
 
 # AI tool scratch
 amazon-chatgpt-code-review-*.zip

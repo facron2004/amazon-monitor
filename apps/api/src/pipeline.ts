@@ -23,6 +23,7 @@ export interface CollectionOptions {
   collector?: AmazonSearchCollector;
   signal?: AbortSignal;
   dataSource?: string;
+  ensureActive?: () => void;
 }
 
 const defaultCollector = new PlaywrightAmazonSearchCollector();
@@ -56,10 +57,10 @@ export async function runCollectionForKeyword(
   const collector = options.collector ?? defaultCollector;
 
   try {
-    throwIfAborted(options.signal);
+    ensureCollectionActive(options);
     console.log(`[${ts()}] [Pipeline] Collecting keyword="${keyword.keyword}" marketplace=${keyword.marketplace} pages=${keyword.crawlPages}...`);
     const pages = await collector.collect(keyword, date, { signal: options.signal });
-    throwIfAborted(options.signal);
+    ensureCollectionActive(options);
     const t1 = Date.now();
     console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing snapshots...`);
     const allSnapshots = pages.flatMap((page) =>
@@ -113,8 +114,9 @@ export async function runCollectionForKeyword(
 
     const t2 = Date.now();
     console.log(`[${ts()}] [Pipeline] Analysis done in ${formatDuration(t2 - t1)} — ${snapshots.length} snapshots, storing...`);
-    throwIfAborted(options.signal);
+    ensureCollectionActive(options);
     store.runInTransaction(() => {
+      ensureCollectionActive(options);
       store.deleteSnapshotsForKeywordDate(keyword.id, date);
       store.insertSnapshots(snapshots);
       store.replaceBsrRankHistoryForDate({
@@ -139,8 +141,10 @@ export async function runCollectionForKeyword(
       store.upsertCompetitorsFromSnapshots(snapshots, keyword.orgId);
       generateKeywordSnapshotDiffEvents(store, keyword, date, snapshots, previous);
       store.saveDailyReport(date, keyword.keyword, report, keyword.orgId);
+      ensureCollectionActive(options);
     });
 
+    ensureCollectionActive(options);
     const totalMs = Date.now() - t0;
     console.log(`[${ts()}] [Pipeline] ✓ Keyword "${keyword.keyword}" stored in ${formatDuration(Date.now() - t2)}. Total: ${formatDuration(totalMs)}`);
 
@@ -159,6 +163,7 @@ export async function runCollectionForKeyword(
       errorMessage: null,
       retryCount: 0
     });
+    ensureCollectionActive(options);
     markKeywordCollected(store, keyword, "success");
     return log;
   } catch (error) {
@@ -190,6 +195,11 @@ export async function runCollectionForKeyword(
 
 function markKeywordCollected(store: Store, keyword: KeywordMonitor, status: "success" | "failed"): void {
   store.markKeywordCollection(keyword.id, status);
+}
+
+function ensureCollectionActive(options: CollectionOptions): void {
+  throwIfAborted(options.signal);
+  options.ensureActive?.();
 }
 
 function buildKeywordBsrRankHistory(keyword: KeywordMonitor, snapshots: SerpSnapshot[]): BsrRankHistory[] {

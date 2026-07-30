@@ -21,7 +21,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 async function loginAs(username: string, password: string): Promise<string> {
@@ -29,7 +29,7 @@ async function loginAs(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -50,7 +50,7 @@ describe("AI Agent routes", () => {
 
     const response = await request(app)
       .post("/api/ai/daily-brief")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-06-19" })
       .expect(201);
 
@@ -81,7 +81,7 @@ describe("AI Agent routes", () => {
   it("keeps low-evidence daily briefs below P0 priority", async () => {
     const response = await request(app)
       .post("/api/ai/daily-brief")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-06-20" })
       .expect(201);
 
@@ -90,12 +90,72 @@ describe("AI Agent routes", () => {
     expect(store.listAiRuns({ agentType: "daily_operator" })).toHaveLength(1);
   });
 
+  it("uses SP-API SKU facts as daily-operator freshness evidence", async () => {
+    const evidenceDate = new Date().toISOString().slice(0, 10);
+    const source = store.createDataSource({
+      orgId: 1,
+      name: "US SP-API",
+      sourceType: "amazon_sp_api"
+    });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "US Seller",
+      marketplace: "amazon.com",
+      sellerId: "AI-SELLER"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "SKU-AI-SP",
+      asin: "B0AISP0001",
+      title: "SP-API AI product"
+    });
+    const run = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: source.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "ai-sp-api-evidence"
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: source.id,
+      syncRunId: run.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: evidenceDate,
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sourceAsin: product.asin,
+      salesAmount: 120,
+      orders: 3,
+      unitsSold: 4,
+      currency: "USD"
+    }]);
+
+    const response = await request(app)
+      .post("/api/ai/daily-brief")
+      .set("Cookie", token)
+      .send({ date: evidenceDate })
+      .expect(201);
+
+    expect(response.body.output.dataFreshness).toMatchObject({
+      dataSource: "sp_api",
+      freshnessStatus: "fresh",
+      syncStatus: "success"
+    });
+    expect(response.body.output.confidence).toBe(0.5);
+  });
+
   it("analyzes a competitor insight event with persisted approval-gated output", async () => {
     const event = store.upsertInsightEvent(sampleInsightEvent());
 
     const response = await request(app)
       .post("/api/ai/analyze-competitor")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ eventId: event.id, date: "2026-06-19" })
       .expect(201);
     const body = response.body as AiCompetitorAnalysisResponse;
@@ -128,7 +188,7 @@ describe("AI Agent routes", () => {
 
     const response = await request(app)
       .post("/api/ai/create-report")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-06-19", reportType: "daily" })
       .expect(201);
     const body = response.body as AiReportWriterResponse;
@@ -162,18 +222,18 @@ describe("AI Agent routes", () => {
     store.upsertInsightEvent(sampleInsightEvent());
     await request(app)
       .post("/api/ai/daily-brief")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-06-19" })
       .expect(201);
     await request(app)
       .post("/api/ai/create-report")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-06-19", reportType: "daily" })
       .expect(201);
 
     const pagedResponse = await request(app)
       .get("/api/ai/runs?limit=1&offset=0")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     const pagedBody = pagedResponse.body as AiRunListResponse;
 
@@ -185,7 +245,7 @@ describe("AI Agent routes", () => {
 
     const filteredResponse = await request(app)
       .get("/api/ai/runs?agentType=daily_operator&status=success")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     const filteredBody = filteredResponse.body as AiRunListResponse;
 
@@ -201,14 +261,14 @@ describe("AI Agent routes", () => {
     store.upsertInsightEvent(sampleInsightEvent());
     const generated = await request(app)
       .post("/api/ai/daily-brief")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-06-19" })
       .expect(201);
     const runId = generated.body.run.id as number;
 
     await request(app)
       .put(`/api/ai/runs/${runId}/actions/0/feedback`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ value: "up" })
       .expect(200)
       .expect((response) => {
@@ -216,13 +276,13 @@ describe("AI Agent routes", () => {
       });
     await request(app)
       .put(`/api/ai/runs/${runId}/actions/0/feedback`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ value: "down" })
       .expect(200);
 
     const runs = await request(app)
       .get("/api/ai/runs")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body.runs[0].actionFeedback).toEqual([
       expect.objectContaining({ runId, actionIndex: 0, value: "down", userId: 1 })
@@ -232,13 +292,13 @@ describe("AI Agent routes", () => {
     const operatorToken = await loginAs("feedback-operator", "Operator123!");
     const operatorRuns = await request(app)
       .get("/api/ai/runs")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .expect(200);
     expect(operatorRuns.body.runs[0].actionFeedback).toEqual([]);
 
     await request(app)
       .put(`/api/ai/runs/${runId}/actions/99/feedback`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ value: "up" })
       .expect(400, { message: "Invalid AI action index" });
   });
@@ -320,7 +380,7 @@ describe("AI Agent routes", () => {
 
     const response = await request(app)
       .get("/api/ai/quality?days=30")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(response.body).toMatchObject({
@@ -356,11 +416,11 @@ describe("AI Agent routes", () => {
     const operatorToken = await loginAs("quality-operator", "Quality123!");
     await request(app)
       .get("/api/ai/quality?days=30")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .expect(403);
     await request(app)
       .get("/api/ai/quality?days=14")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(400);
   });
 
@@ -368,7 +428,7 @@ describe("AI Agent routes", () => {
     store.upsertInsightEvent(sampleInsightEvent());
     const generated = await request(app)
       .post("/api/ai/daily-brief")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-06-19" })
       .expect(201);
     const runId = generated.body.run.id as number;
@@ -385,43 +445,43 @@ describe("AI Agent routes", () => {
     const viewerToken = await loginAs("ai-viewer", "Viewer123!");
     const developerToken = await loginAs("ai-developer", "Developer123!");
 
-    await request(app).get("/api/ai/runs").set("x-amazon-monitor-session", managerToken).expect(200);
-    await request(app).get("/api/ai/runs").set("x-amazon-monitor-session", viewerToken).expect(200);
-    await request(app).get("/api/ai/runs").set("x-amazon-monitor-session", developerToken).expect(200);
+    await request(app).get("/api/ai/runs").set("Cookie", managerToken).expect(200);
+    await request(app).get("/api/ai/runs").set("Cookie", viewerToken).expect(200);
+    await request(app).get("/api/ai/runs").set("Cookie", developerToken).expect(200);
     await request(app)
       .put(`/api/ai/runs/${runId}/actions/0/feedback`)
-      .set("x-amazon-monitor-session", managerToken)
+      .set("Cookie", managerToken)
       .send({ value: "up" })
       .expect(200);
     await request(app)
       .put(`/api/ai/runs/${runId}/actions/0/feedback`)
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .send({ value: "up" })
       .expect(403);
 
     await request(app)
       .post("/api/ai/daily-brief")
-      .set("x-amazon-monitor-session", managerToken)
+      .set("Cookie", managerToken)
       .send({ date: "2026-06-19" })
       .expect(201);
     await request(app)
       .post("/api/ai/analyze-competitor")
-      .set("x-amazon-monitor-session", researcherToken)
+      .set("Cookie", researcherToken)
       .send({ eventId: sampleInsightEvent().id, date: "2026-06-19" })
       .expect(201);
     await request(app)
       .post("/api/ai/analyze-competitor")
-      .set("x-amazon-monitor-session", adsToken)
+      .set("Cookie", adsToken)
       .send({ eventId: sampleInsightEvent().id, date: "2026-06-19" })
       .expect(403);
     await request(app)
       .post("/api/ai/create-report")
-      .set("x-amazon-monitor-session", adsToken)
+      .set("Cookie", adsToken)
       .send({ date: "2026-06-19", reportType: "daily" })
       .expect(201);
     await request(app)
       .post("/api/ai/daily-brief")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .send({ date: "2026-06-19" })
       .expect(403);
   });
@@ -453,7 +513,7 @@ describe("AI Agent routes", () => {
 
     const adminRuns = await request(app)
       .get("/api/ai/runs")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(adminRuns.body.runs).toHaveLength(1);
     expect(adminRuns.body.total).toBe(1);
@@ -462,12 +522,12 @@ describe("AI Agent routes", () => {
     const otherToken = await loginAs("other-admin", "OtherAdmin123!");
     await request(app)
       .put("/api/ai/runs/1/actions/0/feedback")
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .send({ value: "up" })
       .expect(404, { message: "AI run not found" });
     const otherRuns = await request(app)
       .get("/api/ai/runs")
-      .set("x-amazon-monitor-session", otherToken)
+      .set("Cookie", otherToken)
       .expect(200);
     expect(otherRuns.body.runs).toHaveLength(1);
     expect(otherRuns.body.total).toBe(1);

@@ -8,11 +8,13 @@ import {
 } from "@amazon-monitor/shared";
 import { dataSourceStatusType, dataSourceSyncType, dataSourceTimeText } from "./data-source-display";
 import DataSourceImportPanel from "./DataSourceImportPanel.vue";
+import SpApiConnectionPanel from "./SpApiConnectionPanel.vue";
 import DataSourceSyncHistory from "./DataSourceSyncHistory.vue";
 
 defineProps<{
   source: DataSourceConfig | null;
   canEdit?: boolean;
+  canCollect?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -81,6 +83,14 @@ const emit = defineEmits<{
         :key="source.id"
         :source="source"
         :can-run="canEdit && source.status !== 'disabled'"
+      />
+
+      <SpApiConnectionPanel
+        v-if="source.sourceType === 'amazon_sp_api'"
+        :key="`sp-api-${source.id}`"
+        :source="source"
+        :can-manage-data-sources="Boolean(canEdit)"
+        :can-manage-collection="Boolean(canCollect)"
       />
 
       <DataSourceSyncHistory :key="`runs-${source.id}`" :source-id="source.id" />

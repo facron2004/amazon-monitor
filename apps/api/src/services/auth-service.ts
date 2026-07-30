@@ -19,11 +19,7 @@ export interface AuthServiceOptions {
   userAgent?: string | null;
 }
 
-/**
- * Login with username + password. Returns the session token (opaque, sha256-hashed
- * in DB) and the bootstrap SessionContext for the frontend. The token is the only
- * secret the client must keep; everything else is fetched from /api/auth/me.
- */
+/** Creates an opaque session for the HttpOnly response cookie and returns its public context. */
 export function login(store: Store, username: string, password: string, options: AuthServiceOptions = {}): LoginResult | null {
   const user = store.verifyUserCredentials(username, password);
   if (!user) return null;

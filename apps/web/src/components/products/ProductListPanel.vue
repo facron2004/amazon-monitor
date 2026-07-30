@@ -43,6 +43,36 @@ function storeName(stores: CommerceStore[], id: number | null): string {
   if (id === null) return "未分配店铺";
   return stores.find((item) => item.id === id)?.name ?? `店铺 #${id}`;
 }
+
+function salesAmount(item: OwnedProductListItem): number | null {
+  return item.spApiEvidence.sales?.salesAmount ?? item.latestMetric?.salesAmount ?? null;
+}
+
+function orders(item: OwnedProductListItem): number | null {
+  return item.spApiEvidence.sales?.orders ?? item.latestMetric?.orders ?? null;
+}
+
+function inventoryAvailable(item: OwnedProductListItem): number | null {
+  return item.spApiEvidence.inventory?.fulfillableQuantity ?? item.latestMetric?.inventoryAvailable ?? null;
+}
+
+function operationalSyncLabel(item: OwnedProductListItem): string {
+  if (item.spApiEvidence.sales || item.spApiEvidence.inventory) return "SP-API";
+  return syncLabel(item.latestMetric?.syncStatus ?? item.syncStatus);
+}
+
+function operationalSyncedAt(item: OwnedProductListItem): string {
+  return item.spApiEvidence.inventory?.lastSyncedAt
+    ?? item.spApiEvidence.sales?.lastSyncedAt
+    ?? item.latestMetric?.lastSyncedAt
+    ?? item.lastSyncedAt
+    ?? "未同步";
+}
+
+function operationalTrace(item: OwnedProductListItem): string | null {
+  const evidence = item.spApiEvidence.inventory ?? item.spApiEvidence.sales;
+  return evidence ? `来源 #${evidence.dataSourceId} · 运行 #${evidence.syncRunId}` : null;
+}
 </script>
 
 <template>
@@ -106,14 +136,14 @@ function storeName(stores: CommerceStore[], id: number | null): string {
               </div>
             </td>
             <td>
-              <strong>{{ formatMoney(item.latestMetric?.salesAmount) }}</strong>
-              <small>{{ formatCount(item.latestMetric?.orders) }} 单</small>
+              <strong>{{ formatMoney(salesAmount(item)) }}</strong>
+              <small>{{ formatCount(orders(item)) }} 单</small>
             </td>
             <td>
               <strong>{{ item.latestMetric?.inventoryDays ?? "-" }} 天</strong>
               <small
                 >{{
-                  formatCount(item.latestMetric?.inventoryAvailable)
+                  formatCount(inventoryAvailable(item))
                 }}
                 件</small
               >
@@ -141,12 +171,11 @@ function storeName(stores: CommerceStore[], id: number | null): string {
             </td>
             <td>
               <ElTag size="small">
-                {{
-                  syncLabel(item.latestMetric?.syncStatus ?? item.syncStatus)
-                }}
+                {{ operationalSyncLabel(item) }}
               </ElTag>
               <small>{{
-                item.latestMetric?.lastSyncedAt ?? item.lastSyncedAt ?? "未同步"
+                operationalSyncedAt(item)
+              }}{{ operationalTrace(item) ? ` · ${operationalTrace(item)}` : "" }}
               }}</small>
             </td>
             <td>

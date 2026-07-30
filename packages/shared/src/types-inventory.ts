@@ -1,4 +1,9 @@
-import type { OwnedProductDailyMetric, ProductDataFreshness, ProductSyncStatus } from "./types-products.js";
+import type {
+  OwnedProductDailyMetric,
+  ProductDataFreshness,
+  ProductSyncStatus,
+  SpApiProductInventoryEvidence
+} from "./types-products.js";
 import type { Task } from "./types-workflow.js";
 
 export const inventoryPlanLevels = ["healthy", "watch", "critical", "overstock"] as const;
@@ -68,6 +73,8 @@ export interface InventoryReplenishmentPlan {
   productTitle: string;
   date: string | null;
   latestMetric: OwnedProductDailyMetric | null;
+  /** Current FBA quantity remains independently traceable from legacy product metrics. */
+  spApiInventoryEvidence?: SpApiProductInventoryEvidence | null;
   setting: InventoryReplenishmentSetting | null;
   inventoryAvailable: number | null;
   inTransitUnits: number;

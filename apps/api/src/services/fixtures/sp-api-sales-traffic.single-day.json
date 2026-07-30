@@ -1,0 +1,34 @@
+{
+  "salesAndTrafficByDate": [
+    {
+      "date": "2026-07-27",
+      "salesByDate": {
+        "orderedProductSales": { "amount": 120.5, "currencyCode": "USD" },
+        "totalOrderItems": 3,
+        "unitsOrdered": 4
+      },
+      "trafficByDate": {
+        "sessions": 70,
+        "pageViews": 90,
+        "buyBoxPercentage": 98.5,
+        "unitSessionPercentage": 5.7
+      }
+    }
+  ],
+  "salesAndTrafficByAsin": [
+    {
+      "childAsin": "B0FIXTURE01",
+      "salesByAsin": {
+        "orderedProductSales": { "amount": 120.5, "currencyCode": "USD" },
+        "totalOrderItems": 3,
+        "unitsOrdered": 4
+      },
+      "trafficByAsin": {
+        "sessions": 70,
+        "pageViews": 90,
+        "buyBoxPercentage": 98.5,
+        "unitSessionPercentage": 5.7
+      }
+    }
+  ]
+}

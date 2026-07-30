@@ -16,7 +16,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -46,7 +46,7 @@ describe("listing health routes", () => {
   it("lists owned SKUs with evidence-bound health scores and saves snapshots", async () => {
     const emptyList = await request(app)
       .get("/api/listing-health?date=2026-06-19")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(emptyList.body[0]).toMatchObject({
       productId,
@@ -56,7 +56,7 @@ describe("listing health routes", () => {
 
     const save = await request(app)
       .post(`/api/products/${productId}/listing-snapshots`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-06-19",
         title: "Nugget Ice Maker Countertop Portable Ice Machine Quiet Self Cleaning Stainless Steel",
@@ -79,7 +79,7 @@ describe("listing health routes", () => {
 
     const list = await request(app)
       .get("/api/listing-health?date=2026-06-19&q=ICE-001")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(list.body).toHaveLength(1);
     expect(list.body[0].snapshotDate).toBe("2026-06-19");
@@ -89,7 +89,7 @@ describe("listing health routes", () => {
   it("generates approval-gated Listing Optimizer Agent output", async () => {
     await request(app)
       .post(`/api/products/${productId}/listing-snapshots`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-06-20",
         title: "Ice Maker Ice Maker Ice Maker Ice Maker",
@@ -103,7 +103,7 @@ describe("listing health routes", () => {
 
     const analysis = await request(app)
       .post("/api/ai/analyze-listing")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ productId, date: "2026-06-20" })
       .expect(201);
 

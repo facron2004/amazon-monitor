@@ -1,0 +1,20 @@
+{
+  "payload": {
+    "inventorySummaries": [
+      {
+        "sellerSku": "FIXTURE-SKU-1",
+        "asin": "B0FIXTURE01",
+        "totalQuantity": 23,
+        "lastUpdatedTime": "2026-07-28T00:00:00Z",
+        "inventoryDetails": {
+          "fulfillableQuantity": 8,
+          "reservedQuantity": 2,
+          "inboundWorkingQuantity": 3,
+          "inboundShippedQuantity": 4,
+          "inboundReceivingQuantity": 5,
+          "unfulfillableQuantity": 1
+        }
+      }
+    ]
+  }
+}

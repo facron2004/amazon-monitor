@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { adsSchemaSql } from "./schema/ads-schema.js";
+import { agentSchemaSql } from "./schema/agent-schema.js";
 import { aiSchemaSql } from "./schema/ai-schema.js";
 import { categorySchemaSql } from "./schema/category-schema.js";
 import { commerceStoreSchemaSql } from "./schema/commerce-store-schema.js";
@@ -42,6 +43,7 @@ const schemaSql = [
   workflowSchemaSql,
   promotionSchemaSql,
   aiSchemaSql,
+  agentSchemaSql,
   metadataSchemaSql,
   queueSchemaSql,
   workerSchemaSql

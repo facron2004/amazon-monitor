@@ -1,17 +1,18 @@
 import cors from "cors";
-import { timingSafeEqual } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { existsSync, readFileSync } from "node:fs";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hasBusinessCapability, type SessionContext, type UserRole } from "@amazon-monitor/shared";
+import { type SessionContext } from "@amazon-monitor/shared";
 import type { AmazonSearchCollector } from "./amazon-collector.js";
+import { canModifyBusinessRequest } from "./business-request-authorization.js";
 import type { AmazonBestSellerCollector } from "./category-pipeline.js";
 import type { NotificationSender } from "./notifier.js";
 import type { ReportPdfRenderer } from "./reports/report-pdf.js";
 import { registerAdsRoutes } from "./routes/ads.js";
+import { registerAgentRoutes } from "./routes/agent.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerAuthRoutes, sessionLoader } from "./routes/auth.js";
 import { registerBrandPlaybookRoutes } from "./routes/brand-playbooks.js";
@@ -37,21 +38,46 @@ import { registerSopRoutes } from "./routes/sops.js";
 import { registerStoreRoutes } from "./routes/stores.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import type { Store } from "./store.js";
+import { AgentRuntimeService } from "./services/agent-runtime-service.js";
+import { AgentActionService } from "./services/agent-action-service.js";
 
 export interface ApiAppOptions {
   collector?: AmazonSearchCollector;
   categoryCollector?: AmazonBestSellerCollector;
   notificationSender?: NotificationSender;
   reportPdfRenderer?: ReportPdfRenderer;
+  agentRuntime?: AgentRuntimeService;
 }
 
 export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   const app = express();
   const isProduction = process.env.NODE_ENV === "production";
 
-  // Security headers
+  // Security headers. The static web bundle only loads same-origin scripts; runtime
+  // style attributes are retained for Element Plus and ECharts layout.
   app.use(helmet({
-    contentSecurityPolicy: false // Allow ECharts and inline styles for the frontend
+    contentSecurityPolicy: {
+      directives: {
+        baseUri: ["'self'"],
+        connectSrc: ["'self'"],
+        defaultSrc: ["'self'"],
+        fontSrc: ["'self'", "data:"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        imgSrc: [
+          "'self'",
+          "blob:",
+          "data:",
+          "https://*.media-amazon.com",
+          "https://*.ssl-images-amazon.com"
+        ],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        scriptSrcAttr: ["'none'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        workerSrc: ["'self'", "blob:"]
+      }
+    }
   }));
 
   // CORS — restrict to allowed origins, default to localhost only
@@ -101,59 +127,31 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
       res.json(openapiDoc);
     });
 
-    const swaggerUiHtml = `<!DOCTYPE html>
+    const apiDocsHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Amazon Monitor API Documents</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
-  <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.11.0/favicon-32x32.png" sizes="32x32" />
 </head>
 <body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
-  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js"></script>
-  <script>
-    window.onload = function() {
-      window.ui = SwaggerUIBundle({
-        url: "/api/openapi.json",
-        dom_id: '#swagger-ui',
-        deepLinking: true,
-        presets: [
-          SwaggerUIBundle.presets.apis,
-          SwaggerUIStandalonePreset
-        ],
-        plugins: [
-          SwaggerUIBundle.plugins.DownloadUrl
-        ],
-        layout: "StandaloneLayout"
-      });
-    };
-  </script>
+  <main>
+    <h1>Amazon Monitor API Documents</h1>
+    <p><a href="/api/openapi.json">Download the OpenAPI document</a></p>
+  </main>
 </body>
 </html>`;
 
     app.get("/api-docs", (_req, res) => {
-      res.send(swaggerUiHtml);
+      res.type("html").send(apiDocsHtml);
     });
   }
 
-  // Authentication — dual-track (Stage 0):
-  //   1) New session token (Cookie or x-amazon-monitor-session header)
-  //   2) Legacy AMAZON_MONITOR_API_KEY via Authorization: Bearer
-  //
-  // Every business API requires a session. A legacy API key can authenticate
-  // automation, while tests retain the historical anonymous mode so route
-  // fixtures can stay focused on their own behavior.
-  const apiKey = process.env.AMAZON_MONITOR_API_KEY;
-  const allowAnonymousTestRequests = process.env.NODE_ENV === "test" && !apiKey;
-  if (!apiKey && !allowAnonymousTestRequests) {
-    console.warn(
-      "[SECURITY] AMAZON_MONITOR_API_KEY is not set; business APIs require a login session."
-    );
-  }
-  if (isProduction && !apiKey) {
-    throw new Error("AMAZON_MONITOR_API_KEY is required in production");
+  // Every business API is scoped by an HttpOnly login session. The former
+  // process-wide API key inferred an organization from the first admin user;
+  // it is intentionally ignored rather than becoming an unsafe fallback.
+  const allowAnonymousTestRequests = process.env.NODE_ENV === "test";
+  if (process.env.AMAZON_MONITOR_API_KEY) {
+    console.warn("[SECURITY] AMAZON_MONITOR_API_KEY is ignored. Use an authenticated session or a future organization-scoped service account.");
   }
   app.use(sessionLoader(store));
   app.use((req, res, next) => {
@@ -185,28 +183,11 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
       return next();
     }
 
-    // Legacy API key fallback
-    if (apiKey) {
-      const authHeader = req.headers.authorization;
-      const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-      if (token && isTimingSafeEqual(token, apiKey)) {
-        const context = resolveLegacyApiKeyContext(store);
-        if (!context) {
-          res.status(500).json({ message: "Legacy API key authenticated, but no admin user exists" });
-          return;
-        }
-        (req as Request & { sessionContext?: SessionContext }).sessionContext = context;
-        return next();
-      }
-      res.status(401).json({ message: "Unauthorized: login or valid API key required" });
-      return;
-    }
-
     if (allowAnonymousTestRequests) {
       return next();
     }
 
-    res.status(401).json({ message: "Unauthorized: login or valid API key required" });
+    res.status(401).json({ message: "Unauthorized: login session required" });
   });
 
   // Static file serving for Electron / embedded mode - MUST be before API routes
@@ -272,6 +253,12 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   registerInventoryRoutes(app, store);
   registerProfitRoutes(app, store);
   registerAiRoutes(app, store);
+  registerAgentRoutes(
+    app,
+    store,
+    options.agentRuntime ?? new AgentRuntimeService(store),
+    new AgentActionService(store, options.notificationSender),
+  );
   registerReportRoutes(app, store, { reportPdfRenderer: options.reportPdfRenderer });
   registerOperationRoutes(app, store);
   registerNotificationRoutes(app, store, { notificationSender: options.notificationSender });
@@ -305,13 +292,6 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   return app;
 }
 
-function isTimingSafeEqual(input: string, expected: string): boolean {
-  const a = Buffer.from(input, "utf-8");
-  const b = Buffer.from(expected, "utf-8");
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
 function requiresBusinessCapability(request: Request): boolean {
   if (request.path === "/api/auth/logout") return false;
   if (request.method === "GET") {
@@ -322,66 +302,4 @@ function requiresBusinessCapability(request: Request): boolean {
       || request.path === "/api/reports/period.pdf";
   }
   return request.method !== "HEAD" && request.method !== "OPTIONS";
-}
-
-function canModifyBusinessRequest(role: UserRole, request: Request): boolean {
-  if (request.path.endsWith("/profit-setting")) {
-    return hasBusinessCapability(role, "manage_profit");
-  }
-  if (
-    request.path.startsWith("/api/ads")
-    || request.path === "/api/ai/analyze-ads"
-  ) {
-    return hasBusinessCapability(role, "manage_ads");
-  }
-  if (
-    request.path.startsWith("/api/competitors")
-    || request.path.startsWith("/api/asin-watch-states")
-  ) {
-    return hasBusinessCapability(role, "manage_competitors");
-  }
-  if (request.path === "/api/ai/analyze-competitor") {
-    return hasBusinessCapability(role, "manage_competitors");
-  }
-  if (request.path === "/api/ai/create-report") {
-    return hasBusinessCapability(role, "manage_reports");
-  }
-  if (request.path.startsWith("/api/ai")) {
-    return hasBusinessCapability(role, "manage_workflow");
-  }
-  if (request.path.startsWith("/api/data-sources") || request.path.startsWith("/api/stores")) {
-    return hasBusinessCapability(role, "manage_data_sources");
-  }
-  if (request.path.startsWith("/api/promotions")) {
-    return hasBusinessCapability(role, "manage_workflow");
-  }
-  if (request.path.startsWith("/api/reports")) {
-    return hasBusinessCapability(role, "manage_reports");
-  }
-  if (request.path.startsWith("/api/notifications")) {
-    return hasBusinessCapability(role, "manage_reports");
-  }
-  if (request.path.startsWith("/api/rules")) {
-    return hasBusinessCapability(role, "manage_rules");
-  }
-  if (
-    request.path.startsWith("/api/tasks")
-    || request.path.startsWith("/api/sops")
-    || request.path.startsWith("/api/insight-events")
-  ) {
-    return hasBusinessCapability(role, "manage_workflow");
-  }
-  return role === "admin" || role === "operator";
-}
-
-function resolveLegacyApiKeyContext(store: Store): SessionContext | null {
-  const user = store.listUsers().find((item) => item.status === "active" && item.role === "admin");
-  if (!user) return null;
-  const organization = store.getOrganization(user.orgId);
-  if (!organization) return null;
-  return {
-    user,
-    organization,
-    expiresAt: new Date(Date.now() + 14 * 24 * 3_600_000).toISOString()
-  };
 }

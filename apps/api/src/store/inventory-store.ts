@@ -11,6 +11,7 @@ import type {
 } from "@amazon-monitor/shared";
 import { buildInventoryReplenishmentPlan } from "../services/inventory-planning-service.js";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, type WhereBuilder } from "./sql-utils.js";
+import { getSpApiProductInventoryEvidence } from "./sp-api-product-evidence.js";
 import type { Store } from "./types.js";
 
 type InventoryStoreMethods = Pick<
@@ -173,6 +174,7 @@ function buildPlan(db: DatabaseSync, product: InventoryProductRow, filter: Inven
       freshness: productFreshness(product)
     },
     metrics: listMetrics(db, product.product_id, filter.date),
+    spApiInventoryEvidence: getSpApiProductInventoryEvidence(db, product.product_id),
     setting: getSetting(db, product.product_id),
     date: filter.date
   });

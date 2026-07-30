@@ -14,6 +14,7 @@ import type {
   UpsertOwnedProductDailyMetricInput
 } from "@amazon-monitor/shared";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, type WhereBuilder } from "./sql-utils.js";
+import { getSpApiProductEvidence } from "./sp-api-product-evidence.js";
 import type { Store } from "./types.js";
 
 type ProductStoreMethods = Pick<
@@ -409,6 +410,7 @@ function buildListItem(db: DatabaseSync, product: OwnedProduct, date?: string): 
   return {
     ...product,
     latestMetric: metrics[0] ?? null,
+    spApiEvidence: getSpApiProductEvidence(db, product.id, date),
     riskScore,
     opportunityScore: buildOpportunityScore(product, metrics)
   };
@@ -501,6 +503,7 @@ export function createProductStore(db: DatabaseSync): ProductStoreMethods {
       return {
         ...product,
         latestMetric: metrics[0] ?? null,
+        spApiEvidence: getSpApiProductEvidence(db, id, date),
         riskScore,
         opportunityScore: buildOpportunityScore(product, metrics),
         metrics

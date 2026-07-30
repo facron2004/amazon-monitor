@@ -17,11 +17,10 @@ afterEach(() => {
 });
 
 describe("identity-store", () => {
-  it("creates an organization and lists users (admin seeded by identity_v1 when no API key is set)", () => {
+  it("creates an organization and lists the seeded administrator", () => {
     const org = store.createOrganization({ name: "Acme Co" });
     expect(org.id).toBeGreaterThan(0);
     expect(org.plan).toBe("standard");
-    // identity_v1 seeds an admin when AMAZON_MONITOR_API_KEY is unset (dev/test).
     const users = store.listUsers();
     expect(users.length).toBeGreaterThanOrEqual(1);
     expect(users.find((u) => u.username === "admin")).toBeDefined();
@@ -31,7 +30,7 @@ describe("identity-store", () => {
     expect(defaultOrgCount.cnt).toBe(1);
   });
 
-  it("seeds an admin user even when the legacy API key is configured", () => {
+  it("seeds an admin user regardless of the retired global key setting", () => {
     const originalApiKey = process.env.AMAZON_MONITOR_API_KEY;
     process.env.AMAZON_MONITOR_API_KEY = "legacy-key";
     const legacyDb = new DatabaseSync(":memory:");

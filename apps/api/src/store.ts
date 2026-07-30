@@ -5,6 +5,7 @@ import {
   isoDateOffset,
 } from "@amazon-monitor/shared";
 import { createAdsStore } from "./store/ads-store.js";
+import { createAgentStore } from "./store/agent-store.js";
 import { createAiRunStore } from "./store/ai-run-store.js";
 import {
   mapCompetitor,
@@ -20,6 +21,10 @@ import { createCompetitorStore } from "./store/competitor-store.js";
 import { loadCategorySnapshotContexts } from "./store/category-snapshot-context.js";
 import { createDashboardStore } from "./store/dashboard-store.js";
 import { createDataSourceStore } from "./store/data-source-store.js";
+import { createDataSourceHealthStore } from "./store/data-source-health-store.js";
+import { createDataSourceMappingStore } from "./store/data-source-mapping-store.js";
+import { createDataSourceSpApiStore } from "./store/data-source-sp-api-store.js";
+import { createSpApiFactStore } from "./store/sp-api-fact-store.js";
 import { createIdentityStore } from "./store/identity-store.js";
 import { createInventoryStore } from "./store/inventory-store.js";
 import { createKeywordSnapshotStore } from "./store/keyword-snapshot-store.js";
@@ -41,9 +46,9 @@ import { createSopStore } from "./store/sop-store.js";
 import { createTaskStore } from "./store/task-store.js";
 import { createWorkerStore } from "./store/worker-store.js";
 import { nowIso, withTransaction } from "./store/sql-utils.js";
-import type { KeywordInput, Store } from "./store/types.js";
+import type { ClaimedCollectJob, KeywordInput, Store } from "./store/types.js";
 
-export type { KeywordInput, Store } from "./store/types.js";
+export type { ClaimedCollectJob, KeywordInput, Store } from "./store/types.js";
 export { buildBsrRankChanges } from "./store/bsr-rank-changes.js";
 export {
   hasEarlierBsrHistory,
@@ -81,6 +86,7 @@ export function createStore(db: DatabaseSync): Store {
     ...createPromotionStore(db),
     ...createProductStore(db),
     ...createAiRunStore(db),
+    ...createAgentStore(db),
     ...createListingHealthStore(db),
     ...createAdsStore(db),
     ...createReviewVocStore(db),
@@ -88,6 +94,10 @@ export function createStore(db: DatabaseSync): Store {
     ...createProfitStore(db),
     ...createRuleStore(db),
     ...createDataSourceStore(db),
+    ...createDataSourceHealthStore(db),
+    ...createDataSourceMappingStore(db),
+    ...createDataSourceSpApiStore(db),
+    ...createSpApiFactStore(db),
     ...createReportStore(db),
     ...createQueueStore(db),
     ...createWorkerStore(db),
@@ -98,9 +108,25 @@ export function createStore(db: DatabaseSync): Store {
     reset() {
       withTransaction(db, () => {
         db.exec(`
+          DELETE FROM action_executions;
+          DELETE FROM action_approvals;
+          DELETE FROM action_proposals;
+          DELETE FROM agent_run_events;
+          DELETE FROM agent_tool_calls;
+          DELETE FROM agent_steps;
+          DELETE FROM agent_messages;
+          DELETE FROM agent_runs;
+          DELETE FROM agent_sessions;
           DELETE FROM sessions;
           DELETE FROM workflow_period_reports;
           DELETE FROM workflow_daily_reports;
+          DELETE FROM sp_api_inventory_latest;
+          DELETE FROM sp_api_inventory_snapshots;
+          DELETE FROM sp_api_sales_traffic_daily;
+          DELETE FROM data_source_mapping_issues;
+          DELETE FROM data_source_domain_health;
+          DELETE FROM sp_api_connection_stores;
+          DELETE FROM sp_api_connections;
           DELETE FROM data_source_sync_runs;
           DELETE FROM data_source_configs;
           DELETE FROM alert_rule_configs;

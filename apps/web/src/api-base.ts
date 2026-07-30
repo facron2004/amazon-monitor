@@ -1,3 +1,5 @@
+import { getSessionCacheNamespace, registerSessionBoundaryListener } from "./session-boundary";
+
 const baseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE?.trim() || "/api");
 const DEFAULT_TIMEOUT_MS = 30_000;
 const GET_CACHE_TTL_MS = 8_000;
@@ -8,7 +10,13 @@ interface CacheEntry {
 }
 
 const responseCache = new Map<string, CacheEntry>();
-const inflightRequests = new Map<string, Promise<unknown>>();
+interface InflightRequest {
+  controller: AbortController;
+  promise: Promise<unknown>;
+}
+
+const inflightRequests = new Map<string, InflightRequest>();
+const activeDownloadControllers = new Set<AbortController>();
 
 export interface RequestOptions extends RequestInit {
   /** AbortSignal for request cancellation (e.g., when switching tabs) */
@@ -36,27 +44,20 @@ export function buildRequestUrl(path: string, base = baseUrl): string {
   return `${normalizedBase}${normalizedPath}`;
 }
 
-function resolveAuthHeaders(init?: RequestOptions): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const legacyToken = localStorage.getItem("amazon_monitor_auth_token");
-    if (legacyToken) {
-      headers.Authorization = `Bearer ${legacyToken}`;
-    }
-  } catch {
-    // ignore
-  }
-  return headers;
-}
-
-function cacheKey(path: string, init?: RequestOptions): string | null {
+function cacheKey(path: string, init: RequestOptions | undefined, namespace: string): string | null {
   const method = (init?.method ?? "GET").toUpperCase();
   if (method !== "GET") return null;
-  return `${method} ${path}`;
+  return `${namespace} ${method} ${path}`;
 }
 
 export function clearRequestCache(prefix?: string): void {
   if (!prefix) {
+    for (const { controller } of inflightRequests.values()) {
+      controller.abort();
+    }
+    for (const controller of activeDownloadControllers) {
+      controller.abort();
+    }
     responseCache.clear();
     inflightRequests.clear();
     return;
@@ -65,13 +66,31 @@ export function clearRequestCache(prefix?: string): void {
   for (const key of responseCache.keys()) {
     if (key.includes(prefix)) responseCache.delete(key);
   }
-  for (const key of inflightRequests.keys()) {
-    if (key.includes(prefix)) inflightRequests.delete(key);
+  for (const [key, inflight] of inflightRequests) {
+    if (key.includes(prefix)) {
+      inflight.controller.abort();
+      inflightRequests.delete(key);
+    }
+  }
+}
+
+registerSessionBoundaryListener(() => clearRequestCache());
+
+function createSessionBoundaryAbortError(): Error {
+  const error = new Error("The session changed before the request completed.");
+  error.name = "AbortError";
+  return error;
+}
+
+function assertCurrentSession(namespace: string): void {
+  if (namespace !== getSessionCacheNamespace()) {
+    throw createSessionBoundaryAbortError();
   }
 }
 
 export async function request<T>(path: string, init?: RequestOptions): Promise<T> {
-  const key = cacheKey(path, init);
+  const namespace = getSessionCacheNamespace();
+  const key = cacheKey(path, init, namespace);
   if (key) {
     const cached = responseCache.get(key);
     if (cached && Date.now() - cached.at < GET_CACHE_TTL_MS) {
@@ -79,7 +98,7 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
     }
     const inflight = inflightRequests.get(key);
     if (inflight) {
-      return inflight as Promise<T>;
+      return inflight.promise as Promise<T>;
     }
   }
 
@@ -105,18 +124,11 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        ...resolveAuthHeaders(init),
         ...(init?.headers ?? {})
       }
     }).then(async (response) => {
       if (!response.ok) {
         if (response.status === 401) {
-          try {
-            localStorage.removeItem("amazon_monitor_auth_token");
-            localStorage.removeItem("amazon_monitor_session");
-          } catch {
-            // ignore
-          }
           window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
         }
         const error = await response.json().catch(() => ({ message: response.statusText }));
@@ -130,47 +142,57 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
       return (await response.json()) as T;
     });
 
-    if (key) inflightRequests.set(key, requestPromise as Promise<unknown>);
+    if (key) {
+      inflightRequests.set(key, {
+        controller,
+        promise: requestPromise as Promise<unknown>
+      });
+    }
 
     const result = await requestPromise;
+    assertCurrentSession(namespace);
     if (key) responseCache.set(key, { at: Date.now(), data: result });
     return result;
 
   } finally {
     clearTimeout(timeoutId);
-    if (key) inflightRequests.delete(key);
+    if (key && inflightRequests.get(key)?.controller === controller) {
+      inflightRequests.delete(key);
+    }
   }
 }
 
 export async function downloadFile(path: string, filename: string): Promise<void> {
-  const response = await fetch(buildRequestUrl(path), {
-    credentials: "include",
-    headers: resolveAuthHeaders()
-  });
-  if (!response.ok) {
-    if (response.status === 401) {
-      try {
-        localStorage.removeItem("amazon_monitor_auth_token");
-        localStorage.removeItem("amazon_monitor_session");
-      } catch {
-        // ignore
-      }
-      window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
-    }
-    const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(error.message ?? response.statusText);
-  }
-
-  const blobUrl = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = blobUrl;
-  link.download = filename;
-  document.body.appendChild(link);
+  const namespace = getSessionCacheNamespace();
+  const controller = new AbortController();
+  activeDownloadControllers.add(controller);
   try {
-    link.click();
+    const response = await fetch(buildRequestUrl(path), {
+      credentials: "include",
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
+      }
+      const error = await response.json().catch(() => ({ message: response.statusText }));
+      throw new Error(error.message ?? response.statusText);
+    }
+
+    const blobUrl = URL.createObjectURL(await response.blob());
+    assertCurrentSession(namespace);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    try {
+      link.click();
+    } finally {
+      link.remove();
+      URL.revokeObjectURL(blobUrl);
+    }
   } finally {
-    link.remove();
-    URL.revokeObjectURL(blobUrl);
+    activeDownloadControllers.delete(controller);
   }
 }
 

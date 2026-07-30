@@ -2,6 +2,7 @@ export * from "./types-common.js";
 export * from "./types-identity.js";
 export * from "./types-workflow.js";
 export * from "./types-ai.js";
+export * from "./types-agent.js";
 export * from "./types-monitors.js";
 export * from "./types-products.js";
 export * from "./types-product-operations.js";

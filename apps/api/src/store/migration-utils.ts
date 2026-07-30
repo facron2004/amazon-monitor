@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 /**
  * Current schema version. Bump this when adding new migrations.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {
   const tableExists = db.prepare(

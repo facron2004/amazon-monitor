@@ -36,7 +36,7 @@ describe("product operations detail", () => {
     const token = await login("admin", "admin123");
     const response = await request(app)
       .get(`/api/products/${productId}/operations?date=${EVIDENCE_DATE}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     const detail = response.body as OwnedProductOperationsDetail;
 
@@ -81,7 +81,7 @@ describe("product operations detail", () => {
     const operatorToken = await createAndLogin("product-operator", "operator");
     const operator = (await request(app)
       .get(`/api/products/${productId}/operations?date=${EVIDENCE_DATE}`)
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .expect(200)).body as OwnedProductOperationsDetail;
 
     expect(operator.access).toEqual({ ads: "summary", profit: "summary" });
@@ -102,7 +102,7 @@ describe("product operations detail", () => {
     const viewerToken = await createAndLogin("product-viewer", "viewer");
     const viewer = (await request(app)
       .get(`/api/products/${productId}/operations?date=${EVIDENCE_DATE}`)
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(200)).body as OwnedProductOperationsDetail;
     expect(viewer.access).toEqual({ ads: "denied", profit: "denied" });
     expect(viewer.ads).toBeNull();
@@ -126,7 +126,7 @@ describe("product operations detail", () => {
     const token = await login("other-product-user", "OtherProduct123!");
     await request(app)
       .get(`/api/products/${productId}/operations?date=${EVIDENCE_DATE}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(404);
   });
 });
@@ -325,5 +325,5 @@ async function login(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }

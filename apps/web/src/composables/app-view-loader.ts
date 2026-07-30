@@ -1,4 +1,5 @@
 import type { TabKey } from "../constants/tabs";
+import { getSessionCacheNamespace, registerSessionBoundaryListener } from "../session-boundary";
 
 export interface AppViewLoaders {
   overview(signal?: AbortSignal): Promise<void>;
@@ -32,7 +33,11 @@ interface CacheEntry {
 /** Cache TTL in milliseconds — data loaded within this window is reused instead of refetched. */
 const CACHE_TTL_MS = 30_000;
 
-const cache = new Map<TabKey, CacheEntry>();
+const cache = new Map<string, CacheEntry>();
+
+function cacheKey(activeTab: TabKey, namespace: string): string {
+  return `${namespace}:${activeTab}`;
+}
 
 /**
  * Load data for the active tab, using a TTL cache keyed by (tab + date).
@@ -48,21 +53,32 @@ export async function loadAppView(
   force = false,
   signal?: AbortSignal
 ): Promise<{ cached: boolean }> {
-  const entry = cache.get(activeTab);
+  const namespace = getSessionCacheNamespace();
+  const key = cacheKey(activeTab, namespace);
+  const entry = cache.get(key);
   if (!force && entry && entry.date === date && Date.now() - entry.loadedAt < CACHE_TTL_MS) {
     return { cached: true };
   }
 
   await loaders[activeTab](signal);
-  cache.set(activeTab, { loadedAt: Date.now(), date });
+  if (namespace !== getSessionCacheNamespace()) {
+    const error = new Error("The session changed before the view completed loading.");
+    error.name = "AbortError";
+    throw error;
+  }
+  cache.set(key, { loadedAt: Date.now(), date });
   return { cached: false };
 }
 
 /** Clear the cache (e.g., after a write operation like collection or creation). */
 export function clearViewCache(tab?: TabKey): void {
   if (tab) {
-    cache.delete(tab);
+    for (const key of cache.keys()) {
+      if (key.endsWith(`:${tab}`)) cache.delete(key);
+    }
   } else {
     cache.clear();
   }
 }
+
+registerSessionBoundaryListener(() => clearViewCache());

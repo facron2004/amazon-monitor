@@ -236,6 +236,36 @@ export interface OwnedProductDailyMetric extends ProductDataFreshness {
   createdAt: string;
 }
 
+export interface SpApiProductSalesEvidence extends ProductDataFreshness {
+  dataSourceId: number;
+  syncRunId: number;
+  businessDate: string;
+  sessions: NullableNumber;
+  pageViews: NullableNumber;
+  orders: NullableNumber;
+  unitsSold: NullableNumber;
+  salesAmount: NullableNumber;
+  buyBoxPercentage: NullableNumber;
+  conversionRate: NullableNumber;
+  currency: string;
+}
+
+export interface SpApiProductInventoryEvidence extends ProductDataFreshness {
+  dataSourceId: number;
+  syncRunId: number;
+  observedAt: string | null;
+  fulfillableQuantity: NullableNumber;
+  reservedQuantity: NullableNumber;
+  inboundQuantity: NullableNumber;
+  unfulfillableQuantity: NullableNumber;
+  totalQuantity: NullableNumber;
+}
+
+export interface SpApiProductEvidence {
+  sales: SpApiProductSalesEvidence | null;
+  inventory: SpApiProductInventoryEvidence | null;
+}
+
 export type ProductScoreLevel = "low" | "medium" | "high";
 
 export interface ProductScoreDimension {
@@ -260,6 +290,7 @@ export interface ProductScore {
 
 export interface OwnedProductListItem extends OwnedProduct {
   latestMetric: OwnedProductDailyMetric | null;
+  spApiEvidence: SpApiProductEvidence;
   riskScore: ProductScore;
   opportunityScore: ProductScore;
 }

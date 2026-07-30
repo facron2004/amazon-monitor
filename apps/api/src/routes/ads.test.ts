@@ -16,7 +16,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 async function loginAs(username: string, password: string): Promise<string> {
@@ -24,7 +24,7 @@ async function loginAs(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -54,7 +54,7 @@ describe("ads routes", () => {
   it("stores Ads daily metrics and summarizes risk and scale opportunities", async () => {
     await request(app)
       .post("/api/ads/metrics")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         productId,
         date: "2026-07-06",
@@ -71,7 +71,7 @@ describe("ads routes", () => {
 
     await request(app)
       .post("/api/ads/metrics")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         productId,
         date: "2026-07-07",
@@ -90,7 +90,7 @@ describe("ads routes", () => {
 
     await request(app)
       .post("/api/ads/metrics")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         productId,
         date: "2026-07-07",
@@ -110,7 +110,7 @@ describe("ads routes", () => {
 
     const summary = await request(app)
       .get("/api/ads/summary?date=2026-07-07")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(summary.body).toMatchObject({
@@ -133,7 +133,7 @@ describe("ads routes", () => {
 
     const filtered = await request(app)
       .get("/api/ads/summary?date=2026-07-07&level=scale")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(filtered.body.items).toHaveLength(1);
     expect(filtered.body.items[0].level).toBe("scale");
@@ -142,7 +142,7 @@ describe("ads routes", () => {
   it("generates approval-gated Ads Analyst Agent output", async () => {
     await request(app)
       .post("/api/ads/metrics")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         productId,
         date: "2026-07-08",
@@ -158,7 +158,7 @@ describe("ads routes", () => {
       .expect(201);
     await request(app)
       .post("/api/ads/metrics")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         productId,
         date: "2026-07-08",
@@ -176,7 +176,7 @@ describe("ads routes", () => {
 
     const analysis = await request(app)
       .post("/api/ai/analyze-ads")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08" })
       .expect(201);
 
@@ -235,7 +235,7 @@ describe("ads routes", () => {
   it("enforces full, summary, and denied Ads access from the PRD matrix", async () => {
     await request(app)
       .post("/api/ads/metrics")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         productId,
         date: "2026-07-09",
@@ -266,25 +266,25 @@ describe("ads routes", () => {
 
     const full = await request(app)
       .get("/api/ads/summary?date=2026-07-09")
-      .set("x-amazon-monitor-session", managerToken)
+      .set("Cookie", managerToken)
       .expect(200);
     expect(full.body).toMatchObject({ accessLevel: "full", totalSpend: 80, totalSales: 200 });
     expect(full.body.items[0].metric).toMatchObject({ campaignName: "Sensitive campaign", targetText: "sensitive keyword", spend: 80 });
 
     const partial = await request(app)
       .get("/api/ads/summary?date=2026-07-09")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .expect(200);
     expect(partial.body).toMatchObject({ accessLevel: "summary", totalSpend: null, totalSales: null });
     expect(partial.body.items[0].metric).toMatchObject({ campaignName: "Restricted campaign", targetText: null, spend: null, sales: null, acos: 0.4 });
     expect(partial.body.items[0].insights[0].evidence).toEqual([]);
 
-    await request(app).get("/api/ads/metrics").set("x-amazon-monitor-session", operatorToken).expect(403);
-    await request(app).post("/api/ads/metrics").set("x-amazon-monitor-session", operatorToken).send({}).expect(403);
-    await request(app).post("/api/ai/analyze-ads").set("x-amazon-monitor-session", operatorToken).send({ date: "2026-07-09" }).expect(403);
-    await request(app).get("/api/ads/summary?date=2026-07-09").set("x-amazon-monitor-session", specialistToken).expect(200);
-    await request(app).post("/api/ai/analyze-ads").set("x-amazon-monitor-session", specialistToken).send({ date: "2026-07-09" }).expect(201);
-    await request(app).get("/api/ads/summary?date=2026-07-09").set("x-amazon-monitor-session", researcherToken).expect(403);
-    await request(app).get("/api/ads/summary?date=2026-07-09").set("x-amazon-monitor-session", viewerToken).expect(403);
+    await request(app).get("/api/ads/metrics").set("Cookie", operatorToken).expect(403);
+    await request(app).post("/api/ads/metrics").set("Cookie", operatorToken).send({}).expect(403);
+    await request(app).post("/api/ai/analyze-ads").set("Cookie", operatorToken).send({ date: "2026-07-09" }).expect(403);
+    await request(app).get("/api/ads/summary?date=2026-07-09").set("Cookie", specialistToken).expect(200);
+    await request(app).post("/api/ai/analyze-ads").set("Cookie", specialistToken).send({ date: "2026-07-09" }).expect(201);
+    await request(app).get("/api/ads/summary?date=2026-07-09").set("Cookie", researcherToken).expect(403);
+    await request(app).get("/api/ads/summary?date=2026-07-09").set("Cookie", viewerToken).expect(403);
   });
 });

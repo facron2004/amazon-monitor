@@ -1,12 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import { getCollectionFreshness } from "./collection-freshness-store.js";
 import { clampLimit, clampOffset, nowIso, withTransaction } from "./sql-utils.js";
-import type { CollectJob, Store } from "./types.js";
+import type { ClaimedCollectJob, CollectJob, Store } from "./types.js";
 
 type QueueStoreMethods = Pick<
   Store,
   | "pushJob"
   | "claimNextJob"
+  | "renewJobLease"
+  | "isJobLeaseActive"
   | "completeJob"
   | "failJob"
   | "listJobs"
@@ -14,7 +17,7 @@ type QueueStoreMethods = Pick<
   | "getCollectionFreshness"
   | "getQueueStats"
   | "recoverStuckJobs"
-  | "recoverStaleProcessingJobs"
+  | "recoverExpiredJobLeases"
   | "resetQueue"
 >;
 
@@ -30,13 +33,16 @@ interface CollectJobRow {
   completed_at: string | null;
   error_message: string | null;
   retry_count: number;
+  lease_owner: string | null;
+  lease_token: string | null;
+  lease_expires_at: string | null;
 }
 
 export function mapCollectJob(row: CollectJobRow): CollectJob {
   return {
     id: row.id,
     orgId: row.org_id,
-    taskType: row.task_type as "keyword" | "category",
+    taskType: row.task_type as "keyword" | "category" | "data_source_sync",
     targetId: row.target_id,
     date: row.date,
     status: row.status as "pending" | "processing" | "completed" | "failed",
@@ -46,6 +52,22 @@ export function mapCollectJob(row: CollectJobRow): CollectJob {
     errorMessage: row.error_message ?? null,
     retryCount: row.retry_count
   };
+}
+
+function mapClaimedCollectJob(row: CollectJobRow): ClaimedCollectJob {
+  if (!row.lease_owner || !row.lease_token || !row.lease_expires_at) {
+    throw new Error(`Job ${row.id} is missing its execution lease`);
+  }
+  return {
+    ...mapCollectJob(row),
+    leaseOwner: row.lease_owner,
+    leaseToken: row.lease_token,
+    leaseExpiresAt: row.lease_expires_at
+  };
+}
+
+function leaseExpiry(leaseDurationMs: number): string {
+  return new Date(Date.now() + leaseDurationMs).toISOString();
 }
 
 export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
@@ -94,7 +116,7 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       return mapCollectJob(existing);
     },
 
-    claimNextJob() {
+    claimNextJob(workerId, leaseDurationMs) {
       // Use transaction to avoid race conditions between multiple workers
       db.exec("BEGIN IMMEDIATE");
       try {
@@ -107,18 +129,25 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
 
         if (job) {
           const now = nowIso();
-          db.prepare(`
+          const leaseToken = randomUUID();
+          const leaseExpiresAt = leaseExpiry(leaseDurationMs);
+          const claimed = db.prepare(`
             UPDATE amazon_collect_job_queue
-            SET status = 'processing', started_at = ?
-            WHERE id = ?
-          `).run(now, job.id);
+            SET status = 'processing', started_at = ?, lease_owner = ?, lease_token = ?, lease_expires_at = ?
+            WHERE id = ? AND status = 'pending'
+          `).run(now, workerId, leaseToken, leaseExpiresAt, job.id);
+
+          if (claimed.changes === 0) {
+            db.exec("COMMIT");
+            return null;
+          }
 
           const updatedJob = db.prepare(`
             SELECT * FROM amazon_collect_job_queue WHERE id = ?
           `).get(job.id) as unknown as CollectJobRow;
 
           db.exec("COMMIT");
-          return mapCollectJob(updatedJob);
+          return mapClaimedCollectJob(updatedJob);
         }
 
         db.exec("COMMIT");
@@ -129,43 +158,61 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       }
     },
 
-    completeJob(id) {
-      const now = nowIso();
-      // Guard: only transition from 'processing' to 'completed'. If the
-      // reaper already recovered this job, the lane's stale runner must
-      // not overwrite the recovered state.
-      db.prepare(`
+    renewJobLease(id, leaseOwner, leaseToken, leaseDurationMs) {
+      const result = db.prepare(`
         UPDATE amazon_collect_job_queue
-        SET status = 'completed', completed_at = ?, error_message = NULL
-        WHERE id = ? AND status = 'processing'
-      `).run(now, id);
+        SET lease_expires_at = ?
+        WHERE id = ? AND status = 'processing' AND lease_owner = ? AND lease_token = ? AND lease_expires_at > ?
+      `).run(leaseExpiry(leaseDurationMs), id, leaseOwner, leaseToken, nowIso());
+      return result.changes > 0;
     },
 
-    failJob(id, errorMessage, maxRetries) {
+    isJobLeaseActive(id, leaseOwner, leaseToken) {
+      const row = db.prepare(`
+        SELECT 1 FROM amazon_collect_job_queue
+        WHERE id = ? AND status = 'processing' AND lease_owner = ? AND lease_token = ? AND lease_expires_at > ?
+      `).get(id, leaseOwner, leaseToken, nowIso());
+      return Boolean(row);
+    },
+
+    completeJob(id, leaseOwner, leaseToken) {
+      const now = nowIso();
+      const result = db.prepare(`
+        UPDATE amazon_collect_job_queue
+        SET status = 'completed', completed_at = ?, error_message = NULL,
+          lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+        WHERE id = ? AND status = 'processing' AND lease_owner = ? AND lease_token = ? AND lease_expires_at > ?
+      `).run(now, id, leaseOwner, leaseToken, nowIso());
+      return result.changes > 0;
+    },
+
+    failJob(id, leaseOwner, leaseToken, errorMessage, maxRetries) {
       const job = db.prepare(`
         SELECT * FROM amazon_collect_job_queue WHERE id = ?
       `).get(id) as unknown as CollectJobRow | undefined;
 
-      if (!job) return;
-      // Reaper may have already recovered this job — bail out so we don't
-      // double-count retries or overwrite recovered state.
-      if (job.status !== "processing") return;
+      if (!job) return false;
+      if (job.status !== "processing" || job.lease_owner !== leaseOwner || job.lease_token !== leaseToken) return false;
 
       const nextRetryCount = job.retry_count + 1;
       const now = nowIso();
 
       if (nextRetryCount >= maxRetries) {
-        db.prepare(`
+        const result = db.prepare(`
           UPDATE amazon_collect_job_queue
-          SET status = 'failed', completed_at = ?, error_message = ?, retry_count = ?
-          WHERE id = ?
-        `).run(now, errorMessage, nextRetryCount, id);
+          SET status = 'failed', completed_at = ?, error_message = ?, retry_count = ?,
+            lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+          WHERE id = ? AND status = 'processing' AND lease_owner = ? AND lease_token = ? AND lease_expires_at > ?
+        `).run(now, errorMessage, nextRetryCount, id, leaseOwner, leaseToken, nowIso());
+        return result.changes > 0;
       } else {
-        db.prepare(`
+        const result = db.prepare(`
           UPDATE amazon_collect_job_queue
-          SET status = 'pending', started_at = NULL, error_message = ?, retry_count = ?
-          WHERE id = ?
-        `).run(errorMessage, nextRetryCount, id);
+          SET status = 'pending', started_at = NULL, error_message = ?, retry_count = ?,
+            lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+          WHERE id = ? AND status = 'processing' AND lease_owner = ? AND lease_token = ? AND lease_expires_at > ?
+        `).run(errorMessage, nextRetryCount, id, leaseOwner, leaseToken, nowIso());
+        return result.changes > 0;
       }
     },
 
@@ -237,19 +284,11 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       };
     },
 
-    /**
-     * Recover jobs left in 'processing' state by a previous Worker that
-     * crashed or was killed. Marks them failed with an explicit reason so
-     * operators can distinguish "we recovered a dead task" from "the task
-     * genuinely errored". Returns the recovered job IDs for logging.
-     *
-     * Without this, the queue would silently carry jobs that no lane will
-     * ever pick up — `claimNextJob` only reads 'pending' rows.
-     */
+    /** Recover only legacy pre-lease processing rows during the upgrade. */
     recoverStuckJobs(reason: string): number[] {
       const stuck = db.prepare(`
         SELECT id FROM amazon_collect_job_queue
-        WHERE status = 'processing'
+        WHERE status = 'processing' AND lease_token IS NULL
         ORDER BY id ASC
         LIMIT 1000
       `).all() as Array<{ id: number }>;
@@ -265,8 +304,9 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       withTransaction(db, () => {
         db.prepare(`
           UPDATE amazon_collect_job_queue
-          SET status = 'failed', completed_at = ?, error_message = ?
-          WHERE id IN (${placeholders}) AND status = 'processing'
+          SET status = 'failed', completed_at = ?, error_message = ?,
+            lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+          WHERE id IN (${placeholders}) AND status = 'processing' AND lease_token IS NULL
         `).run(now, reason, ...ids);
       });
 
@@ -287,44 +327,46 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
      * 'pending' so they can be retried — unless retry_count is already
      * exhausted, in which case they go to 'failed'.
      */
-    recoverStaleProcessingJobs(staleAgeMs, maxRetries) {
-      const threshold = new Date(Date.now() - staleAgeMs).toISOString();
+    recoverExpiredJobLeases(maxRetries) {
+      const now = nowIso();
       const stuck = db.prepare(`
-        SELECT id, retry_count FROM amazon_collect_job_queue
-        WHERE status = 'processing' AND started_at IS NOT NULL AND started_at < ?
+        SELECT id, retry_count, lease_token FROM amazon_collect_job_queue
+        WHERE status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
         ORDER BY id ASC
         LIMIT 100
-      `).all(threshold) as Array<{ id: number; retry_count: number }>;
+      `).all(now) as Array<{ id: number; retry_count: number; lease_token: string }>;
 
       if (stuck.length === 0) return [];
 
-      const now = nowIso();
       const recovered: number[] = [];
 
       withTransaction(db, () => {
         for (const job of stuck) {
           // Double-check it's still processing (defensive against race)
           const row = db.prepare(`
-            SELECT status, retry_count FROM amazon_collect_job_queue WHERE id = ?
-          `).get(job.id) as { status: string; retry_count: number } | undefined;
+            SELECT status, retry_count, lease_token FROM amazon_collect_job_queue WHERE id = ?
+          `).get(job.id) as { status: string; retry_count: number; lease_token: string | null } | undefined;
 
-          if (!row || row.status !== "processing") continue;
+          if (!row || row.status !== "processing" || row.lease_token !== job.lease_token) continue;
 
           const nextRetry = row.retry_count + 1;
           if (nextRetry >= maxRetries) {
-            db.prepare(`
+            const result = db.prepare(`
               UPDATE amazon_collect_job_queue
-              SET status = 'failed', completed_at = ?, error_message = ?
-              WHERE id = ?
-            `).run(now, `任务卡住超过 ${Math.round(staleAgeMs / 60000)} 分钟，已自动回收`, job.id);
+              SET status = 'failed', completed_at = ?, error_message = ?,
+                lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+              WHERE id = ? AND status = 'processing' AND lease_token = ?
+            `).run(now, "任务租约已过期，已自动回收", job.id, job.lease_token);
+            if (result.changes > 0) recovered.push(job.id);
           } else {
-            db.prepare(`
+            const result = db.prepare(`
               UPDATE amazon_collect_job_queue
-              SET status = 'pending', started_at = NULL, error_message = ?, retry_count = ?
-              WHERE id = ?
-            `).run(`任务卡住超过 ${Math.round(staleAgeMs / 60000)} 分钟，已自动回收，准备重试`, nextRetry, job.id);
+              SET status = 'pending', started_at = NULL, error_message = ?, retry_count = ?,
+                lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+              WHERE id = ? AND status = 'processing' AND lease_token = ?
+            `).run("任务租约已过期，已自动回收，准备重试", nextRetry, job.id, job.lease_token);
+            if (result.changes > 0) recovered.push(job.id);
           }
-          recovered.push(job.id);
         }
       });
 

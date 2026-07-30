@@ -10,11 +10,15 @@ CREATE TABLE IF NOT EXISTS amazon_collect_job_queue (
   started_at TEXT,
   completed_at TEXT,
   error_message TEXT,
-  retry_count INTEGER NOT NULL DEFAULT 0
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  lease_owner TEXT,
+  lease_token TEXT,
+  lease_expires_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_queue_status_id ON amazon_collect_job_queue(status, id ASC);
 CREATE INDEX IF NOT EXISTS idx_queue_pending_age ON amazon_collect_job_queue(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_queue_org_status_id ON amazon_collect_job_queue(org_id, status, id DESC);
+CREATE INDEX IF NOT EXISTS idx_queue_processing_lease ON amazon_collect_job_queue(status, lease_expires_at, id ASC);
 CREATE INDEX IF NOT EXISTS idx_queue_dedup ON amazon_collect_job_queue(org_id, task_type, target_id, date, status);
 DELETE FROM amazon_collect_job_queue
 WHERE id NOT IN (

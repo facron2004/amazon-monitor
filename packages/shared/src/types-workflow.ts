@@ -36,7 +36,14 @@ export const TASK_TYPES = [
 ] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
-export const TASK_SOURCE_TYPES = ["insight_event", "ai_run", "rule", "manual", "review_recurring"] as const;
+export const TASK_SOURCE_TYPES = [
+  "insight_event",
+  "ai_run",
+  "agent_run",
+  "rule",
+  "manual",
+  "review_recurring",
+] as const;
 export type TaskSourceType = (typeof TASK_SOURCE_TYPES)[number];
 
 export const TASK_REVIEW_RESULTS = ["CONFIRMED", "REVERTED", "CONTINUING", "FAILED", "UNCLEAR"] as const;

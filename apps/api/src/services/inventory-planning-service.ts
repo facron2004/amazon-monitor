@@ -4,7 +4,8 @@ import type {
   InventoryReplenishmentPlan,
   InventoryReplenishmentSetting,
   OwnedProductDailyMetric,
-  ProductDataFreshness
+  ProductDataFreshness,
+  SpApiProductInventoryEvidence
 } from "@amazon-monitor/shared";
 
 const DEFAULT_LEAD_TIME_DAYS = 21;
@@ -26,10 +27,12 @@ interface InventoryProduct {
 export function buildInventoryReplenishmentPlan(input: {
   product: InventoryProduct;
   metrics: OwnedProductDailyMetric[];
+  spApiInventoryEvidence?: SpApiProductInventoryEvidence | null;
   setting: InventoryReplenishmentSetting | null;
   date?: string;
 }): InventoryReplenishmentPlan {
   const latestMetric = input.metrics[0] ?? null;
+  const inventoryEvidence = input.spApiInventoryEvidence ?? null;
   const productionLeadTimeDays = input.setting?.productionLeadTimeDays ?? null;
   const inboundLeadTimeDays = input.setting?.inboundLeadTimeDays ?? null;
   const leadTimeDays = productionLeadTimeDays !== null || inboundLeadTimeDays !== null
@@ -40,7 +43,7 @@ export function buildInventoryReplenishmentPlan(input: {
   const dailySalesVelocity = inferDailyVelocity(input.metrics, latestMetric);
   const salesVelocity7d = averageSalesVelocity(input.metrics, 7);
   const salesVelocity30d = averageSalesVelocity(input.metrics, 30);
-  const inventoryAvailable = latestMetric?.inventoryAvailable ?? null;
+  const inventoryAvailable = inventoryEvidence?.fulfillableQuantity ?? latestMetric?.inventoryAvailable ?? null;
   const inTransitUnits = input.setting?.inTransitUnits ?? 0;
   const localWarehouseUnits = input.setting?.localWarehouseUnits ?? 0;
   const supplyPositionUnits = inventoryAvailable === null && inTransitUnits === 0 && localWarehouseUnits === 0
@@ -55,10 +58,13 @@ export function buildInventoryReplenishmentPlan(input: {
     minOrderQuantity: input.setting?.minOrderQuantity ?? null,
     packSize: input.setting?.packSize ?? null
   });
-  const stockoutDate = inventoryDays === null ? null : addDays(input.date ?? latestMetric?.date, Math.floor(inventoryDays));
-  const reorderByDate = inventoryDays === null ? null : addDays(input.date ?? latestMetric?.date, Math.floor(inventoryDays - leadTimeDays - safetyStockDays));
+  const evidenceDate = input.date ?? latestMetric?.date ?? inventoryEvidence?.observedAt?.slice(0, 10) ?? null;
+  const stockoutDate = inventoryDays === null ? null : addDays(evidenceDate, Math.floor(inventoryDays));
+  const reorderByDate = inventoryDays === null ? null : addDays(evidenceDate, Math.floor(inventoryDays - leadTimeDays - safetyStockDays));
   const issues = buildIssues({
     latestMetric,
+    hasInventoryEvidence: inventoryEvidence !== null
+      || (latestMetric?.inventoryAvailable !== null && latestMetric?.inventoryAvailable !== undefined),
     inventoryDays,
     supplyPositionUnits,
     dailySalesVelocity,
@@ -69,8 +75,9 @@ export function buildInventoryReplenishmentPlan(input: {
   });
   return {
     ...input.product,
-    date: input.date ?? latestMetric?.date ?? null,
+    date: evidenceDate,
     latestMetric,
+    spApiInventoryEvidence: inventoryEvidence,
     setting: input.setting,
     inventoryAvailable,
     inTransitUnits,
@@ -92,12 +99,13 @@ export function buildInventoryReplenishmentPlan(input: {
     expectedArrivalDate: input.setting?.expectedArrivalDate ?? null,
     level: deriveLevel(issues),
     issues,
-    freshness: latestMetric ? metricFreshness(latestMetric) : input.product.freshness
+    freshness: inventoryEvidence ?? (latestMetric ? metricFreshness(latestMetric) : input.product.freshness)
   };
 }
 
 function buildIssues(input: {
   latestMetric: OwnedProductDailyMetric | null;
+  hasInventoryEvidence: boolean;
   inventoryDays: number | null;
   supplyPositionUnits: number | null;
   dailySalesVelocity: number | null;
@@ -106,7 +114,7 @@ function buildIssues(input: {
   targetStockDays: number;
   recommendedOrderQuantity: number | null;
 }): InventoryReplenishmentIssue[] {
-  if (!input.latestMetric || input.inventoryDays === null || input.dailySalesVelocity === null) {
+  if (!input.hasInventoryEvidence || input.inventoryDays === null || input.dailySalesVelocity === null) {
     return [{
       type: "data_gap",
       priority: "P2",

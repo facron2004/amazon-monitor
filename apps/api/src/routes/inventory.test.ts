@@ -16,7 +16,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -46,7 +46,7 @@ describe("inventory routes", () => {
   it("saves replenishment settings and returns a critical reorder plan", async () => {
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-07-06",
         unitsSold: 15,
@@ -57,7 +57,7 @@ describe("inventory routes", () => {
 
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-07-07",
         unitsSold: 15,
@@ -68,7 +68,7 @@ describe("inventory routes", () => {
 
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-07-08",
         unitsSold: 15,
@@ -79,7 +79,7 @@ describe("inventory routes", () => {
 
     const save = await request(app)
       .post(`/api/products/${productId}/inventory-setting`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         leadTimeDays: 20,
         safetyStockDays: 10,
@@ -113,7 +113,7 @@ describe("inventory routes", () => {
 
     const list = await request(app)
       .get("/api/inventory/plans?date=2026-07-08&level=critical")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(list.body).toHaveLength(1);
     expect(list.body[0]).toMatchObject({
@@ -124,7 +124,7 @@ describe("inventory routes", () => {
 
     const detail = await request(app)
       .get(`/api/products/${productId}/inventory-plan?date=2026-07-08`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(detail.body).toMatchObject({
       productId,
@@ -134,7 +134,7 @@ describe("inventory routes", () => {
 
     const taskResponse = await request(app)
       .post(`/api/products/${productId}/inventory-plan/task`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08" })
       .expect(201);
 
@@ -157,7 +157,7 @@ describe("inventory routes", () => {
 
     const repeated = await request(app)
       .post(`/api/products/${productId}/inventory-plan/task`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08" })
       .expect(200);
     expect(repeated.body).toMatchObject({
@@ -180,7 +180,7 @@ describe("inventory routes", () => {
   it("does not create a task when the plan only contains data gaps", async () => {
     await request(app)
       .post(`/api/products/${productId}/inventory-plan/task`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ date: "2026-07-08" })
       .expect(409, {
         message: "Inventory plan has no actionable replenishment or overstock signal"

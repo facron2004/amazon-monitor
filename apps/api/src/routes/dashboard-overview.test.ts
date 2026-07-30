@@ -15,7 +15,7 @@ beforeEach(async () => {
   store = createStore(db);
   app = createApiApp(store);
   const login = await request(app).post("/api/auth/login").send({ username: "admin", password: "admin123" }).expect(200);
-  token = login.body.token as string;
+  token = login.headers["set-cookie"][0] as string;
 });
 
 afterEach(() => db.close());
@@ -53,7 +53,7 @@ describe("dashboard operations overview", () => {
 
     const response = await request(app)
       .get("/api/dashboard/summary?date=2026-07-16")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(response.body.operations).toMatchObject({
@@ -88,8 +88,80 @@ describe("dashboard operations overview", () => {
       date: "2026-07-16",
       salesAmount: 1200
     });
-    expect((await request(app).get("/api/dashboard/today-actions?date=2026-07-16").set("x-amazon-monitor-session", token).expect(200)).body).toEqual([]);
-    expect((await request(app).get("/api/dashboard/events-feed?date=2026-07-16").set("x-amazon-monitor-session", token).expect(200)).body).toEqual([]);
+    expect((await request(app).get("/api/dashboard/today-actions?date=2026-07-16").set("Cookie", token).expect(200)).body).toEqual([]);
+    expect((await request(app).get("/api/dashboard/events-feed?date=2026-07-16").set("Cookie", token).expect(200)).body).toEqual([]);
+  });
+
+  it("prefers the SP-API store daily sales fact without double-counting legacy product metrics", async () => {
+    const source = store.createDataSource({
+      orgId: 1,
+      name: "US SP-API",
+      sourceType: "amazon_sp_api"
+    });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "US Seller",
+      marketplace: "amazon.com",
+      sellerId: "DASH-SELLER"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "SKU-SP-DASH",
+      asin: "B0DASHSP01",
+      title: "SP dashboard product"
+    });
+    addMetric(product.id, "2026-07-16", {
+      salesAmount: 1000,
+      orders: 10,
+      adSpend: 100,
+      adSales: 500,
+      grossMargin: 0.3
+    });
+    const salesRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: source.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "dashboard-store-daily"
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: source.id,
+      syncRunId: salesRun.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-16",
+      scope: "store_daily",
+      salesAmount: 1234,
+      orders: 12,
+      unitsSold: 14,
+      currency: "USD"
+    }]);
+
+    const response = await request(app)
+      .get("/api/dashboard/summary?date=2026-07-16")
+      .set("Cookie", token)
+      .expect(200);
+
+    expect(response.body.operations).toMatchObject({
+      activeProductCount: 1,
+      productMetricCount: 1
+    });
+    expect(response.body.operations.marketplaces).toEqual([
+      expect.objectContaining({
+        marketplace: "US",
+        currency: "USD",
+        metricProductCount: 1,
+        salesAmount: 1234,
+        orders: 12,
+        adSpend: 100,
+        acos: 0.2,
+        grossMargin: null
+      })
+    ]);
   });
 
   it("requires a signed-in organization", async () => {

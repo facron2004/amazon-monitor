@@ -44,6 +44,7 @@ export interface CategoryCollectionOptions {
   signal?: AbortSignal;
   organizationId?: number;
   dataSource?: string;
+  ensureActive?: () => void;
 }
 
 const defaultCategoryCollector = new PlaywrightAmazonBestSellerCollector();
@@ -108,10 +109,10 @@ export async function runCategoryCollectionForMonitor(
   const collector = options.collector ?? defaultCategoryCollector;
 
   try {
-    throwIfAborted(options.signal);
+    ensureCollectionActive(options);
     console.log(`[${ts()}] [Pipeline] Collecting category="${category.name}" marketplace=${category.marketplace} topN=${category.crawlTopN}...`);
     const pages = await collector.collect(category, date, { signal: options.signal });
-    throwIfAborted(options.signal);
+    ensureCollectionActive(options);
     const t1 = Date.now();
     console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing products...`);
     const retryCount = totalPageRetryCount(pages);
@@ -200,10 +201,11 @@ export async function runCategoryCollectionForMonitor(
       activityEvents
     });
 
-    throwIfAborted(options.signal);
+    ensureCollectionActive(options);
 
     // Wrap all writes in a single transaction to maintain consistency
     store.runInTransaction(() => {
+      ensureCollectionActive(options);
       store.deleteCategorySnapshotsForDate(category.id, date);
       store.insertCategorySnapshots(snapshots);
       store.replaceBsrRankHistoryForDate({
@@ -231,8 +233,10 @@ export async function runCategoryCollectionForMonitor(
       store.saveCategoryReport(date, category.id, report);
       generateInsightEvents(store, date, { categoryId: category.id, orgId: category.orgId });
       evaluateDueInsightEventReviews(store, date, { categoryId: category.id, orgId: category.orgId });
+      ensureCollectionActive(options);
     });
 
+    ensureCollectionActive(options);
     // Record BSR quality for partial collections
     if (dataQuality === "partial") {
       const issueParts: string[] = [];
@@ -278,6 +282,7 @@ export async function runCategoryCollectionForMonitor(
       errorMessage: dataQuality === "partial" ? `Partial data: ${products.length}/${category.crawlTopN} collected` : null,
       retryCount
     });
+    ensureCollectionActive(options);
     store.markCategoryCollection(category.id, "success");
     return log;
   } catch (error) {
@@ -341,6 +346,11 @@ function hasOkCategoryBsrSnapshot(store: Store, categoryId: number, date: string
 
 function categoryCollectionConcurrency(): number {
   return intEnv("AMAZON_COLLECT_CATEGORY_CONCURRENCY", 1, 1, 10);
+}
+
+function ensureCollectionActive(options: CategoryCollectionOptions): void {
+  throwIfAborted(options.signal);
+  options.ensureActive?.();
 }
 
 export { normalizeBestSellerPageRanks };

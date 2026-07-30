@@ -9,7 +9,7 @@ export interface TaskDetailResponse {
 }
 
 export interface CreateTaskInput {
-  sourceType: "insight_event" | "ai_run" | "rule" | "manual" | "review_recurring";
+  sourceType: "insight_event" | "ai_run" | "agent_run" | "rule" | "manual" | "review_recurring";
   sourceId?: string | null;
   title: string;
   description?: string;

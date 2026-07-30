@@ -37,7 +37,7 @@ export function generateDailyBrief(store: Store, input: DailyBriefInput): AiDail
     evidenceDate: input.date,
     records: [
       ...insightEventFreshnessRecords(topEvents),
-      ...products.flatMap((product) => product.latestMetric ? [product.latestMetric] : [])
+      ...products.flatMap(productFreshnessRecords)
     ],
     maxAgeHours: 24,
     dataLabel: "Daily operations"
@@ -222,7 +222,21 @@ function calculateConfidence(
   let score = 0.35;
   if (topEvents.length > 0) score += 0.25;
   if (topEvents.some((event) => event.scoreTotal >= 80)) score += 0.1;
-  if (products.some((product) => product.latestMetric !== null)) score += 0.15;
+  if (products.some(hasOperationalEvidence)) score += 0.15;
   if (openTasks.length > 0) score += 0.05;
   return Math.min(0.9, Number(score.toFixed(2)));
+}
+
+function productFreshnessRecords(product: OwnedProductListItem) {
+  return [
+    product.latestMetric,
+    product.spApiEvidence.sales,
+    product.spApiEvidence.inventory
+  ].filter((record): record is NonNullable<typeof record> => record !== null);
+}
+
+function hasOperationalEvidence(product: OwnedProductListItem): boolean {
+  return product.latestMetric !== null
+    || product.spApiEvidence.sales !== null
+    || product.spApiEvidence.inventory !== null;
 }

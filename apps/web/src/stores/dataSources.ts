@@ -6,12 +6,20 @@ import type {
   DataSourceCostImportResult,
   DataSourceImportPayload,
   DataSourceInventoryImportResult,
+  DataSourceMappingIssue,
   DataSourceProductImportResult,
   DataSourceStatus,
   DataSourceSyncRun,
-  DataSourceType
+  DataSourceType,
+  SpApiConnectionHealth
 } from "@amazon-monitor/shared";
-import { dataSourceApi, type CreateDataSourcePayload, type UpdateDataSourcePayload } from "../api-data-sources";
+import {
+  dataSourceApi,
+  type CreateDataSourcePayload,
+  type SaveSpApiCredentialsPayload,
+  type SpApiSyncPayload,
+  type UpdateDataSourcePayload
+} from "../api-data-sources";
 import { clearRequestCache } from "../api-base";
 
 export const useDataSourcesStore = defineStore("dataSources", () => {
@@ -33,6 +41,14 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
   const syncRunsSourceId = ref<number | null>(null);
   const runsLoading = ref(false);
   const runsError = ref<string | null>(null);
+  const spApiHealth = ref<SpApiConnectionHealth | null>(null);
+  const spApiHealthSourceId = ref<number | null>(null);
+  const mappingIssues = ref<DataSourceMappingIssue[]>([]);
+  const mappingIssuesSourceId = ref<number | null>(null);
+  const spApiLoading = ref(false);
+  const spApiSaving = ref(false);
+  const spApiSyncing = ref(false);
+  const spApiError = ref<string | null>(null);
   const error = ref<string | null>(null);
 
   const selectedSource = computed(() => sources.value.find((item) => item.id === selectedId.value) ?? sources.value[0] ?? null);
@@ -107,6 +123,71 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
       runsError.value = (err as Error).message;
     } finally {
       runsLoading.value = false;
+    }
+  }
+
+  async function fetchSpApiState(id: number): Promise<void> {
+    spApiLoading.value = true;
+    spApiError.value = null;
+    try {
+      const [health, issues] = await Promise.all([
+        dataSourceApi.getSpApiHealth(id),
+        dataSourceApi.listSpApiMappingIssues(id)
+      ]);
+      spApiHealth.value = health;
+      spApiHealthSourceId.value = id;
+      mappingIssues.value = issues;
+      mappingIssuesSourceId.value = id;
+    } catch (err) {
+      spApiHealth.value = null;
+      mappingIssues.value = [];
+      spApiHealthSourceId.value = id;
+      mappingIssuesSourceId.value = id;
+      spApiError.value = (err as Error).message;
+    } finally {
+      spApiLoading.value = false;
+    }
+  }
+
+  async function saveSpApiCredentials(id: number, payload: SaveSpApiCredentialsPayload): Promise<void> {
+    spApiSaving.value = true;
+    spApiError.value = null;
+    try {
+      await dataSourceApi.saveSpApiCredentials(id, payload);
+      await Promise.all([fetchSources(), fetchSpApiState(id), fetchSyncRuns(id)]);
+    } catch (err) {
+      spApiError.value = (err as Error).message;
+      throw err;
+    } finally {
+      spApiSaving.value = false;
+    }
+  }
+
+  async function testSpApiConnection(id: number): Promise<void> {
+    spApiSaving.value = true;
+    spApiError.value = null;
+    try {
+      await dataSourceApi.testSpApiConnection(id);
+      await Promise.all([fetchSources(), fetchSpApiState(id), fetchSyncRuns(id)]);
+    } catch (err) {
+      spApiError.value = (err as Error).message;
+      throw err;
+    } finally {
+      spApiSaving.value = false;
+    }
+  }
+
+  async function syncSpApi(id: number, payload: SpApiSyncPayload): Promise<void> {
+    spApiSyncing.value = true;
+    spApiError.value = null;
+    try {
+      await dataSourceApi.syncSpApi(id, payload);
+      await Promise.all([fetchSources(), fetchSpApiState(id), fetchSyncRuns(id)]);
+    } catch (err) {
+      spApiError.value = (err as Error).message;
+      throw err;
+    } finally {
+      spApiSyncing.value = false;
     }
   }
 
@@ -226,12 +307,24 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
     syncRunsSourceId,
     runsLoading,
     runsError,
+    spApiHealth,
+    spApiHealthSourceId,
+    mappingIssues,
+    mappingIssuesSourceId,
+    spApiLoading,
+    spApiSaving,
+    spApiSyncing,
+    spApiError,
     error,
     fetchSources,
     selectSource,
     createSource,
     updateSource,
     fetchSyncRuns,
+    fetchSpApiState,
+    saveSpApiCredentials,
+    testSpApiConnection,
+    syncSpApi,
     importProductsFile,
     importAdsFile,
     importCostsFile,

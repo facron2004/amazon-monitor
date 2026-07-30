@@ -49,7 +49,7 @@ describe("daily report archive routes", () => {
 
     const generated = await request(app)
       .post("/api/reports/daily/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ date: "2026-07-10" })
       .expect(201);
 
@@ -70,34 +70,34 @@ describe("daily report archive routes", () => {
 
     const history = await request(app)
       .get("/api/reports/daily/history?limit=10")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200);
     expect(history.body).toMatchObject({ total: 1, limit: 10, offset: 0 });
     expect(history.body.items).toHaveLength(1);
 
     await request(app)
       .post("/api/reports/daily/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ date: "2026-07-10" })
       .expect(201);
 
     const archive = await request(app)
       .get("/api/reports/daily/archive?date=2026-07-10")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200);
     expect(archive.body.version).toBe(2);
     expect(store.countDailyReportArchives(1)).toBe(1);
 
     const markdown = await request(app)
       .get("/api/reports/daily.md?date=2026-07-10")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200)
       .expect("Content-Type", /text\/markdown/);
     expect(markdown.text).toContain("跨境电商运营日报");
 
     const pdf = await request(app)
       .get("/api/reports/daily.pdf?date=2026-07-10")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200)
       .expect("Content-Type", /application\/pdf/)
       .expect("Content-Disposition", 'attachment; filename="operations-daily-2026-07-10.pdf"');
@@ -130,7 +130,7 @@ describe("daily report archive routes", () => {
 
     const generated = await request(app)
       .post("/api/reports/daily/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ date: "2026-07-10" })
       .expect(201);
 
@@ -155,12 +155,12 @@ describe("daily report archive routes", () => {
       const roleToken = await login(username, "ReportRole123!");
       await request(app)
         .post("/api/reports/daily/generate")
-        .set("x-amazon-monitor-session", roleToken)
+        .set("Cookie", roleToken)
         .send({ date: "2026-07-10" })
         .expect(201);
       await request(app)
         .get("/api/reports/daily.md?date=2026-07-10")
-        .set("x-amazon-monitor-session", roleToken)
+        .set("Cookie", roleToken)
         .expect(200);
     }
   });
@@ -168,7 +168,7 @@ describe("daily report archive routes", () => {
   it("allows viewers to read report history but blocks generation and export", async () => {
     await request(app)
       .post("/api/reports/daily/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ date: "2026-07-10" })
       .expect(201);
     store.createUser({
@@ -183,24 +183,24 @@ describe("daily report archive routes", () => {
     await request(app).get("/api/reports/daily/history").expect(401);
     await request(app)
       .get("/api/reports/daily/history")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(200);
     await request(app)
       .post("/api/reports/daily/generate")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .send({ date: "2026-07-10" })
       .expect(403);
     await request(app)
       .get("/api/reports/daily.md?date=2026-07-10")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(403);
     await request(app)
       .get("/api/reports/daily.pdf?date=2026-07-10")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(403);
     await request(app)
       .get("/api/reports/daily.xlsx?date=2026-07-10")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(403);
   });
 
@@ -222,20 +222,26 @@ describe("daily report archive routes", () => {
       syncError: "Token expired"
     });
     const failedKeywordJob = store.pushJob("keyword", 1, "2026-07-10");
-    const claimedKeywordJob = store.claimNextJob();
+    const claimedKeywordJob = store.claimNextJob("archive-test-worker", 60_000);
     expect(claimedKeywordJob?.id).toBe(failedKeywordJob.id);
-    store.failJob(claimedKeywordJob!.id, "CAPTCHA blocked", 1);
+    store.failJob(
+      claimedKeywordJob!.id,
+      claimedKeywordJob!.leaseOwner,
+      claimedKeywordJob!.leaseToken,
+      "CAPTCHA blocked",
+      1
+    );
     expect(store.getJobStatus(failedKeywordJob.id)?.status).toBe("failed");
 
     await request(app)
       .post("/api/reports/daily/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ date: "2026-07-10" })
       .expect(201);
 
     const readiness = await request(app)
       .get("/api/reports/daily/readiness?date=2026-07-10")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200);
 
     expect(readiness.body).toMatchObject({
@@ -277,7 +283,7 @@ async function login(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 interface ReportEventOverrides {

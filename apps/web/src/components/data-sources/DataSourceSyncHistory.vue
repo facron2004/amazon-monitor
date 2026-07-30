@@ -21,7 +21,12 @@ const operationLabels: Record<DataSourceSyncOperation, string> = {
   cost_csv_import: "Cost CSV",
   cost_excel_import: "Cost Excel",
   inventory_csv_import: "Inventory CSV",
-  inventory_excel_import: "Inventory Excel"
+  inventory_excel_import: "Inventory Excel",
+  sp_api_connection_test: "SP-API Connection Test",
+  sp_api_sales_traffic_daily_sync: "SP-API Sales & Traffic",
+  sp_api_sales_traffic_backfill: "SP-API Sales Backfill",
+  sp_api_fba_inventory_incremental_sync: "SP-API FBA Inventory",
+  sp_api_fba_inventory_full_reconcile: "SP-API FBA Inventory Reconcile"
 };
 
 const statusLabels: Record<DataSourceSyncRunStatus, string> = {

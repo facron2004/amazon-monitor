@@ -25,11 +25,13 @@ describe("auth API (Stage 0)", () => {
       .post("/api/auth/login")
       .send({ username: "admin", password: "admin123" })
       .expect(200);
-    expect(login.body.token).toMatch(/^[a-f0-9]+\.[A-Za-z0-9_-]+$/);
+    expect(login.body).not.toHaveProperty("token");
     expect(login.body.context.user.username).toBe("admin");
     expect(login.body.context.user.role).toBe("admin");
     expect(login.body.context.organization.name).toBe("Default Organization");
     expect(login.headers["set-cookie"][0]).toMatch(/amazon_monitor_session=/);
+    expect(login.headers["set-cookie"][0]).toContain("HttpOnly");
+    expect(login.headers["set-cookie"][0]).toContain("SameSite=Lax");
   });
 
   it("lets first-time registration replace the seeded bootstrap admin", async () => {
@@ -69,10 +71,8 @@ describe("auth API (Stage 0)", () => {
 
   it("sets Secure on session cookies in production", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
-    const originalApiKey = process.env.AMAZON_MONITOR_API_KEY;
     const originalInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
     process.env.NODE_ENV = "production";
-    process.env.AMAZON_MONITOR_API_KEY = "legacy-key";
     process.env.ADMIN_INITIAL_PASSWORD = "admin123";
     const prodDb = new DatabaseSync(":memory:");
     try {
@@ -91,11 +91,6 @@ describe("auth API (Stage 0)", () => {
       } else {
         delete process.env.NODE_ENV;
       }
-      if (originalApiKey) {
-        process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
-      } else {
-        delete process.env.AMAZON_MONITOR_API_KEY;
-      }
       if (originalInitialPassword) {
         process.env.ADMIN_INITIAL_PASSWORD = originalInitialPassword;
       } else {
@@ -112,21 +107,33 @@ describe("auth API (Stage 0)", () => {
     expect(response.body.message).toMatch(/invalid/i);
   });
 
-  it("returns the session context on /api/auth/me with the session token", async () => {
+  it("returns the session context on /api/auth/me with the HttpOnly session cookie", async () => {
     const login = await request(app)
       .post("/api/auth/login")
       .send({ username: "admin", password: "admin123" })
       .expect(200);
-    const token: string = login.body.token;
+    const token: string = login.headers["set-cookie"][0];
     const me = await request(app)
       .get("/api/auth/me")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(me.body.user.username).toBe("admin");
   });
 
-  it("returns 401 on /api/auth/me without a session token", async () => {
+  it("returns 401 on /api/auth/me without a session cookie", async () => {
     await request(app).get("/api/auth/me").expect(401);
+  });
+
+  it("does not accept the deprecated session-token request header", async () => {
+    const session = store.createSession({
+      userId: store.listUsers()[0].id,
+      expiresAt: "2026-08-11T00:00:00.000Z"
+    });
+
+    await request(app)
+      .get("/api/auth/me")
+      .set("x-amazon-monitor-session", session.token)
+      .expect(401);
   });
 
   it("lets admin create legacy and PRD roles via /api/users", async () => {
@@ -134,10 +141,10 @@ describe("auth API (Stage 0)", () => {
       .post("/api/auth/login")
       .send({ username: "admin", password: "admin123" })
       .expect(200);
-    const token: string = login.body.token;
+    const token: string = login.headers["set-cookie"][0];
     const created = await request(app)
       .post("/api/users")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ username: "sara", password: "password-1234", role: "developer" })
       .expect(201);
     expect(created.body.username).toBe("sara");
@@ -152,7 +159,7 @@ describe("auth API (Stage 0)", () => {
 
     const researcher = await request(app)
       .post("/api/users")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ username: "researcher", password: "password-1234", role: "product_researcher" })
       .expect(201);
     expect(researcher.body.role).toBe("product_researcher");
@@ -170,17 +177,17 @@ describe("auth API (Stage 0)", () => {
       .post("/api/auth/login")
       .send({ username: "admin", password: "admin123" })
       .expect(200);
-    const token = login.body.token as string;
+    const token = login.headers["set-cookie"][0] as string;
 
     const users = await request(app)
       .get("/api/users")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(users.body.map((user: { username: string }) => user.username)).toEqual(["admin"]);
 
     await request(app)
       .post("/api/users")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         orgId: otherOrganization.id,
         username: "cross-org-user",
@@ -203,10 +210,10 @@ describe("auth API (Stage 0)", () => {
       .post("/api/auth/login")
       .send({ username: "op1", password: "password-1234" })
       .expect(200);
-    const token: string = login.body.token;
+    const token: string = login.headers["set-cookie"][0];
     await request(app)
       .post("/api/users")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ username: "x", password: "password-1234", role: "operator" })
       .expect(403);
   });
@@ -216,14 +223,14 @@ describe("auth API (Stage 0)", () => {
       .post("/api/auth/login")
       .send({ username: "admin", password: "admin123" })
       .expect(200);
-    const token: string = login.body.token;
+    const token: string = login.headers["set-cookie"][0];
     await request(app)
       .post("/api/auth/logout")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(204);
     await request(app)
       .get("/api/auth/me")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(401);
   });
 });

@@ -10,21 +10,40 @@
       "url": "/api"
     }
   ],
-  "components": {
-    "securitySchemes": {
-      "ApiKeyAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "API Key"
-      }
-    }
-  },
   "security": [
     {
-      "ApiKeyAuth": []
+      "SessionCookie": []
     }
   ],
   "components": {
+    "securitySchemes": {
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "amazon_monitor_session",
+        "description": "HttpOnly session cookie issued by /auth/login."
+      }
+    },
+    "parameters": {
+      "Id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "minimum": 1 }
+      },
+      "Asin": {
+        "name": "asin",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1, "maxLength": 30 }
+      },
+      "RuleId": {
+        "name": "ruleId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "minimum": 1 }
+      }
+    },
     "schemas": {
       "TaskMetricEntries": {
         "type": "array",
@@ -574,6 +593,430 @@
     }
   },
   "paths": {
+    "/auth/register-first-user": {
+      "post": {
+        "summary": "Register the first administrator for an empty organization",
+        "security": [],
+        "responses": { "201": { "description": "Administrator created; no session secret is returned" } }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Start an HttpOnly browser session",
+        "security": [],
+        "responses": { "200": { "description": "Session context; the HttpOnly session cookie is set in the response header" }, "401": { "description": "Invalid credentials" } }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Revoke the current browser session",
+        "responses": { "204": { "description": "Session revoked and cookie cleared" } }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "Get the current session context",
+        "responses": { "200": { "description": "Current user and organization context" }, "401": { "description": "Authentication required" } }
+      }
+    },
+    "/users": {
+      "get": {
+        "summary": "List organization users",
+        "responses": { "200": { "description": "Organization user list" }, "403": { "description": "Administrator role required" } }
+      },
+      "post": {
+        "summary": "Create an organization user",
+        "responses": { "201": { "description": "User created" }, "403": { "description": "Administrator role required" } }
+      }
+    },
+    "/data-sources/{id}/health": {
+      "get": {
+        "summary": "Get independent sales and inventory health for an SP-API data source",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "SP-API connection and domain health without credential material" },
+          "404": { "description": "Data source not found" },
+          "409": { "description": "Data source is not an Amazon SP-API source" }
+        }
+      }
+    },
+    "/data-sources/{id}/sp-api/credentials": {
+      "post": {
+        "summary": "Save or replace encrypted SP-API credentials",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["region", "commerceStoreIds", "lwaClientId", "lwaClientSecret", "lwaRefreshToken"],
+                "properties": {
+                  "region": { "type": "string", "enum": ["NA", "EU", "FE"] },
+                  "commerceStoreIds": { "type": "array", "items": { "type": "integer" }, "minItems": 1 },
+                  "lwaClientId": { "type": "string" },
+                  "lwaClientSecret": { "type": "string", "writeOnly": true },
+                  "lwaRefreshToken": { "type": "string", "writeOnly": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Credentials saved without returning credential material" },
+          "400": { "description": "Invalid region or linked store configuration" },
+          "403": { "description": "Data-source management capability required" },
+          "404": { "description": "Data source or commerce store not found" },
+          "409": { "description": "Connector disabled or data source is not an SP-API source" },
+          "503": { "description": "Credential encryption key is not configured" }
+        }
+      }
+    },
+    "/data-sources/{id}/test-connection": {
+      "post": {
+        "summary": "Queue a lease-protected SP-API LWA connection test",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "202": { "description": "Connection-test sync run queued" },
+          "403": { "description": "Data-source management capability required" },
+          "404": { "description": "Data source not found" },
+          "409": { "description": "Connector disabled, source disabled, or credentials missing" }
+        }
+      }
+    },
+    "/data-sources/{id}/sync": {
+      "post": {
+        "summary": "Queue one or more lease-protected SP-API synchronization runs",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["domains", "mode"],
+                "properties": {
+                  "domains": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["sales_traffic", "fba_inventory"] } },
+                  "mode": { "type": "string", "enum": ["incremental", "full", "backfill"] },
+                  "marketplaces": { "type": "array", "items": { "type": "string" } },
+                  "fromDate": { "type": "string", "format": "date" },
+                  "toDate": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Idempotent sync run(s) queued" },
+          "400": { "description": "Invalid mode, marketplace, or Sales backfill window" },
+          "403": { "description": "Collection-management capability required" },
+          "404": { "description": "Data source not found" },
+          "409": { "description": "Connector disabled, source disabled, or credentials missing" }
+        }
+      }
+    },
+    "/data-sources/{id}/mapping-issues": {
+      "get": {
+        "summary": "List organization-scoped SP-API product mapping issues",
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "resolved", "ignored"] } },
+          { "name": "domain", "in": "query", "schema": { "type": "string", "enum": ["sales_traffic", "fba_inventory"] } },
+          { "name": "marketplace", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "issueType", "in": "query", "schema": { "type": "string", "enum": ["unknown_sku", "unknown_asin", "asin_conflict", "ambiguous_asin"] } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Mapping issue list without credential material" },
+          "404": { "description": "Data source not found" },
+          "409": { "description": "Data source is not an Amazon SP-API source" }
+        }
+      }
+    },
+    "/data-sources/{id}/mapping-issues/{issueId}": {
+      "patch": {
+        "summary": "Resolve, ignore, or reopen an SP-API product mapping issue",
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "name": "issueId", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string", "enum": ["open", "resolved", "ignored"] },
+                  "productId": { "type": "integer", "minimum": 1, "nullable": true },
+                  "note": { "type": "string", "minLength": 1, "maxLength": 2000, "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated mapping issue" },
+          "400": { "description": "Invalid resolution input" },
+          "403": { "description": "Data-source management capability required" },
+          "404": { "description": "Data source, issue, or owned product not found" },
+          "409": { "description": "Data source is not an Amazon SP-API source" }
+        }
+      }
+    },
+    "/category-signals": {
+      "get": {
+        "summary": "List category collection signals",
+        "responses": { "200": { "description": "Organization-scoped category signals" } }
+      }
+    },
+    "/category-products/{asin}/link": {
+      "get": {
+        "summary": "Get an Amazon category product link",
+        "parameters": [{ "$ref": "#/components/parameters/Asin" }],
+        "responses": { "200": { "description": "Product link" }, "404": { "description": "Product not found" } }
+      }
+    },
+    "/category-products/{asin}/open": {
+      "get": {
+        "summary": "Open an Amazon category product link",
+        "parameters": [{ "$ref": "#/components/parameters/Asin" }],
+        "responses": { "302": { "description": "Redirect to Amazon product page" }, "404": { "description": "Product not found" } }
+      }
+    },
+    "/changes": {
+      "get": {
+        "summary": "List detected competitor changes",
+        "responses": { "200": { "description": "Organization-scoped change list" } }
+      }
+    },
+    "/snapshots": {
+      "get": {
+        "summary": "List keyword collection snapshots",
+        "responses": { "200": { "description": "Organization-scoped SERP snapshots" } }
+      }
+    },
+    "/collect/jobs": {
+      "get": {
+        "summary": "List collection jobs through the compatibility endpoint",
+        "responses": { "200": { "description": "Collection jobs" } }
+      }
+    },
+    "/collect/jobs/{id}": {
+      "get": {
+        "summary": "Get a collection job through the compatibility endpoint",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Collection job" }, "404": { "description": "Job not found" } }
+      }
+    },
+    "/collect/freshness": {
+      "get": {
+        "summary": "Get collection freshness through the compatibility endpoint",
+        "responses": { "200": { "description": "Collection freshness summary" } }
+      }
+    },
+    "/collect/queue-stats": {
+      "get": {
+        "summary": "Get collection queue statistics through the compatibility endpoint",
+        "responses": { "200": { "description": "Collection queue statistics" } }
+      }
+    },
+    "/collect/worker-status": {
+      "get": {
+        "summary": "Get collection worker status through the compatibility endpoint",
+        "responses": { "200": { "description": "Worker heartbeat status" } }
+      }
+    },
+    "/collectors/worker-restart": {
+      "post": {
+        "summary": "Restart the collection worker",
+        "responses": { "202": { "description": "Worker restart requested" }, "403": { "description": "Administrator role required" } }
+      }
+    },
+    "/competitor-folders": {
+      "get": {
+        "summary": "List competitor folders",
+        "responses": { "200": { "description": "Organization-scoped competitor folders" } }
+      }
+    },
+    "/competitors/{asin}/link": {
+      "get": {
+        "summary": "Get a competitor Amazon product link",
+        "parameters": [{ "$ref": "#/components/parameters/Asin" }],
+        "responses": { "200": { "description": "Competitor product link" }, "404": { "description": "Competitor not found" } }
+      }
+    },
+    "/competitors/{asin}/open": {
+      "get": {
+        "summary": "Open a competitor Amazon product link",
+        "parameters": [{ "$ref": "#/components/parameters/Asin" }],
+        "responses": { "302": { "description": "Redirect to Amazon product page" }, "404": { "description": "Competitor not found" } }
+      }
+    },
+    "/products/{asin}/activity-calendar": {
+      "get": {
+        "summary": "Get a product activity calendar",
+        "parameters": [{ "$ref": "#/components/parameters/Asin" }],
+        "responses": { "200": { "description": "Activity calendar" } }
+      }
+    },
+    "/products/{id}/listing-health": {
+      "get": {
+        "summary": "Get listing health for an owned product",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Listing health" }, "404": { "description": "Product not found" } }
+      }
+    },
+    "/insight-events/top-summary/filter-options": {
+      "get": {
+        "summary": "List available top-summary filters",
+        "responses": { "200": { "description": "Insight event filter options" } }
+      }
+    },
+    "/insight-events/{id}/tasks": {
+      "get": {
+        "summary": "List tasks linked to an insight event",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Linked tasks" } }
+      }
+    },
+    "/insights/{id}/tasks": {
+      "get": {
+        "summary": "List tasks linked to an insight through the compatibility endpoint",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Linked tasks" } }
+      }
+    },
+    "/notifications/schedules": {
+      "get": {
+        "summary": "List notification schedules",
+        "responses": { "200": { "description": "Notification schedules" } }
+      },
+      "post": {
+        "summary": "Create a notification schedule",
+        "responses": { "201": { "description": "Notification schedule created" } }
+      }
+    },
+    "/notifications/schedules/{id}": {
+      "patch": {
+        "summary": "Update a notification schedule",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Notification schedule updated" }, "404": { "description": "Schedule not found" } }
+      },
+      "delete": {
+        "summary": "Delete a notification schedule",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "204": { "description": "Notification schedule deleted" }, "404": { "description": "Schedule not found" } }
+      }
+    },
+    "/notifications/schedules/{id}/send": {
+      "post": {
+        "summary": "Send a scheduled notification now",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "202": { "description": "Notification send requested" }, "404": { "description": "Schedule not found" } }
+      }
+    },
+    "/notifications/logs": {
+      "get": {
+        "summary": "List notification delivery logs",
+        "responses": { "200": { "description": "Notification delivery logs" } }
+      }
+    },
+    "/reports/category": {
+      "get": {
+        "summary": "Get a category collection report",
+        "responses": { "200": { "description": "Category report" } }
+      }
+    },
+    "/rules": {
+      "get": {
+        "summary": "List alert rule configurations",
+        "responses": { "200": { "description": "Alert rule configurations" } }
+      }
+    },
+    "/rules/{ruleId}": {
+      "get": {
+        "summary": "Get one alert rule configuration",
+        "parameters": [{ "$ref": "#/components/parameters/RuleId" }],
+        "responses": { "200": { "description": "Alert rule configuration" }, "404": { "description": "Rule not found" } }
+      },
+      "patch": {
+        "summary": "Update an alert rule configuration",
+        "parameters": [{ "$ref": "#/components/parameters/RuleId" }],
+        "responses": { "200": { "description": "Alert rule configuration updated" }, "404": { "description": "Rule not found" } }
+      }
+    },
+    "/rules/{ruleId}/config": {
+      "delete": {
+        "summary": "Delete an alert rule configuration",
+        "parameters": [{ "$ref": "#/components/parameters/RuleId" }],
+        "responses": { "204": { "description": "Alert rule configuration deleted" } }
+      }
+    },
+    "/sops": {
+      "get": {
+        "summary": "List standard operating procedures",
+        "responses": { "200": { "description": "Organization SOPs" } }
+      },
+      "post": {
+        "summary": "Create a standard operating procedure",
+        "responses": { "201": { "description": "SOP created" } }
+      }
+    },
+    "/sops/{id}": {
+      "get": {
+        "summary": "Get a standard operating procedure",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "SOP" }, "404": { "description": "SOP not found" } }
+      },
+      "patch": {
+        "summary": "Update a standard operating procedure",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "SOP updated" }, "404": { "description": "SOP not found" } }
+      }
+    },
+    "/sops/{id}/publish": {
+      "post": {
+        "summary": "Publish a standard operating procedure",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "SOP published" }, "404": { "description": "SOP not found" } }
+      }
+    },
+    "/sops/{id}/archive": {
+      "post": {
+        "summary": "Archive a standard operating procedure",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "SOP archived" }, "404": { "description": "SOP not found" } }
+      }
+    },
+    "/tasks/{id}/events": {
+      "get": {
+        "summary": "List task state transition events",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Task events" }, "404": { "description": "Task not found" } }
+      }
+    },
+    "/tasks/{id}/notes": {
+      "get": {
+        "summary": "List task notes",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Task notes" }, "404": { "description": "Task not found" } }
+      },
+      "post": {
+        "summary": "Add a task note",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "201": { "description": "Task note created" }, "404": { "description": "Task not found" } }
+      }
+    },
+    "/tasks/{id}/transition": {
+      "post": {
+        "summary": "Transition a task state",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Task transitioned" }, "404": { "description": "Task not found" } }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health Check",
@@ -5412,6 +5855,14 @@
           "404": { "description": "Task not found" }
         }
       },
+      "patch": {
+        "summary": "Update a workflow task",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Task updated" },
+          "404": { "description": "Task not found" }
+        }
+      },
       "put": {
         "summary": "Update a workflow task using the PRD-compatible method",
         "parameters": [
@@ -5619,6 +6070,164 @@
           "403": { "description": "Operator or admin role required" },
           "404": { "description": "Task not found in current organization" },
           "409": { "description": "Task is not in progress" }
+        }
+      }
+    },
+    "/agent/sessions": {
+      "get": {
+        "summary": "List the current user's Agent sessions",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Agent sessions" },
+          "401": { "description": "Authentication required" }
+        }
+      },
+      "post": {
+        "summary": "Create an Agent session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string", "minLength": 1, "maxLength": 200 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Agent session created" },
+          "401": { "description": "Authentication required" }
+        }
+      }
+    },
+    "/agent/sessions/{id}": {
+      "get": {
+        "summary": "Get an Agent session with messages and runs",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Agent session detail" },
+          "404": { "description": "Agent session not found" }
+        }
+      }
+    },
+    "/agent/sessions/{id}/runs": {
+      "post": {
+        "summary": "Start a bounded Agent run",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["input", "freshness"],
+                "properties": {
+                  "input": { "type": "string", "minLength": 1, "maxLength": 10000 },
+                  "taskType": { "type": "string" },
+                  "freshness": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Agent run accepted" },
+          "503": { "description": "Agent SDK disabled" }
+        }
+      }
+    },
+    "/agent/runs": {
+      "get": {
+        "summary": "List organization-scoped Agent runs",
+        "responses": { "200": { "description": "Agent runs" } }
+      }
+    },
+    "/agent/runs/{id}": {
+      "get": {
+        "summary": "Get an Agent run, evidence events, and proposals",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Agent run detail" },
+          "404": { "description": "Agent run not found" }
+        }
+      }
+    },
+    "/agent/runs/{id}/events": {
+      "get": {
+        "summary": "Stream resumable Agent run events",
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "name": "Last-Event-ID", "in": "header", "schema": { "type": "integer", "minimum": 0 } },
+          { "name": "after", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent Agent run events",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/agent/runs/{id}/cancel": {
+      "post": {
+        "summary": "Cancel an active Agent run",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Agent run cancelled" },
+          "404": { "description": "Agent run not found" }
+        }
+      }
+    },
+    "/agent/actions": {
+      "get": {
+        "summary": "List organization-scoped Agent action proposals",
+        "responses": { "200": { "description": "Action proposals" } }
+      }
+    },
+    "/agent/actions/{id}/approve": {
+      "post": {
+        "summary": "Approve an Agent action proposal",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Approval and execution status" } }
+      }
+    },
+    "/agent/actions/{id}/reject": {
+      "post": {
+        "summary": "Reject an Agent action proposal",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Rejected action proposal" } }
+      }
+    },
+    "/agent/actions/{id}/modify": {
+      "post": {
+        "summary": "Replace an Agent action proposal with a modified version",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "201": { "description": "Modified action proposal version" } }
+      }
+    },
+    "/agent/actions/{id}/execute": {
+      "post": {
+        "summary": "Confirm and execute an approved L3 action",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Action execution status" } }
+      }
+    },
+    "/agent/audit": {
+      "get": {
+        "summary": "Export Agent run, evidence, approval, and execution audit records",
+        "parameters": [
+          { "name": "runId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "description": "Organization-scoped Agent audit export" },
+          "400": { "description": "Invalid or over-90-day range" }
         }
       }
     },

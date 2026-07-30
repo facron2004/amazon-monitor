@@ -8,6 +8,18 @@ import type {
   AiRun,
   AiRunListFilter,
   AiActionFeedback,
+  ActionApproval,
+  ActionExecution,
+  ActionProposal,
+  ActionProposalStatus,
+  AgentMessage,
+  AgentRun,
+  AgentRunEvent,
+  AgentStep,
+  AgentToolCall,
+  AgentRunOutput,
+  AgentRunStatus,
+  AgentSession,
   AsinWatchState,
   AsinWatchStateInput,
   BestsellerRankSnapshot,
@@ -37,6 +49,9 @@ import type {
   CompetitorTier,
   CreateManualCompetitorInput,
   CreateAiRunInput,
+  CreateActionProposalInput,
+  CreateAgentRunInput,
+  CreateAgentSessionInput,
   CreateDataSourceInput,
   CreateDataSourceSyncRunInput,
   CreateCommerceStoreInput,
@@ -52,7 +67,14 @@ import type {
   DashboardOperationsSummary,
   DashboardSummary,
   DataSourceConfig,
+  DataSourceDomainHealth,
   DataSourceListFilter,
+  DataSourceMappingIssue,
+  DataSourceMappingIssueListFilter,
+  SpApiConnectionConfig,
+  SpApiFactPromotionResult,
+  SpApiInventoryFactInput,
+  SpApiSalesTrafficFactInput,
   DataSourceSyncRun,
   DataSourceSyncRunListFilter,
   FinishDataSourceSyncRunInput,
@@ -104,6 +126,7 @@ import type {
   TaskExecutionInput,
   TaskNote,
   UpdateDataSourceInput,
+  UpdateDataSourceMappingIssueInput,
   UpdateCommerceStoreInput,
   UpdatePromotionPlanInput,
   UpdateOwnedProductInput,
@@ -114,6 +137,8 @@ import type {
   UpsertProductReviewInput,
   UpsertProductListingSnapshotInput,
   UpsertOwnedProductDailyMetricInput,
+  UpsertDataSourceDomainHealthInput,
+  UpsertDataSourceMappingIssueInput,
   UpsertProductProfitSettingInput,
   User,
   UserRole,
@@ -537,21 +562,29 @@ export interface DashboardStore {
 
 export interface QueueStore {
   pushJob(
-    taskType: "keyword" | "category",
+    taskType: CollectJob["taskType"],
     targetId: number,
     date: string,
     orgId?: number,
   ): CollectJob;
-  claimNextJob(): CollectJob | null;
-  completeJob(id: number): void;
-  failJob(id: number, errorMessage: string, maxRetries: number): void;
+  claimNextJob(workerId: string, leaseDurationMs: number): ClaimedCollectJob | null;
+  renewJobLease(id: number, leaseOwner: string, leaseToken: string, leaseDurationMs: number): boolean;
+  isJobLeaseActive(id: number, leaseOwner: string, leaseToken: string): boolean;
+  completeJob(id: number, leaseOwner: string, leaseToken: string): boolean;
+  failJob(id: number, leaseOwner: string, leaseToken: string, errorMessage: string, maxRetries: number): boolean;
   listJobs(limit?: number, offset?: number, orgId?: number): CollectJob[];
   getJobStatus(id: number, orgId?: number): CollectJob | null;
   getCollectionFreshness(orgId?: number): CollectionFreshness[];
   getQueueStats(orgId?: number): QueueStats;
   recoverStuckJobs(reason: string): number[];
-  recoverStaleProcessingJobs(staleAgeMs: number, maxRetries: number): number[];
+  recoverExpiredJobLeases(maxRetries: number): number[];
   resetQueue(): void;
+}
+
+export interface ClaimedCollectJob extends CollectJob {
+  leaseOwner: string;
+  leaseToken: string;
+  leaseExpiresAt: string;
 }
 
 /**
@@ -676,6 +709,165 @@ export interface AiRunStore {
   }): AiActionFeedback[];
 }
 
+export interface AgentStore {
+  createAgentSession(input: CreateAgentSessionInput): AgentSession;
+  getAgentSession(id: number, orgId: number): AgentSession | null;
+  listAgentSessions(filter: {
+    orgId: number;
+    userId?: number;
+    limit?: number;
+    offset?: number;
+  }): AgentSession[];
+  appendAgentMessage(input: {
+    sessionId: number;
+    runId?: number | null;
+    role: AgentMessage["role"];
+    content: string;
+  }): AgentMessage;
+  listAgentMessages(sessionId: number, limit?: number, offset?: number): AgentMessage[];
+  appendAgentSessionItems(sessionId: number, itemJson: string[]): void;
+  listAgentSessionItems(sessionId: number, limit?: number): string[];
+  popAgentSessionItem(sessionId: number): string | null;
+  clearAgentSessionItems(sessionId: number): void;
+  createAgentRun(input: CreateAgentRunInput): AgentRun;
+  getAgentRun(id: number, orgId: number): AgentRun | null;
+  listAgentRuns(filter: {
+    orgId: number;
+    sessionId?: number;
+    status?: AgentRunStatus;
+    limit?: number;
+    offset?: number;
+  }): AgentRun[];
+  getAgentRecoveryRunForJob(jobId: number): {
+    run: AgentRun;
+    freshnessInput: Record<string, unknown>;
+  } | null;
+  updateAgentRun(
+    id: number,
+    orgId: number,
+    input: {
+      status?: AgentRunStatus;
+      output?: AgentRunOutput | null;
+      errorMessage?: string | null;
+      completedAt?: string | null;
+    },
+  ): AgentRun | null;
+  appendAgentRunEvent(input: {
+    runId: number;
+    type: string;
+    payload?: Record<string, unknown>;
+  }): AgentRunEvent;
+  listAgentRunEvents(runId: number, afterSequence?: number): AgentRunEvent[];
+  createAgentStep(input: {
+    runId: number;
+    title: string;
+  }): AgentStep;
+  completeAgentStep(
+    id: number,
+    status: "completed" | "failed",
+    errorMessage?: string | null,
+  ): AgentStep | null;
+  listAgentSteps(runId: number): AgentStep[];
+  createAgentToolCall(input: {
+    runId: number;
+    stepId?: number | null;
+    toolName: AgentToolCall["toolName"];
+    arguments: Record<string, unknown>;
+  }): AgentToolCall;
+  completeAgentToolCall(
+    id: number,
+    input: {
+      status: "completed" | "failed";
+      result?: AgentToolCall["result"];
+      errorMessage?: string | null;
+    },
+  ): AgentToolCall | null;
+  listAgentToolCalls(runId: number): AgentToolCall[];
+  createActionProposal(input: CreateActionProposalInput): ActionProposal;
+  getActionProposal(id: number, orgId: number): ActionProposal | null;
+  listActionProposals(filter: {
+    orgId: number;
+    runId?: number;
+    status?: ActionProposalStatus;
+    limit?: number;
+    offset?: number;
+  }): ActionProposal[];
+  updateActionProposal(
+    id: number,
+    orgId: number,
+    expectedVersion: number,
+    input: Partial<Pick<ActionProposal, "status" | "title" | "payload">>,
+  ): ActionProposal | null;
+  modifyActionProposal(
+    id: number,
+    orgId: number,
+    expectedVersion: number,
+    input: {
+      userId: number;
+      title: string;
+      payload: Record<string, unknown>;
+    },
+  ): {
+    previous: ActionProposal;
+    replacement: ActionProposal;
+    approval: ActionApproval;
+  } | null;
+  recordActionApproval(input: {
+    proposalId: number;
+    userId: number;
+    decision: ActionApproval["decision"];
+    modification?: Record<string, unknown> | null;
+  }): ActionApproval;
+  decideActionProposal(
+    id: number,
+    orgId: number,
+    expectedVersion: number,
+    input: {
+      userId: number;
+      decision: "approved" | "rejected";
+    },
+  ): {
+    proposal: ActionProposal;
+    approval: ActionApproval;
+  } | null;
+  listActionApprovals(proposalId: number): ActionApproval[];
+  createActionExecution(input: {
+    proposalId: number;
+    idempotencyKey: string;
+  }): ActionExecution;
+  beginActionExecution(input: {
+    proposalId: number;
+    orgId: number;
+    expectedVersion: number;
+    idempotencyKey: string;
+  }): {
+    proposal: ActionProposal;
+    execution: ActionExecution;
+  } | null;
+  getActionExecutionByKey(idempotencyKey: string): ActionExecution | null;
+  listActionExecutions(proposalId: number): ActionExecution[];
+  updateActionExecution(
+    id: number,
+    input: Pick<ActionExecution, "status"> & {
+      result?: Record<string, unknown> | null;
+      errorMessage?: string | null;
+    },
+  ): ActionExecution | null;
+  finishActionExecution(input: {
+    executionId: number;
+    proposalId: number;
+    orgId: number;
+    expectedVersion: number;
+    executionStatus: ActionExecution["status"];
+    proposalStatus: ActionProposalStatus;
+    result?: Record<string, unknown> | null;
+    errorMessage?: string | null;
+  }): {
+    proposal: ActionProposal;
+    execution: ActionExecution;
+  } | null;
+}
+
 export interface ListingHealthStore {
   upsertProductListingSnapshot(
     input: UpsertProductListingSnapshotInput,
@@ -757,6 +949,12 @@ export interface DataSourceStore {
   createDataSourceSyncRun(
     input: CreateDataSourceSyncRunInput,
   ): DataSourceSyncRun;
+  getDataSourceSyncRun(id: number, orgId: number): DataSourceSyncRun | null;
+  setDataSourceSyncRunExternalRequest(
+    id: number,
+    orgId: number,
+    externalRequestId: string,
+  ): DataSourceSyncRun | null;
   finishDataSourceSyncRun(
     id: number,
     input: FinishDataSourceSyncRunInput,
@@ -764,6 +962,42 @@ export interface DataSourceStore {
   listDataSourceSyncRuns(
     filter: DataSourceSyncRunListFilter,
   ): DataSourceSyncRun[];
+  upsertDataSourceDomainHealth(
+    input: UpsertDataSourceDomainHealthInput,
+  ): DataSourceDomainHealth;
+  listDataSourceDomainHealth(
+    dataSourceId: number,
+    orgId: number,
+  ): DataSourceDomainHealth[];
+  upsertDataSourceMappingIssue(input: UpsertDataSourceMappingIssueInput): DataSourceMappingIssue;
+  getDataSourceMappingIssue(
+    id: number,
+    orgId: number,
+    dataSourceId: number,
+  ): DataSourceMappingIssue | null;
+  listDataSourceMappingIssues(filter: DataSourceMappingIssueListFilter): DataSourceMappingIssue[];
+  updateDataSourceMappingIssue(
+    id: number,
+    orgId: number,
+    dataSourceId: number,
+    input: UpdateDataSourceMappingIssueInput,
+  ): DataSourceMappingIssue | null;
+  countOpenDataSourceMappingIssues(dataSourceId: number, orgId: number): number;
+  getSpApiConnection(dataSourceId: number, orgId: number): SpApiConnectionConfig | null;
+  getSpApiConnectionCredentials(
+    dataSourceId: number,
+    orgId: number,
+  ): import("./data-source-sp-api-store.js").SpApiConnectionCredentials | null;
+  markSpApiConnectionTested(dataSourceId: number, orgId: number): boolean;
+  replaceSpApiConnection(input: import("./data-source-sp-api-store.js").ReplaceSpApiConnectionInput): SpApiConnectionConfig;
+  promoteSpApiSalesTrafficFacts(
+    facts: SpApiSalesTrafficFactInput[],
+    options?: { ensureActive?: () => void },
+  ): SpApiFactPromotionResult;
+  promoteSpApiInventoryFacts(
+    facts: SpApiInventoryFactInput[],
+    options?: { ensureActive?: () => void },
+  ): SpApiFactPromotionResult;
 }
 
 export interface ReportStore {
@@ -955,6 +1189,7 @@ export interface Store
     CommerceStoreStore,
     PromotionStore,
     AiRunStore,
+    AgentStore,
     ListingHealthStore,
     AdsStore,
     ReviewVocStore,

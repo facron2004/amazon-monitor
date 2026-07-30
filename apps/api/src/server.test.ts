@@ -30,17 +30,17 @@ describe("api routes", () => {
     const login = await request(app).post("/api/auth/login").send({ username: "admin", password: "admin123" }).expect(200);
     const emptySummary = await request(app)
       .get("/api/dashboard/summary?date=2026-05-17")
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .expect(200);
     expect(emptySummary.body.activeKeywordCount).toBe(0);
 
     const created = await request(app)
       .post("/api/keywords")
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .send({ keyword: "cordless leaf blower", marketplace: "amazon.com", crawlPages: 1 })
       .expect(201);
 
-    const collect = await request(app).post("/api/collect/run").set("x-amazon-monitor-session", login.body.token as string).send({ keywordId: created.body.id, date: "2026-05-17" }).expect(202);
+    const collect = await request(app).post("/api/collect/run").set("Cookie", login.headers["set-cookie"][0] as string).send({ keywordId: created.body.id, date: "2026-05-17" }).expect(202);
     expect(collect.body.status).toBe("pending");
     await runCollectionForKeyword(store, created.body.id, "2026-05-17", { collector: new ControlledAmazonSearchCollector() });
 
@@ -60,7 +60,7 @@ describe("api routes", () => {
     const actionInsights = await request(app).get(`/api/action-insights?date=2026-05-17&sourceType=keyword_detail&sourceId=${created.body.id}`).expect(200);
     expect(actionInsights.body).toEqual([]);
 
-    await request(app).post("/api/collect/run").set("x-amazon-monitor-session", login.body.token as string).send({ keywordId: created.body.id, date: "2026-05-18" }).expect(202);
+    await request(app).post("/api/collect/run").set("Cookie", login.headers["set-cookie"][0] as string).send({ keywordId: created.body.id, date: "2026-05-18" }).expect(202);
     await runCollectionForKeyword(store, created.body.id, "2026-05-18", { collector: new ControlledAmazonSearchCollector() });
 
     const unchangedHidden = await request(app)
@@ -79,13 +79,13 @@ describe("api routes", () => {
 
     const report = await request(app)
       .get("/api/reports/daily?date=2026-05-17")
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .expect(200);
     expect(report.body.markdown).toContain("Amazon 关键词竞品监控日报");
 
     const excel = await request(app)
       .get("/api/reports/daily.xlsx?date=2026-05-17")
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .buffer(true)
       .parse(binaryParser)
       .expect(200);
@@ -107,7 +107,7 @@ describe("api routes", () => {
 
     const response = await request(app)
       .post("/api/keywords")
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .send({ keyword: "cordless leaf blower", marketplace: "amazon.com.evil.test", crawlPages: 1 })
       .expect(400);
 
@@ -126,7 +126,7 @@ describe("api routes", () => {
     const login = await request(app).post("/api/auth/login").send({ username: "admin", password: "admin123" }).expect(200);
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const response = await request(app).get("/api/keywords/1/detail").set("x-amazon-monitor-session", login.body.token as string).expect(500);
+    const response = await request(app).get("/api/keywords/1/detail").set("Cookie", login.headers["set-cookie"][0] as string).expect(500);
 
     expect(response.body.message).toBe("unexpected route failure");
     errorLog.mockRestore();
@@ -166,16 +166,17 @@ function product(asin: string, title: string, currentPrice: number): SerpProduct
 }
 
 describe("api authentication and docs", () => {
-  const originalApiKey = process.env.AMAZON_MONITOR_API_KEY;
-
-  it("serves OpenAPI document and Swagger UI without authentication", async () => {
-    process.env.AMAZON_MONITOR_API_KEY = "test-secret-key";
+  it("serves OpenAPI document and same-origin API docs without authentication", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
     const store = createStore(db);
     const app = createApiApp(store);
 
-    await request(app).get("/api-docs").expect(200);
+    const docsResponse = await request(app).get("/api-docs").expect(200);
+    expect(docsResponse.headers["content-security-policy"]).toContain("default-src 'self'");
+    expect(docsResponse.headers["content-security-policy"]).toContain("script-src 'self'");
+    expect(docsResponse.text).toContain('/api/openapi.json');
+    expect(docsResponse.text).not.toContain("unpkg.com");
     const openapiResponse = await request(app).get("/api/openapi.json").expect(200);
     const document = openapiResponse.body as OpenApiDocument;
     const paths = Object.keys(document.paths);
@@ -238,50 +239,44 @@ describe("api authentication and docs", () => {
     ]));
     await request(app).get("/api/health").expect(200);
 
-    if (originalApiKey) {
-      process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
-    } else {
-      delete process.env.AMAZON_MONITOR_API_KEY;
-    }
   });
 
-  it("enforces API key validation when AMAZON_MONITOR_API_KEY is configured", async () => {
-    process.env.AMAZON_MONITOR_API_KEY = "test-secret-key";
-    const db = new DatabaseSync(":memory:");
-    initSchema(db);
-    const store = createStore(db);
-    const app = createApiApp(store);
-
-    // 1. Unauthenticated request should return 401
-    const unauthResponse = await request(app)
-      .get("/api/dashboard/summary?date=2026-05-17")
-      .expect(401);
-    expect(unauthResponse.body.message).toContain("Unauthorized");
-
-    // 2. Request with incorrect key should return 401
-    await request(app)
-      .get("/api/dashboard/summary?date=2026-05-17")
-      .set("Authorization", "Bearer wrong-key")
-      .expect(401);
-
-    // 3. Request with correct key should return 200
-    await request(app)
-      .get("/api/dashboard/summary?date=2026-05-17")
-      .set("Authorization", "Bearer test-secret-key")
-      .expect(200);
-
-    if (originalApiKey) {
-      process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
-    } else {
-      delete process.env.AMAZON_MONITOR_API_KEY;
-    }
-  });
-
-  it("requires a login session for business APIs in development without an API key", async () => {
+  it("does not authenticate requests through the retired global API key", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
-    const originalKey = process.env.AMAZON_MONITOR_API_KEY;
+    const originalApiKey = process.env.AMAZON_MONITOR_API_KEY;
     process.env.NODE_ENV = "development";
-    delete process.env.AMAZON_MONITOR_API_KEY;
+    process.env.AMAZON_MONITOR_API_KEY = "retired-global-key";
+    const db = new DatabaseSync(":memory:");
+    try {
+      initSchema(db);
+      const store = createStore(db);
+      const app = createApiApp(store);
+
+      await request(app)
+        .get("/api/dashboard/summary?date=2026-05-17")
+        .set("Authorization", "Bearer retired-global-key")
+        .expect(401);
+
+      const login = await request(app)
+        .post("/api/auth/login")
+        .send({ username: "admin", password: "Admin123!" })
+        .expect(200);
+      await request(app)
+        .get("/api/dashboard/summary?date=2026-05-17")
+        .set("Cookie", login.headers["set-cookie"][0] as string)
+        .expect(200);
+    } finally {
+      db.close();
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalApiKey === undefined) delete process.env.AMAZON_MONITOR_API_KEY;
+      else process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
+    }
+  });
+
+  it("requires a login session for business APIs in development", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
 
     try {
       const db = new DatabaseSync(":memory:");
@@ -305,7 +300,7 @@ describe("api authentication and docs", () => {
         .expect(200);
       await request(app)
         .get("/api/dashboard/summary?date=2026-07-11")
-        .set("x-amazon-monitor-session", login.body.token as string)
+        .set("Cookie", login.headers["set-cookie"][0] as string)
         .expect(200);
 
       store.createUser({
@@ -319,20 +314,20 @@ describe("api authentication and docs", () => {
         .post("/api/auth/login")
         .send({ username: "readonly-dev", password: "Developer123!" })
         .expect(200);
-      const developerToken = developerLogin.body.token as string;
-      await request(app).get("/api/categories").set("x-amazon-monitor-session", developerToken).expect(200);
+      const developerToken = developerLogin.headers["set-cookie"][0] as string;
+      await request(app).get("/api/categories").set("Cookie", developerToken).expect(200);
       await request(app)
         .post("/api/categories")
-        .set("x-amazon-monitor-session", developerToken)
+        .set("Cookie", developerToken)
         .send({})
         .expect(403);
       await request(app)
         .get("/api/competitors/B0TEST/open")
-        .set("x-amazon-monitor-session", developerToken)
+        .set("Cookie", developerToken)
         .expect(403);
       await request(app)
         .post("/api/auth/logout")
-        .set("x-amazon-monitor-session", developerToken)
+        .set("Cookie", developerToken)
         .expect(204);
 
       store.createUser({
@@ -346,15 +341,15 @@ describe("api authentication and docs", () => {
         .post("/api/auth/login")
         .send({ username: "product-researcher", password: "Researcher123!" })
         .expect(200);
-      const researcherToken = researcherLogin.body.token as string;
+      const researcherToken = researcherLogin.headers["set-cookie"][0] as string;
       await request(app)
         .post("/api/tasks")
-        .set("x-amazon-monitor-session", researcherToken)
+        .set("Cookie", researcherToken)
         .send({ sourceType: "manual", title: "Review competitor evidence", taskType: "competitor", priority: "P1" })
         .expect(201);
       await request(app)
         .post("/api/categories")
-        .set("x-amazon-monitor-session", researcherToken)
+        .set("Cookie", researcherToken)
         .send({})
         .expect(403);
 
@@ -371,7 +366,7 @@ describe("api authentication and docs", () => {
         .expect(200);
       await request(app)
         .post("/api/tasks")
-        .set("x-amazon-monitor-session", viewerLogin.body.token as string)
+        .set("Cookie", viewerLogin.headers["set-cookie"][0] as string)
         .send({ sourceType: "manual", title: "Blocked task", taskType: "other", priority: "P2" })
         .expect(403);
 
@@ -388,7 +383,7 @@ describe("api authentication and docs", () => {
         .expect(200);
       await request(app)
         .post("/api/categories")
-        .set("x-amazon-monitor-session", operatorLogin.body.token as string)
+        .set("Cookie", operatorLogin.headers["set-cookie"][0] as string)
         .send({
           name: "Ice Makers",
           marketplace: "amazon.com",
@@ -400,8 +395,6 @@ describe("api authentication and docs", () => {
     } finally {
       if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = originalNodeEnv;
-      if (originalKey === undefined) delete process.env.AMAZON_MONITOR_API_KEY;
-      else process.env.AMAZON_MONITOR_API_KEY = originalKey;
     }
   });
 });

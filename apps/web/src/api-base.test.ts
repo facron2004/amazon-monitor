@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildRequestUrl, request } from "./api-base";
+import { buildRequestUrl, clearRequestCache, request } from "./api-base";
+import { beginSessionBoundary } from "./session-boundary";
 
 afterEach(() => {
+  beginSessionBoundary(null);
+  clearRequestCache();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -21,7 +24,7 @@ describe("buildRequestUrl", () => {
     expect(buildRequestUrl("/api/tasks", "http://127.0.0.1:4000")).toBe("http://127.0.0.1:4000/api/tasks");
   });
 
-  it("uses cookies by default and does not send stored browser session tokens", async () => {
+  it("uses cookies by default without reading browser-accessible credentials", async () => {
     vi.stubGlobal("localStorage", {
       getItem: vi.fn((key: string) => {
         if (key === "amazon_monitor_auth_token") return "legacy-key";
@@ -44,7 +47,46 @@ describe("buildRequestUrl", () => {
       throw new Error("fetch init was not captured");
     }
     expect(init.credentials).toBe("include");
-    expect(init.headers).toMatchObject({ Authorization: "Bearer legacy-key" });
+    expect(init.headers).not.toHaveProperty("Authorization");
     expect(init.headers).not.toHaveProperty("x-amazon-monitor-session");
+    expect(localStorage.getItem).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse a cached response after the organization changes", async () => {
+    const fetchMock = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ organization: "A" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ organization: "B" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    beginSessionBoundary({ organizationId: 1, userId: 10 });
+    await expect(request<{ organization: string }>("/dashboard/summary")).resolves.toEqual({ organization: "A" });
+
+    beginSessionBoundary({ organizationId: 2, userId: 20 });
+    await expect(request<{ organization: string }>("/dashboard/summary")).resolves.toEqual({ organization: "B" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("aborts stale in-flight work and prevents its response from being returned", async () => {
+    let resolveResponse: (response: Response) => void = () => undefined;
+    let requestSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve) => {
+        requestSignal = init?.signal ?? undefined;
+        resolveResponse = resolve;
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    beginSessionBoundary({ organizationId: 1, userId: 10 });
+    const staleRequest = request<{ organization: string }>("/dashboard/summary");
+
+    beginSessionBoundary({ organizationId: 2, userId: 20 });
+    expect(requestSignal).toBeInstanceOf(AbortSignal);
+    expect(requestSignal?.aborted).toBe(true);
+
+    resolveResponse(new Response(JSON.stringify({ organization: "A" }), { status: 200 }));
+    await expect(staleRequest).rejects.toMatchObject({ name: "AbortError" });
   });
 });

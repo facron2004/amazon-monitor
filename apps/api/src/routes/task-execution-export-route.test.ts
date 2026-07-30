@@ -35,7 +35,7 @@ describe("task execution checklist export", () => {
 
     const response = await request(app)
       .get("/api/tasks/execution.csv?priority=P1")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200)
       .expect("Content-Type", /text\/csv/);
 
@@ -56,12 +56,12 @@ describe("task execution checklist export", () => {
 
     await request(app)
       .get("/api/tasks/execution.csv")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(403);
 
     const response = await request(app)
       .get("/api/tasks/execution.csv")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(response.text).toContain("Organization one task");
     expect(response.text).not.toContain("Other organization task");
@@ -70,7 +70,7 @@ describe("task execution checklist export", () => {
 
 async function login(username: string, password: string): Promise<string> {
   const response = await request(app).post("/api/auth/login").send({ username, password }).expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 function createTask(title: string, priority: TaskPriority, status: "pending" | "in_progress", assigneeId: number | null): void {

@@ -24,7 +24,7 @@ async function login(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 describe("products API", () => {
@@ -32,7 +32,7 @@ describe("products API", () => {
     const token = await login();
     const created = await request(app)
       .post("/api/products")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         marketplace: "US",
         sku: "ICE-100",
@@ -46,7 +46,7 @@ describe("products API", () => {
     const productId = created.body.id as number;
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-07-05",
         salesAmount: 1000,
@@ -59,7 +59,7 @@ describe("products API", () => {
       .expect(201);
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-07-06",
         salesAmount: 980,
@@ -72,7 +72,7 @@ describe("products API", () => {
       .expect(201);
     await request(app)
       .post(`/api/products/${productId}/metrics`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         date: "2026-07-07",
         salesAmount: 420,
@@ -86,7 +86,7 @@ describe("products API", () => {
 
     const list = await request(app)
       .get("/api/products?date=2026-07-07")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(list.body).toHaveLength(1);
     expect(list.body[0]).toMatchObject({
@@ -99,19 +99,19 @@ describe("products API", () => {
 
     const detail = await request(app)
       .get(`/api/products/${productId}?date=2026-07-07`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(detail.body.metrics).toHaveLength(3);
 
     const risk = await request(app)
       .get(`/api/products/${productId}/risk-score?date=2026-07-07`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(risk.body.dimensions.map((item: { key: string }) => item.key)).toContain("inventory");
 
     const opportunity = await request(app)
       .get(`/api/products/${productId}/opportunity-score?date=2026-07-07`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(opportunity.body).toMatchObject({ productId, asin: "B0OWNICE01" });
   });

@@ -1,0 +1,75 @@
+{
+  "name": "@amazon-monitor/desktop",
+  "version": "0.6.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run src",
+    "prepare:browser": "cross-env PLAYWRIGHT_BROWSERS_PATH=browser-bundle playwright install chromium",
+    "package:dir": "npm run build && npm run prepare:browser && electron-builder --dir",
+    "package:win": "npm run build && npm run prepare:browser && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@amazon-monitor/agent": "0.6.1",
+    "@amazon-monitor/api": "0.6.1",
+    "@amazon-monitor/shared": "0.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "cross-env": "10.1.0",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "playwright": "1.60.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.6"
+  },
+  "build": {
+    "appId": "com.amazonmonitor.desktop",
+    "productName": "Amazon Monitor",
+    "asar": true,
+    "directories": {
+      "output": "../../release/electron"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!node_modules/@amazon-monitor/api/src{,/**/*}",
+      "!node_modules/@amazon-monitor/api/data{,/**/*}",
+      "!node_modules/@amazon-monitor/agent/src{,/**/*}",
+      "!node_modules/@amazon-monitor/shared/src{,/**/*}"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web"
+      },
+      {
+        "from": "browser-bundle",
+        "to": "playwright-browsers",
+        "filter": [
+          "chromium-*/**/*",
+          "chromium_headless_shell-*/**/*",
+          "ffmpeg-*/**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

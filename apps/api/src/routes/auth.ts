@@ -26,7 +26,6 @@ export interface AuthRouteOptions {
 }
 
 export const SESSION_COOKIE = "amazon_monitor_session";
-export const SESSION_HEADER = "x-amazon-monitor-session";
 export const LEGACY_TOKEN_HEADER = "authorization";
 
 function sessionCookie(token: string, maxAgeSeconds: number): string {
@@ -35,9 +34,9 @@ function sessionCookie(token: string, maxAgeSeconds: number): string {
 }
 
 /**
- * Express middleware: extracts a session token from Cookie or `x-amazon-monitor-session`
- * header. Attaches `req.sessionContext` and `req.sessionToken` if valid. Does NOT
- * reject requests — that is the job of `requireAuth` below.
+ * Express middleware: extracts the HttpOnly session token from Cookie. Attaches
+ * `req.sessionContext` and `req.sessionToken` if valid. Does NOT reject requests —
+ * that is the job of `requireAuth` below.
  */
 export function sessionLoader(store: Store) {
   return (req: Request, _res: Response, next: NextFunction) => {
@@ -61,10 +60,6 @@ export function extractSessionToken(req: Request): string | null {
     .find((s) => s.startsWith(`${SESSION_COOKIE}=`));
   if (match) {
     return decodeURIComponent(match.slice(SESSION_COOKIE.length + 1));
-  }
-  const headerToken = req.headers[SESSION_HEADER];
-  if (typeof headerToken === "string" && headerToken.length > 0) {
-    return headerToken;
   }
   return null;
 }
@@ -137,7 +132,7 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
     if (sessionEnabled) {
       response.setHeader("Set-Cookie", sessionCookie(result.token, 14 * 24 * 3600));
     }
-    response.status(201).json({ token: result.token, expiresAt: result.expiresAt, context: result.context, user, organization: org });
+    response.status(201).json({ expiresAt: result.expiresAt, context: result.context, user, organization: org });
   }));
 
   app.post("/api/auth/login", asyncHandler(async (request, response) => {
@@ -155,11 +150,7 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
         sessionCookie(result.token, 14 * 24 * 3600)
       );
     }
-    response.json({
-      token: result.token,
-      expiresAt: result.expiresAt,
-      context: result.context
-    });
+    response.json({ expiresAt: result.expiresAt, context: result.context });
   }));
 
   app.post("/api/auth/logout", asyncHandler(async (request, response) => {

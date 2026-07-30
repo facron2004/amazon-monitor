@@ -2,7 +2,8 @@ import type { CollectJob, CollectionFreshness, WorkerStatus } from "@amazon-moni
 
 export const collectorTaskTypeLabels: Record<CollectJob["taskType"], string> = {
   keyword: "关键词",
-  category: "类目榜单"
+  category: "类目榜单",
+  data_source_sync: "数据源同步"
 };
 
 export const collectorJobStatusLabels: Record<CollectJob["status"], string> = {

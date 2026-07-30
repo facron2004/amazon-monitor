@@ -16,7 +16,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -46,7 +46,7 @@ describe("review VOC routes", () => {
   it("stores review evidence and summarizes VOC risks", async () => {
     const empty = await request(app)
       .get("/api/review-voc?date=2026-07-08")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(empty.body[0]).toMatchObject({
       productId,
@@ -79,7 +79,7 @@ describe("review VOC routes", () => {
 
     const summary = await request(app)
       .get(`/api/products/${productId}/review-voc?date=2026-07-08`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(summary.body).toMatchObject({
@@ -98,7 +98,7 @@ describe("review VOC routes", () => {
 
     const reviews = await request(app)
       .get(`/api/products/${productId}/reviews?date=2026-07-08`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(reviews.body).toHaveLength(3);
   });
@@ -128,7 +128,7 @@ describe("review VOC routes", () => {
 
     const analysis = await request(app)
       .post("/api/ai/analyze-review-voc")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ productId, date: "2026-07-08" })
       .expect(201);
 
@@ -187,7 +187,7 @@ async function saveReview(input: {
 }): Promise<void> {
   await request(app)
     .post(`/api/products/${productId}/reviews`)
-    .set("x-amazon-monitor-session", token)
+    .set("Cookie", token)
     .send(input)
     .expect(201);
 }

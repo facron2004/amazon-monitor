@@ -53,8 +53,8 @@ const feedDefinitions: FeedDefinition[] = [
   {
     feed: "inventoryPlans",
     label: "库存计划",
-    sourceTypes: ["erp_wms"],
-    sourceLabel: "ERP / WMS"
+    sourceTypes: ["amazon_sp_api", "erp_wms"],
+    sourceLabel: "Amazon SP-API / ERP / WMS"
   }
 ];
 

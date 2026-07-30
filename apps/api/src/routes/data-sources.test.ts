@@ -24,7 +24,7 @@ async function loginAsAdmin(): Promise<string> {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 async function loginAs(username: string, password: string): Promise<string> {
@@ -32,7 +32,7 @@ async function loginAs(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }
 
 beforeEach(async () => {
@@ -51,7 +51,7 @@ describe("data source routes", () => {
   it("creates, filters, and updates data source sync state", async () => {
     const created = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         name: "Amazon US SP-API",
         sourceType: "amazon_sp_api",
@@ -74,7 +74,7 @@ describe("data source routes", () => {
 
     await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         name: "Amazon Ads CSV",
         sourceType: "csv_import",
@@ -87,14 +87,14 @@ describe("data source routes", () => {
 
     const apiSources = await request(app)
       .get("/api/data-sources?sourceType=amazon_sp_api")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(apiSources.body).toHaveLength(1);
     expect(apiSources.body[0].name).toBe("Amazon US SP-API");
 
     const updated = await request(app)
       .patch(`/api/data-sources/${created.body.id}`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         status: "attention",
         syncStatus: "partial",
@@ -110,7 +110,7 @@ describe("data source routes", () => {
 
     const attention = await request(app)
       .get("/api/data-sources?status=attention")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(attention.body.map((item: { name: string }) => item.name)).toEqual([
       "Amazon US SP-API",
@@ -134,25 +134,386 @@ describe("data source routes", () => {
 
     await request(app)
       .get("/api/data-sources")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .expect(200);
     await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", operatorToken)
+      .set("Cookie", operatorToken)
       .send({ name: "Unauthorized source", sourceType: "csv_import" })
       .expect(403);
+  });
+
+  it("returns independent sales and inventory health for an SP-API source", async () => {
+    const source = store.createDataSource({
+      orgId: 1,
+      name: "EU SP-API health",
+      sourceType: "amazon_sp_api"
+    });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "EU health seller",
+      marketplace: "amazon.co.uk",
+      sellerId: "EU-HEALTH-SELLER"
+    });
+    store.upsertDataSourceDomainHealth({
+      orgId: 1,
+      dataSourceId: source.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "UK",
+      domain: "sales_traffic",
+      status: "success",
+      lastSuccessAt: "2026-07-28T01:00:00.000Z"
+    });
+    store.upsertDataSourceDomainHealth({
+      orgId: 1,
+      dataSourceId: source.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "UK",
+      domain: "fba_inventory",
+      status: "failed",
+      errorCode: "QuotaExceeded"
+    });
+
+    const health = await request(app)
+      .get(`/api/data-sources/${source.id}/health`)
+      .set("Cookie", token)
+      .expect(200);
+
+    expect(health.body).toMatchObject({
+      dataSourceId: source.id,
+      credentialsConfigured: false,
+      status: "attention",
+      linkedStoreIds: [commerceStore.id],
+      domains: expect.arrayContaining([
+        expect.objectContaining({ domain: "sales_traffic", status: "success" }),
+        expect.objectContaining({ domain: "fba_inventory", status: "failed", errorCode: "QuotaExceeded" })
+      ])
+    });
+  });
+
+  it("stores SP-API credentials encrypted and exposes only connection metadata", async () => {
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    const originalCredentialsKey = process.env.DATA_SOURCE_CREDENTIALS_KEY;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "true";
+      process.env.DATA_SOURCE_CREDENTIALS_KEY = Buffer.alloc(32, 3).toString("base64");
+      const source = store.createDataSource({
+        orgId: 1,
+        name: "EU SP-API credentials",
+        sourceType: "amazon_sp_api"
+      });
+      const commerceStore = store.createCommerceStore({
+        orgId: 1,
+        name: "EU credential seller",
+        marketplace: "amazon.co.uk",
+        sellerId: "EU-CREDENTIAL-SELLER"
+      });
+      const secret = "client-secret-not-to-return";
+      const refreshToken = "Atzr|refresh-token-not-to-return";
+
+      await request(app)
+        .post(`/api/data-sources/${source.id}/sp-api/credentials`)
+        .set("Cookie", token)
+        .send({
+          region: "EU",
+          commerceStoreIds: [commerceStore.id],
+          lwaClientId: "amzn1.application-oa2-client.test",
+          lwaClientSecret: secret,
+          lwaRefreshToken: refreshToken
+        })
+        .expect(204);
+
+      const persisted = db.prepare(
+        "SELECT credentials_ciphertext, credential_version FROM sp_api_connections WHERE data_source_id = ?"
+      ).get(source.id) as { credentials_ciphertext: string; credential_version: number };
+      expect(persisted).toMatchObject({ credential_version: 1 });
+      expect(persisted.credentials_ciphertext).not.toContain(secret);
+      expect(persisted.credentials_ciphertext).not.toContain(refreshToken);
+
+      const health = await request(app)
+        .get(`/api/data-sources/${source.id}/health`)
+        .set("Cookie", token)
+        .expect(200);
+      expect(health.body).toMatchObject({
+        dataSourceId: source.id,
+        region: "EU",
+        credentialsConfigured: true,
+        linkedStoreIds: [commerceStore.id],
+        lastTestedAt: null
+      });
+      expect(JSON.stringify(health.body)).not.toContain(secret);
+      expect(JSON.stringify(health.body)).not.toContain(refreshToken);
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+      restoreEnv("DATA_SOURCE_CREDENTIALS_KEY", originalCredentialsKey);
+    }
+  });
+
+  it("queues an LWA connection test against the credential version that was saved", async () => {
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    const originalCredentialsKey = process.env.DATA_SOURCE_CREDENTIALS_KEY;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "true";
+      process.env.DATA_SOURCE_CREDENTIALS_KEY = Buffer.alloc(32, 4).toString("base64");
+      const source = store.createDataSource({
+        orgId: 1,
+        name: "NA SP-API connection test",
+        sourceType: "amazon_sp_api"
+      });
+      const commerceStore = store.createCommerceStore({
+        orgId: 1,
+        name: "NA connection test seller",
+        marketplace: "amazon.com",
+        sellerId: "NA-CONNECTION-TEST-SELLER"
+      });
+      await request(app)
+        .post(`/api/data-sources/${source.id}/sp-api/credentials`)
+        .set("Cookie", token)
+        .send({
+          region: "NA",
+          commerceStoreIds: [commerceStore.id],
+          lwaClientId: "amzn1.application-oa2-client.test",
+          lwaClientSecret: "client-secret-not-to-return",
+          lwaRefreshToken: "Atzr|refresh-token-not-to-return"
+        })
+        .expect(204);
+
+      const queued = await request(app)
+        .post(`/api/data-sources/${source.id}/test-connection`)
+        .set("Cookie", token)
+        .expect(202);
+
+      const run = store.getDataSourceSyncRun(queued.body.runId, 1);
+      expect(run).toMatchObject({
+        operation: "sp_api_connection_test",
+        trigger: "manual",
+        credentialVersion: 1,
+        status: "pending"
+      });
+      expect(store.listJobs(10, 0, 1)).toEqual([
+        expect.objectContaining({
+          taskType: "data_source_sync",
+          targetId: queued.body.runId,
+          status: "pending"
+        })
+      ]);
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+      restoreEnv("DATA_SOURCE_CREDENTIALS_KEY", originalCredentialsKey);
+    }
+  });
+
+  it("allows a collection manager to queue idempotent Sales and FBA sync runs", async () => {
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    const originalCredentialsKey = process.env.DATA_SOURCE_CREDENTIALS_KEY;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "true";
+      process.env.DATA_SOURCE_CREDENTIALS_KEY = Buffer.alloc(32, 6).toString("base64");
+      const source = store.createDataSource({
+        orgId: 1,
+        name: "US SP-API manual sync",
+        sourceType: "amazon_sp_api"
+      });
+      const commerceStore = store.createCommerceStore({
+        orgId: 1,
+        name: "US manual sync seller",
+        marketplace: "amazon.com",
+        sellerId: "US-MANUAL-SYNC-SELLER"
+      });
+      await request(app)
+        .post(`/api/data-sources/${source.id}/sp-api/credentials`)
+        .set("Cookie", token)
+        .send({
+          region: "NA",
+          commerceStoreIds: [commerceStore.id],
+          lwaClientId: "amzn1.application-oa2-client.test",
+          lwaClientSecret: "client-secret-not-to-return",
+          lwaRefreshToken: "Atzr|refresh-token-not-to-return"
+        })
+        .expect(204);
+      store.createUser({
+        orgId: 1,
+        username: "sync-manager",
+        password: "Manager123!",
+        role: "manager",
+        displayName: "Sync Manager"
+      });
+      const managerToken = await loginAs("sync-manager", "Manager123!");
+
+      const queued = await request(app)
+        .post(`/api/data-sources/${source.id}/sync`)
+        .set("Cookie", managerToken)
+        .send({ domains: ["sales_traffic", "fba_inventory"], mode: "incremental", marketplaces: ["US"] })
+        .expect(202);
+      expect(queued.body.runs).toEqual([
+        expect.objectContaining({ domain: "sales_traffic", operation: "sp_api_sales_traffic_daily_sync", credentialVersion: 1 }),
+        expect.objectContaining({ domain: "fba_inventory", operation: "sp_api_fba_inventory_incremental_sync", credentialVersion: 1 })
+      ]);
+
+      const repeated = await request(app)
+        .post(`/api/data-sources/${source.id}/sync`)
+        .set("Cookie", managerToken)
+        .send({ domains: ["sales_traffic", "fba_inventory"], mode: "incremental", marketplaces: ["US"] })
+        .expect(202);
+      expect(repeated.body.runs.map((run: { id: number }) => run.id)).toEqual(queued.body.runs.map((run: { id: number }) => run.id));
+      expect(store.listJobs(10, 0, 1)).toHaveLength(2);
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+      restoreEnv("DATA_SOURCE_CREDENTIALS_KEY", originalCredentialsKey);
+    }
+  });
+
+  it("rejects Sales backfills longer than 90 days", async () => {
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    const originalCredentialsKey = process.env.DATA_SOURCE_CREDENTIALS_KEY;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "true";
+      process.env.DATA_SOURCE_CREDENTIALS_KEY = Buffer.alloc(32, 8).toString("base64");
+      const source = store.createDataSource({ orgId: 1, name: "Backfill range", sourceType: "amazon_sp_api" });
+      const commerceStore = store.createCommerceStore({
+        orgId: 1,
+        name: "Backfill seller",
+        marketplace: "amazon.com",
+        sellerId: "BACKFILL-SELLER"
+      });
+      await request(app)
+        .post(`/api/data-sources/${source.id}/sp-api/credentials`)
+        .set("Cookie", token)
+        .send({
+          region: "NA",
+          commerceStoreIds: [commerceStore.id],
+          lwaClientId: "amzn1.application-oa2-client.test",
+          lwaClientSecret: "client-secret-not-to-return",
+          lwaRefreshToken: "Atzr|refresh-token-not-to-return"
+        })
+        .expect(204);
+
+      await request(app)
+        .post(`/api/data-sources/${source.id}/sync`)
+        .set("Cookie", token)
+        .send({
+          domains: ["sales_traffic"],
+          mode: "backfill",
+          marketplaces: ["US"],
+          fromDate: "2026-01-01",
+          toDate: "2026-04-01"
+        })
+        .expect(400);
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+      restoreEnv("DATA_SOURCE_CREDENTIALS_KEY", originalCredentialsKey);
+    }
+  });
+
+  it("rejects SP-API credential writes until the connector is explicitly enabled", async () => {
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "false";
+      const source = store.createDataSource({
+        orgId: 1,
+        name: "Disabled SP-API connector",
+        sourceType: "amazon_sp_api"
+      });
+      await request(app)
+        .post(`/api/data-sources/${source.id}/sp-api/credentials`)
+        .set("Cookie", token)
+        .send({
+          region: "NA",
+          commerceStoreIds: [1],
+          lwaClientId: "amzn1.application-oa2-client.test",
+          lwaClientSecret: "client-secret-not-to-return",
+          lwaRefreshToken: "Atzr|refresh-token-not-to-return"
+        })
+        .expect(409);
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+    }
+  });
+
+  it("lists and resolves SP-API mapping issues without guessing a product identity", async () => {
+    const source = store.createDataSource({
+      orgId: 1,
+      name: "EU SP-API mapping issues",
+      sourceType: "amazon_sp_api"
+    });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "EU mapping seller",
+      marketplace: "amazon.co.uk",
+      sellerId: "EU-MAPPING-SELLER"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "UK",
+      sku: "EU-SKU-1",
+      asin: "B0EUMAP001",
+      title: "Mapped EU product"
+    });
+    const issue = store.upsertDataSourceMappingIssue({
+      orgId: 1,
+      dataSourceId: source.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "UK",
+      domain: "sales_traffic",
+      issueType: "ambiguous_asin",
+      sourceAsin: "B0EUMAP001",
+      candidateProductIds: [product.id]
+    });
+    const repeated = store.upsertDataSourceMappingIssue({
+      orgId: 1,
+      dataSourceId: source.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "UK",
+      domain: "sales_traffic",
+      issueType: "ambiguous_asin",
+      sourceAsin: "B0EUMAP001",
+      candidateProductIds: [product.id]
+    });
+    expect(repeated).toMatchObject({ id: issue.id, occurrenceCount: 2, status: "open" });
+
+    const listed = await request(app)
+      .get(`/api/data-sources/${source.id}/mapping-issues?status=open&domain=sales_traffic`)
+      .set("Cookie", token)
+      .expect(200);
+    expect(listed.body).toEqual([
+      expect.objectContaining({
+        id: issue.id,
+        sourceAsin: "B0EUMAP001",
+        candidateProductIds: [product.id],
+        occurrenceCount: 2,
+        status: "open"
+      })
+    ]);
+
+    const resolved = await request(app)
+      .patch(`/api/data-sources/${source.id}/mapping-issues/${issue.id}`)
+      .set("Cookie", token)
+      .send({ status: "resolved", productId: product.id, note: "Confirmed in Seller Central" })
+      .expect(200);
+    expect(resolved.body).toMatchObject({
+      status: "resolved",
+      resolvedProductId: product.id,
+      resolutionNote: "Confirmed in Seller Central"
+    });
+
+    const health = await request(app)
+      .get(`/api/data-sources/${source.id}/health`)
+      .set("Cookie", token)
+      .expect(200);
+    expect(health.body).toMatchObject({ mappingIssueCount: 0 });
   });
 
   it("imports owned product metrics from a CSV source and reports partial rows", async () => {
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "US operations CSV", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     const imported = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/products`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         csv: [
           "sku,asin,title,date,salesAmount,orders,inventoryAvailable",
@@ -180,7 +541,7 @@ describe("data source routes", () => {
 
     const updated = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/products`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ csv: "sku,asin,title,date,salesAmount\nSKU-1,B0TEST001,Hero product,2026-07-20,249" })
       .expect(200);
     expect(updated.body).toMatchObject({ importedRows: 1, createdProducts: 0, updatedProducts: 1 });
@@ -192,7 +553,7 @@ describe("data source routes", () => {
 
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({
@@ -217,7 +578,7 @@ describe("data source routes", () => {
 
     const partialRuns = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs?status=partial`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(partialRuns.body).toHaveLength(1);
   });
@@ -225,13 +586,13 @@ describe("data source routes", () => {
   it("rejects malformed CSV and records the failed sync state", async () => {
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "Malformed CSV", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     await request(app)
       .post(`/api/data-sources/${source.body.id}/import/products`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ csv: "sku,date\nSKU-1,2026-07-20" })
       .expect(400);
 
@@ -242,7 +603,7 @@ describe("data source routes", () => {
     });
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({
@@ -257,13 +618,13 @@ describe("data source routes", () => {
   it("imports product and Ads rows from Excel and records format-specific sync runs", async () => {
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "US Excel operations", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     const products = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/products`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(workbookPayload([
         ["sku", "asin", "title", "date", "salesAmount", "orders"],
         ["XLSX-SKU-1", "B0XLSX0001", "Excel product", "2026-07-21", 320.5, 6],
@@ -284,7 +645,7 @@ describe("data source routes", () => {
 
     const ads = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/ads`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(workbookPayload([
         ["date", "campaignId", "campaignName", "sku", "impressions", "clicks", "spend", "sales"],
         ["2026-07-21", "XLSX-CAMP-1", "Excel campaign", "XLSX-SKU-1", 1200, 80, 42, 168]
@@ -302,7 +663,7 @@ describe("data source routes", () => {
 
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({ operation: "ads_excel_import", status: "success" }),
@@ -320,13 +681,13 @@ describe("data source routes", () => {
     });
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "US cost workbook", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     const imported = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/costs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(workbookPayload([
         ["sku", "purchaseCost", "inboundFreight", "fbaFee", "referralFeeRate", "targetMarginRate"],
         ["COST-SKU-1", 28.5, 4.2, 7.1, "15%", "32%"],
@@ -357,7 +718,7 @@ describe("data source routes", () => {
 
     const updated = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/costs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ format: "csv", content: "sku,purchaseCost\nCOST-SKU-1,30" })
       .expect(200);
     expect(updated.body).toMatchObject({ importedRows: 1, createdSettings: 0, updatedSettings: 1 });
@@ -370,7 +731,7 @@ describe("data source routes", () => {
 
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({ operation: "cost_csv_import", status: "success", updatedRecords: 1 }),
@@ -395,13 +756,13 @@ describe("data source routes", () => {
     });
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "US inventory workbook", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     const imported = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/inventory`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send(workbookPayload([
         [
           "sku", "productionLeadTimeDays", "inboundLeadTimeDays", "safetyStockDays",
@@ -445,7 +806,7 @@ describe("data source routes", () => {
 
     const updated = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/inventory`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ format: "csv", content: "sku,supplierName\nINV-SKU-1,Supplier C" })
       .expect(200);
     expect(updated.body).toMatchObject({ importedRows: 1, createdSettings: 0, updatedSettings: 1 });
@@ -459,7 +820,7 @@ describe("data source routes", () => {
 
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({ operation: "inventory_csv_import", status: "success", updatedRecords: 1 }),
@@ -470,19 +831,19 @@ describe("data source routes", () => {
   it("rejects inventory files without planning columns and records the failed run", async () => {
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "Invalid inventory workbook", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     await request(app)
       .post(`/api/data-sources/${source.body.id}/import/inventory`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ format: "csv", content: "sku,title\nINV-SKU-1,No planning values" })
       .expect(400);
 
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({
@@ -496,19 +857,19 @@ describe("data source routes", () => {
   it("rejects cost files without cost columns and records the failed run", async () => {
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "Invalid cost workbook", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     await request(app)
       .post(`/api/data-sources/${source.body.id}/import/costs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ format: "csv", content: "sku,title\nCOST-SKU-1,No costs" })
       .expect(400);
 
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({
@@ -522,13 +883,13 @@ describe("data source routes", () => {
   it("rejects invalid calendar dates and marketplace drift as row errors", async () => {
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "Bounded US CSV", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     const result = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/products`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         csv: [
           "sku,asin,title,date,marketplace",
@@ -555,13 +916,13 @@ describe("data source routes", () => {
     });
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "US Ads report", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     const imported = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/ads`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         csv: [
           "date,campaignId,campaignName,adGroupName,targetText,searchTerm,sku,impressions,clicks,spend,sales,orders,acos,ctr",
@@ -598,7 +959,7 @@ describe("data source routes", () => {
 
     const updated = await request(app)
       .post(`/api/data-sources/${source.body.id}/import/ads`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({
         csv: [
           "date,campaignId,campaignName,adGroupName,targetText,searchTerm,spend",
@@ -621,7 +982,7 @@ describe("data source routes", () => {
     });
     const runs = await request(app)
       .get(`/api/data-sources/${source.body.id}/runs`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
     expect(runs.body).toEqual([
       expect.objectContaining({ operation: "ads_csv_import", status: "success", updatedRecords: 1 }),
@@ -632,13 +993,13 @@ describe("data source routes", () => {
   it("records a failed Ads sync when the report headers are invalid", async () => {
     const source = await request(app)
       .post("/api/data-sources")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ name: "Invalid Ads report", sourceType: "csv_import", marketplace: "US" })
       .expect(201);
 
     await request(app)
       .post(`/api/data-sources/${source.body.id}/import/ads`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ csv: "date,campaignId\n2026-07-21,CAMP-1" })
       .expect(400);
 
@@ -649,3 +1010,8 @@ describe("data source routes", () => {
     });
   });
 });
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}

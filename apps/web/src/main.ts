@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
+import { createSessionStoreResetPlugin } from "./stores/session-store-reset";
 import "element-plus/dist/index.css";
 import "./styles/base.css";
 import "./styles/layout.css";
@@ -19,5 +20,7 @@ import "./styles/operations-apple.css";
 import "./styles/tasks.css";
 
 const app = createApp(App);
-app.use(createPinia());
+const pinia = createPinia();
+pinia.use(createSessionStoreResetPlugin());
+app.use(pinia);
 app.mount("#app");

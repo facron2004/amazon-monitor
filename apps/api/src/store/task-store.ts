@@ -52,7 +52,12 @@ function isPriority(value: string | undefined): value is TaskPriority {
 }
 
 function isSourceType(value: string): value is TaskSourceType {
-  return value === "insight_event" || value === "ai_run" || value === "rule" || value === "manual" || value === "review_recurring";
+  return value === "insight_event"
+    || value === "ai_run"
+    || value === "agent_run"
+    || value === "rule"
+    || value === "manual"
+    || value === "review_recurring";
 }
 
 function inferTaskTypeFromEvent(eventType: string): string {

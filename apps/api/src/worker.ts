@@ -12,7 +12,8 @@ import { intEnv } from "./amazon/config.js";
 import { runCategoryCollectionForMonitor } from "./category-pipeline.js";
 import { formatDuration, ts } from "./log.js";
 import { runCollectionForKeyword } from "./pipeline.js";
-import { openAppStore } from "./store.js";
+import { runSpApiSyncJob } from "./services/sp-api-sync-runner.js";
+import { openAppStore, type ClaimedCollectJob, type Store } from "./store.js";
 
 const appVersion = (() => {
   try {
@@ -45,46 +46,120 @@ const workerConcurrency = intEnv("AMAZON_WORKER_CONCURRENCY", 2, 1, 10);
 const jobTimeoutMs = intEnv("AMAZON_WORKER_JOB_TIMEOUT_MS", 10 * 60 * 1000, 0, 60 * 60 * 1000);
 const heartbeatIntervalMs = intEnv("AMAZON_WORKER_HEARTBEAT_MS", 5000, 1000, 60000);
 const reaperIntervalMs = intEnv("AMAZON_WORKER_REAPER_INTERVAL_MS", 30000, 5000, 300000);
-const staleJobThresholdMs = intEnv("AMAZON_WORKER_STALE_JOB_THRESHOLD_MS", 15 * 60 * 1000, 60000, 30 * 60 * 1000);
+const leaseDurationMs = intEnv("AMAZON_WORKER_LEASE_MS", 60_000, heartbeatIntervalMs * 2, 30 * 60 * 1000);
+const drainTimeoutMs = intEnv("AMAZON_WORKER_DRAIN_TIMEOUT_MS", 30_000, 1000, 5 * 60 * 1000);
 const verboseLog = process.env.AMAZON_WORKER_VERBOSE_LOG !== "false";
 
-let running = true;
+export type CollectJobRunner = (store: Store, job: ClaimedCollectJob, options?: { signal?: AbortSignal }) => Promise<CollectTaskLog>;
 
-type CollectJobRef = { orgId?: number; taskType: "keyword" | "category"; targetId: number; date: string };
-type CollectJobRunner = (store: any, job: CollectJobRef, options?: { signal?: AbortSignal }) => Promise<CollectTaskLog>;
+export interface WorkerStartOptions {
+  workerId?: string;
+  pollIntervalMs?: number;
+  heartbeatIntervalMs?: number;
+  reaperIntervalMs?: number;
+  leaseDurationMs?: number;
+  jobTimeoutMs?: number;
+  maxRetries?: number;
+  drainTimeoutMs?: number;
+  concurrency?: number;
+  runner?: CollectJobRunner;
+  handleSignals?: boolean;
+  onJobCompleted?: (job: ClaimedCollectJob) => void | Promise<void>;
+}
 
-export async function startWorker(storeInstance?: any) {
+interface ActiveJob {
+  job: ClaimedCollectJob;
+  startedAt: number;
+  controller: AbortController;
+}
+
+interface WorkerRuntime {
+  acceptingJobs: boolean;
+  shutdownController: AbortController;
+  activeJobs: Map<number, ActiveJob>;
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
+  reaperTimer: ReturnType<typeof setInterval> | null;
+  lanesDone: Promise<void> | null;
+  drainTimeoutMs: number;
+  stopPromise: Promise<void> | null;
+}
+
+let activeWorker: WorkerRuntime | null = null;
+
+export async function startWorker(storeInstance?: Store, overrides: WorkerStartOptions = {}): Promise<void> {
+  if (activeWorker) {
+    throw new Error("Worker is already running");
+  }
+
   const store = storeInstance ?? openAppStore(dbPath);
-  console.log(`[${ts()}] [Worker] Started. Polling SQLite queue: ${dbPath} (poll=${pollIntervalMs}ms, maxRetries=${maxRetries}, concurrency=${workerConcurrency}, jobTimeout=${formatDuration(jobTimeoutMs)}, staleReaper=${formatDuration(staleJobThresholdMs)} every ${reaperIntervalMs}ms)`);
+  const runtime: WorkerRuntime = {
+    acceptingJobs: true,
+    shutdownController: new AbortController(),
+    activeJobs: new Map(),
+    heartbeatTimer: null,
+    reaperTimer: null,
+    lanesDone: null,
+    drainTimeoutMs: overrides.drainTimeoutMs ?? drainTimeoutMs,
+    stopPromise: null
+  };
+  activeWorker = runtime;
+
+  const configuredPollIntervalMs = overrides.pollIntervalMs ?? pollIntervalMs;
+  const configuredHeartbeatIntervalMs = overrides.heartbeatIntervalMs ?? heartbeatIntervalMs;
+  const configuredReaperIntervalMs = overrides.reaperIntervalMs ?? reaperIntervalMs;
+  const configuredLeaseDurationMs = overrides.leaseDurationMs ?? leaseDurationMs;
+  const configuredJobTimeoutMs = overrides.jobTimeoutMs ?? jobTimeoutMs;
+  const configuredMaxRetries = overrides.maxRetries ?? maxRetries;
+  const configuredConcurrency = overrides.concurrency ?? workerConcurrency;
+  const runner = overrides.runner ?? runCollectJob;
+  const workerId = overrides.workerId ?? randomUUID();
+  const workerStartedAt = new Date().toISOString();
+  const signalHandler = () => {
+    void stopWorker();
+  };
+  const handleSignals = overrides.handleSignals ?? true;
+  if (handleSignals) {
+    process.once("SIGTERM", signalHandler);
+    process.once("SIGINT", signalHandler);
+  }
+
+  console.log(`[${ts()}] [Worker:${workerId}] Started. Polling SQLite queue: ${dbPath} (poll=${configuredPollIntervalMs}ms, maxRetries=${configuredMaxRetries}, concurrency=${configuredConcurrency}, jobTimeout=${formatDuration(configuredJobTimeoutMs)}, lease=${formatDuration(configuredLeaseDurationMs)}, reaper=${formatDuration(configuredReaperIntervalMs)})`);
 
   // Recover jobs that the previous Worker left in 'processing' state. Without
   // this, those rows would sit forever — `claimNextJob` only reads 'pending',
   // so no lane would ever pick them up. Mark them failed with an explicit
   // reason so operators can spot recovery events in the job history.
   try {
-    const recovered = store.recoverStuckJobs("Worker 进程重启，上一次未完成的任务被回收");
+    const legacyRecovered = store.recoverStuckJobs("Worker 升级前没有租约的任务被回收");
+    const expiredRecovered = store.recoverExpiredJobLeases(configuredMaxRetries);
+    const recovered = [...legacyRecovered, ...expiredRecovered];
     if (recovered.length > 0) {
-      console.log(`[${ts()}] [Worker] Recovered ${recovered.length} stuck job(s): #${recovered.join(", #")}`);
+      console.log(`[${ts()}] [Worker:${workerId}] Recovered ${recovered.length} unavailable lease(s): #${recovered.join(", #")}`);
     }
   } catch (err) {
-    console.error(`[${ts()}] [Worker] recoverStuckJobs failed:`, err);
+    console.error(`[${ts()}] [Worker:${workerId}] lease recovery failed:`, err);
   }
-
-  // Stable per-process identity — used as the PK in amazon_worker_heartbeat
-  // so restarts surface as a new "online" entry instead of overwriting in a
-  // confusing way. Captured once at startup.
-  const workerId = randomUUID();
-  const workerStartedAt = new Date().toISOString();
 
   let jobsProcessed = 0;
   // Shared across all lanes so the periodic heartbeat can describe every
   // lane in one log line. Reset to null when the lane is between jobs.
-  const activeJobs = new Map<number, { taskType: string; targetId: number; startedAt: number }>();
   // Most recent job status observed by any lane — surfaced via the API
   // heartbeat so the UI can show "last job failed" alongside the green dot.
   let lastJob: { id: number; status: "pending" | "processing" | "completed" | "failed" } | null = null;
 
   function writeHeartbeat(): void {
+    for (const [laneId, active] of runtime.activeJobs) {
+      const renewed = store.renewJobLease(
+        active.job.id,
+        active.job.leaseOwner,
+        active.job.leaseToken,
+        configuredLeaseDurationMs
+      );
+      if (!renewed) {
+        active.controller.abort();
+        console.error(`[${ts()}] [Worker:${workerId}:${laneId}] Lost lease for job #${active.job.id} (${leaseTokenSummary(active.job.leaseToken)}); aborting stale runner.`);
+      }
+    }
     try {
       store.recordWorkerHeartbeat({
         workerId,
@@ -96,79 +171,98 @@ export async function startWorker(storeInstance?: any) {
         lastStatus: lastJob?.status ?? null
       });
     } catch (err) {
-      console.error(`[${ts()}] [Worker] recordWorkerHeartbeat failed:`, err);
+      console.error(`[${ts()}] [Worker:${workerId}] recordWorkerHeartbeat failed:`, err);
     }
-    logHeartbeatIfVerbose(activeJobs);
+    logHeartbeatIfVerbose(runtime.activeJobs);
   }
 
   writeHeartbeat();
-  const heartbeatTimer = setInterval(writeHeartbeat, heartbeatIntervalMs);
+  runtime.heartbeatTimer = setInterval(writeHeartbeat, configuredHeartbeatIntervalMs);
 
   /**
-   * Runtime reaper: periodically recovers jobs stuck in 'processing' beyond
-   * the stale threshold. This prevents jobs from being stuck forever when a
-   * lane hangs on a non-abortable operation (e.g. Playwright browser hang).
-   * Without this, stuck jobs would only be recovered on worker restart.
+   * Runtime reaper only recovers expired leases. An active worker renews its
+   * lease with every heartbeat, so another worker can never reclaim an
+   * in-flight job merely because it started later.
    */
-  function reapStaleJobs(): void {
+  function reapExpiredLeases(): void {
     try {
-      const ids = store.recoverStaleProcessingJobs(staleJobThresholdMs, maxRetries);
+      const ids = store.recoverExpiredJobLeases(configuredMaxRetries);
       if (ids.length > 0) {
-        console.log(`[${ts()}] [Worker:reaper] Recovered ${ids.length} stale job(s): #${ids.join(", #")}`);
+        console.log(`[${ts()}] [Worker:${workerId}:reaper] Recovered ${ids.length} expired lease(s): #${ids.join(", #")}`);
       }
     } catch (err) {
-      console.error(`[${ts()}] [Worker:reaper] Error:`, err);
+      console.error(`[${ts()}] [Worker:${workerId}:reaper] Error:`, err);
     }
   }
-  const reaperTimer = setInterval(reapStaleJobs, reaperIntervalMs);
+  runtime.reaperTimer = setInterval(reapExpiredLeases, configuredReaperIntervalMs);
 
   async function workerLane(laneId: number): Promise<void> {
-    while (running) {
+    while (runtime.acceptingJobs) {
       try {
-        const job = store.claimNextJob();
+        const job = store.claimNextJob(workerId, configuredLeaseDurationMs);
         if (job) {
           jobsProcessed++;
           const jobStartTime = Date.now();
-          activeJobs.set(laneId, { taskType: job.taskType, targetId: job.targetId, startedAt: jobStartTime });
+          const controller = new AbortController();
+          runtime.activeJobs.set(laneId, { job, startedAt: jobStartTime, controller });
           lastJob = { id: job.id, status: "processing" };
-          console.log(`[${ts()}] [Worker:${laneId}] ▶ Job #${job.id} STARTED | type=${job.taskType}, targetId=${job.targetId}, date=${job.date} | queue_position=${jobsProcessed}`);
+          console.log(`[${ts()}] [Worker:${workerId}:${laneId}] ▶ Job #${job.id} STARTED | type=${job.taskType}, targetId=${job.targetId}, date=${job.date}, lease=${leaseTokenSummary(job.leaseToken)} | queue_position=${jobsProcessed}`);
 
           try {
-            const log = await runJobWithTimeout(store, job, jobTimeoutMs);
+            const log = await runJobWithTimeout(store, job, configuredJobTimeoutMs, runner, controller.signal);
             if (log.status === "failed") {
               throw new Error(log.errorMessage ?? "Collection failed");
             }
 
-            store.completeJob(job.id);
+            if (!store.completeJob(job.id, job.leaseOwner, job.leaseToken)) {
+              throw new DOMException("Collection job lease was lost before completion", "AbortError");
+            }
             const elapsed = Date.now() - jobStartTime;
             lastJob = { id: job.id, status: "completed" };
-            console.log(`[${ts()}] [Worker:${laneId}] ✓ Job #${job.id} COMPLETED | type=${job.taskType}, targetId=${job.targetId} | duration=${formatDuration(elapsed)}`);
+            try {
+              await overrides.onJobCompleted?.(job);
+            } catch (recoveryError) {
+              console.error(
+                `[${ts()}] [Worker:${workerId}:${laneId}] Agent recovery dispatch failed for job #${job.id}:`,
+                recoveryError instanceof Error ? recoveryError.message : "unknown error",
+              );
+            }
+            console.log(`[${ts()}] [Worker:${workerId}:${laneId}] ✓ Job #${job.id} COMPLETED | type=${job.taskType}, targetId=${job.targetId} | duration=${formatDuration(elapsed)}`);
           } catch (error) {
             const elapsed = Date.now() - jobStartTime;
             const errMsg = error instanceof Error ? error.message : String(error);
-            console.error(`[${ts()}] [Worker:${laneId}] ✗ Job #${job.id} FAILED | type=${job.taskType}, targetId=${job.targetId} | duration=${formatDuration(elapsed)} | error=${errMsg}`);
-            store.failJob(job.id, errMsg, maxRetries);
+            console.error(`[${ts()}] [Worker:${workerId}:${laneId}] ✗ Job #${job.id} FAILED | type=${job.taskType}, targetId=${job.targetId} | duration=${formatDuration(elapsed)} | error=${errMsg}`);
+            if (!store.failJob(job.id, job.leaseOwner, job.leaseToken, errMsg, configuredMaxRetries)) {
+              console.warn(`[${ts()}] [Worker:${workerId}:${laneId}] Job #${job.id} failure was not recorded because its lease is no longer active.`);
+            }
             lastJob = { id: job.id, status: "failed" };
           } finally {
-            activeJobs.delete(laneId);
+            runtime.activeJobs.delete(laneId);
           }
         }
       } catch (err) {
         console.error(`[${ts()}] [Worker:${laneId}] Poll loop error:`, err);
       }
 
-      if (running) {
-        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      if (runtime.acceptingJobs) {
+        await waitForPoll(configuredPollIntervalMs, runtime.shutdownController.signal);
       }
     }
   }
 
-  const lanes = Array.from({ length: workerConcurrency }, (_, i) => workerLane(i + 1));
+  const lanes = Array.from({ length: configuredConcurrency }, (_, i) => workerLane(i + 1));
+  runtime.lanesDone = Promise.all(lanes).then(() => undefined);
   try {
-    await Promise.all(lanes);
+    await runtime.lanesDone;
   } finally {
-    clearInterval(heartbeatTimer);
-    clearInterval(reaperTimer);
+    clearWorkerTimers(runtime);
+    if (handleSignals) {
+      process.removeListener("SIGTERM", signalHandler);
+      process.removeListener("SIGINT", signalHandler);
+    }
+    if (activeWorker === runtime) {
+      activeWorker = null;
+    }
   }
 }
 
@@ -179,54 +273,76 @@ export async function startWorker(storeInstance?: any) {
  * the job has been marked failed.
  */
 export async function runJobWithTimeout(
-  store: any,
-  job: CollectJobRef,
+  store: Store,
+  job: ClaimedCollectJob,
   timeoutMs: number,
-  runner: CollectJobRunner = runCollectJob
+  runner: CollectJobRunner = runCollectJob,
+  shutdownSignal?: AbortSignal
 ): Promise<CollectTaskLog> {
-  if (timeoutMs <= 0) {
-    return runner(store, job);
-  }
-
   const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    timeoutHandle = setTimeout(() => {
-      controller.abort();
-      reject(new DOMException(`Collect job timed out after ${formatDuration(timeoutMs)}`, "AbortError"));
-    }, timeoutMs);
-  });
+  const cleanup = { removeShutdownListener: undefined as (() => void) | undefined };
+  const abortPromises: Promise<never>[] = [];
+
+  if (timeoutMs > 0) {
+    abortPromises.push(new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        controller.abort();
+        reject(new DOMException(`Collect job timed out after ${formatDuration(timeoutMs)}`, "AbortError"));
+      }, timeoutMs);
+    }));
+  }
+
+  if (shutdownSignal) {
+    abortPromises.push(new Promise<never>((_resolve, reject) => {
+      const abortForShutdown = () => {
+        controller.abort();
+        reject(new DOMException("Collect job aborted during worker shutdown", "AbortError"));
+      };
+      if (shutdownSignal.aborted) {
+        abortForShutdown();
+        return;
+      }
+      shutdownSignal.addEventListener("abort", abortForShutdown, { once: true });
+      cleanup.removeShutdownListener = () => shutdownSignal.removeEventListener("abort", abortForShutdown);
+    }));
+  }
 
   try {
-    return await Promise.race([
-      runner(store, job, { signal: controller.signal }),
-      timeoutPromise
-    ]);
+    return await Promise.race([runner(store, job, { signal: controller.signal }), ...abortPromises]);
   } finally {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
     }
+    cleanup.removeShutdownListener?.();
   }
 }
 
-async function runCollectJob(store: ReturnType<typeof openAppStore>, job: CollectJobRef, options?: { signal?: AbortSignal }): Promise<CollectTaskLog> {
-  if (options?.signal?.aborted) {
-    throw new Error(`Collect job aborted before start (timeout of ${formatDuration(jobTimeoutMs)})`);
-  }
+async function runCollectJob(store: Store, job: ClaimedCollectJob, options?: { signal?: AbortSignal }): Promise<CollectTaskLog> {
+  const ensureLeaseActive = () => {
+    if (options?.signal?.aborted || !store.isJobLeaseActive(job.id, job.leaseOwner, job.leaseToken)) {
+      throw new DOMException("Collection job lease is no longer active", "AbortError");
+    }
+  };
+  ensureLeaseActive();
 
   if (job.taskType === "keyword") {
-    return runCollectionForKeyword(store, job.targetId, job.date, { signal: options?.signal });
+    return runCollectionForKeyword(store, job.targetId, job.date, { signal: options?.signal, ensureActive: ensureLeaseActive });
   }
   if (job.taskType === "category") {
     return runCategoryCollectionForMonitor(store, job.targetId, job.date, {
       signal: options?.signal,
-      organizationId: job.orgId ?? 1
+      organizationId: job.orgId,
+      ensureActive: ensureLeaseActive
     });
+  }
+  if (job.taskType === "data_source_sync") {
+    return runSpApiSyncJob(store, job, { signal: options?.signal });
   }
   throw new Error(`Unknown task type: ${job.taskType}`);
 }
 
-function logHeartbeatIfVerbose(activeJobs: Map<number, { taskType: string; targetId: number; startedAt: number }>): void {
+function logHeartbeatIfVerbose(activeJobs: Map<number, ActiveJob>): void {
   if (!verboseLog) return;
   const now = Date.now();
   if (activeJobs.size === 0) {
@@ -235,16 +351,77 @@ function logHeartbeatIfVerbose(activeJobs: Map<number, { taskType: string; targe
   }
   const lanes = Array.from(activeJobs.entries())
     .sort(([a], [b]) => a - b)
-    .map(([laneId, info]) => `lane${laneId}=${info.taskType}#${info.targetId}@${formatDuration(now - info.startedAt)}`)
+    .map(([laneId, info]) => `lane${laneId}=${info.job.taskType}#${info.job.targetId}@${formatDuration(now - info.startedAt)}`)
     .join(" | ");
   console.log(`[${ts()}] [Worker:heartbeat] ${lanes}`);
 }
 
 export async function stopWorker(): Promise<void> {
-  running = false;
-  console.log(`[${ts()}] [Worker] Shutting down — waiting for active jobs to finish...`);
-  // Lanes will exit on next poll iteration when running=false
-  console.log(`[${ts()}] [Worker] Stopped.`);
+  const runtime = activeWorker;
+  if (!runtime) return;
+  if (runtime.stopPromise) return runtime.stopPromise;
+
+  runtime.acceptingJobs = false;
+  runtime.shutdownController.abort();
+  if (runtime.reaperTimer) {
+    clearInterval(runtime.reaperTimer);
+    runtime.reaperTimer = null;
+  }
+  for (const active of runtime.activeJobs.values()) {
+    active.controller.abort();
+  }
+
+  console.log(`[${ts()}] [Worker] Shutting down — stopped claiming work and aborting ${runtime.activeJobs.size} active job(s).`);
+  runtime.stopPromise = waitForDrain(runtime.lanesDone, runtime.drainTimeoutMs).then((drained) => {
+    if (drained) {
+      console.log(`[${ts()}] [Worker] Stopped after draining active jobs.`);
+    } else {
+      console.warn(`[${ts()}] [Worker] Drain timed out; remaining job leases will be recovered after expiry.`);
+    }
+  });
+  return runtime.stopPromise;
+}
+
+function clearWorkerTimers(runtime: WorkerRuntime): void {
+  if (runtime.heartbeatTimer) {
+    clearInterval(runtime.heartbeatTimer);
+    runtime.heartbeatTimer = null;
+  }
+  if (runtime.reaperTimer) {
+    clearInterval(runtime.reaperTimer);
+    runtime.reaperTimer = null;
+  }
+}
+
+function leaseTokenSummary(token: string): string {
+  return token.slice(0, 8);
+}
+
+function waitForPoll(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted || delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(done, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      done();
+    };
+    function done() {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function waitForDrain(lanesDone: Promise<void> | null, timeoutMs: number): Promise<boolean> {
+  if (!lanesDone) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(false), timeoutMs);
+    lanesDone.then(() => {
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
 }
 
 // If run directly from CLI
@@ -252,7 +429,12 @@ const workerEntryName = process.argv[1] ? basename(process.argv[1]) : "";
 const isDirectRun = workerEntryName === "worker.ts" || workerEntryName === "worker.js";
 
 if (isDirectRun) {
-  startWorker().catch((err) => {
+  const exitOnSignal = () => {
+    void stopWorker().then(() => process.exit(0));
+  };
+  process.once("SIGTERM", exitOnSignal);
+  process.once("SIGINT", exitOnSignal);
+  startWorker(undefined, { handleSignals: false }).catch((err) => {
     console.error("[Worker] Fatal startup error:", err);
     process.exit(1);
   });

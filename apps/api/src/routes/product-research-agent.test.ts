@@ -25,7 +25,7 @@ beforeEach(async () => {
     .post("/api/auth/login")
     .send({ username: "admin", password: "admin123" })
     .expect(200);
-  token = login.body.token as string;
+  token = login.headers["set-cookie"][0] as string;
 });
 
 afterEach(() => db.close());
@@ -62,7 +62,7 @@ describe("Product Research Agent route", () => {
 
     const response = await request(app)
       .post("/api/ai/research-product")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ categoryId: category.id, date: EVIDENCE_DATE })
       .expect(201);
     const body = response.body as AiProductResearchResponse;
@@ -138,7 +138,7 @@ describe("Product Research Agent route", () => {
     const category = createCategory();
     const response = await request(app)
       .post("/api/ai/research-product")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ categoryId: category.id, date: "2026-06-20" })
       .expect(201);
 
@@ -158,14 +158,14 @@ describe("Product Research Agent route", () => {
     ]);
     const research = await request(app)
       .post("/api/ai/research-product")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ categoryId: category.id, date: EVIDENCE_DATE })
       .expect(201);
     const runId = research.body.run.id as number;
 
     const created = await request(app)
       .post(`/api/ai/runs/${runId}/product-launch-brief/tasks`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(201);
 
     expect(created.body).toMatchObject({
@@ -193,7 +193,7 @@ describe("Product Research Agent route", () => {
 
     const repeated = await request(app)
       .post(`/api/ai/runs/${runId}/product-launch-brief/tasks`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(200);
 
     expect(repeated.body).toMatchObject({
@@ -211,13 +211,13 @@ describe("Product Research Agent route", () => {
     const category = createCategory();
     const research = await request(app)
       .post("/api/ai/research-product")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ categoryId: category.id, date: "2026-06-20" })
       .expect(201);
 
     await request(app)
       .post(`/api/ai/runs/${research.body.run.id}/product-launch-brief/tasks`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(409);
 
     store.createUser({
@@ -233,7 +233,7 @@ describe("Product Research Agent route", () => {
 
     await request(app)
       .post(`/api/ai/runs/${research.body.run.id}/product-launch-brief/tasks`)
-      .set("x-amazon-monitor-session", viewer.body.token as string)
+      .set("Cookie", viewer.headers["set-cookie"][0] as string)
       .expect(403);
   });
 
@@ -246,7 +246,7 @@ describe("Product Research Agent route", () => {
 
     const response = await request(app)
       .post("/api/ai/research-product")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ categoryId: category.id, date: staleDate })
       .expect(201);
 
@@ -276,7 +276,7 @@ describe("Product Research Agent route", () => {
 
     await request(app)
       .post(`/api/ai/runs/${response.body.run.id}/product-launch-brief/tasks`)
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .expect(409);
   });
 
@@ -290,7 +290,7 @@ describe("Product Research Agent route", () => {
 
     const response = await request(app)
       .post("/api/ai/research-product")
-      .set("x-amazon-monitor-session", token)
+      .set("Cookie", token)
       .send({ categoryId: category.id, date: EVIDENCE_DATE })
       .expect(201);
 
@@ -318,7 +318,7 @@ describe("Product Research Agent route", () => {
 
     await request(app)
       .post("/api/ai/research-product")
-      .set("x-amazon-monitor-session", login.body.token as string)
+      .set("Cookie", login.headers["set-cookie"][0] as string)
       .send({ categoryId: category.id, date: "2026-06-20" })
       .expect(403);
   });

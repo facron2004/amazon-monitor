@@ -48,7 +48,11 @@ const sourceLabel = computed(() => {
 });
 
 const recommendationTitle = computed(() =>
-  props.task?.sourceType === "ai_run" || props.sourceEvent ? "AI 建议" : "建议动作"
+  props.task?.sourceType === "ai_run"
+  || props.task?.sourceType === "agent_run"
+  || props.sourceEvent
+    ? "AI 建议"
+    : "建议动作"
 );
 
 const taskDescription = computed(() => {

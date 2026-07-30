@@ -72,7 +72,7 @@ describe("period report archive routes", () => {
 
     const weekly = await request(app)
       .post("/api/reports/period/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ period: "weekly", endDate: "2026-07-17" })
       .expect(201);
 
@@ -101,12 +101,12 @@ describe("period report archive routes", () => {
 
     await request(app)
       .post("/api/reports/period/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ period: "weekly", endDate: "2026-07-17" })
       .expect(201);
     const archive = await request(app)
       .get("/api/reports/period/archive?period=weekly&endDate=2026-07-17")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200);
     expect(archive.body.version).toBe(2);
     expect(store.countPeriodReportArchives(1, "weekly")).toBe(1);
@@ -114,7 +114,7 @@ describe("period report archive routes", () => {
 
     const monthly = await request(app)
       .post("/api/reports/period/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ period: "monthly", endDate: "2026-07-17" })
       .expect(201);
     expect(monthly.body).toMatchObject({
@@ -127,21 +127,21 @@ describe("period report archive routes", () => {
 
     const history = await request(app)
       .get("/api/reports/period/history?period=weekly&limit=10")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200);
     expect(history.body).toMatchObject({ total: 1, limit: 10, offset: 0 });
     expect(history.body.items).toHaveLength(1);
 
     const markdown = await request(app)
       .get("/api/reports/period.md?period=weekly&endDate=2026-07-17")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200)
       .expect("Content-Type", /text\/markdown/);
     expect(markdown.text).toContain("跨境电商运营周报");
 
     const pdf = await request(app)
       .get("/api/reports/period.pdf?period=weekly&endDate=2026-07-17")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .expect(200)
       .expect("Content-Type", /application\/pdf/)
       .expect("Content-Disposition", 'attachment; filename="operations-weekly-2026-07-17.pdf"');
@@ -157,7 +157,7 @@ describe("period report archive routes", () => {
   it("allows report readers to inspect archives but keeps generation and export approval-gated", async () => {
     await request(app)
       .post("/api/reports/period/generate")
-      .set("x-amazon-monitor-session", adminToken)
+      .set("Cookie", adminToken)
       .send({ period: "weekly", endDate: "2026-07-17" })
       .expect(201);
     store.createUser({
@@ -171,24 +171,24 @@ describe("period report archive routes", () => {
 
     await request(app)
       .get("/api/reports/period/history?period=weekly")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(200);
     await request(app)
       .get("/api/reports/period/archive?period=weekly&endDate=2026-07-17")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(200);
     await request(app)
       .post("/api/reports/period/generate")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .send({ period: "weekly", endDate: "2026-07-17" })
       .expect(403);
     await request(app)
       .get("/api/reports/period.md?period=weekly&endDate=2026-07-17")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(403);
     await request(app)
       .get("/api/reports/period.pdf?period=weekly&endDate=2026-07-17")
-      .set("x-amazon-monitor-session", viewerToken)
+      .set("Cookie", viewerToken)
       .expect(403);
   });
 });
@@ -298,5 +298,5 @@ async function login(username: string, password: string): Promise<string> {
     .post("/api/auth/login")
     .send({ username, password })
     .expect(200);
-  return response.body.token as string;
+  return response.headers["set-cookie"][0] as string;
 }

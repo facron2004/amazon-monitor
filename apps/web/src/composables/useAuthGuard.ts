@@ -10,6 +10,7 @@ export function useAuthGuard(reloadCurrentView: () => Promise<void>) {
   const authError = ref("");
 
   function handleUnauthorized() {
+    sessionStore.clearContext();
     showAuthModal.value = true;
   }
 

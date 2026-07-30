@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, onUnmounted, ref, type Ref } from "vue";
 import { storeToRefs } from "pinia";
 import { isoDate } from "@amazon-monitor/shared";
 import type { CollectionFreshness, InsightEvent, QueueStats, WorkerStatus } from "@amazon-monitor/shared";
@@ -24,6 +24,8 @@ import type { InsightReportPeriod } from "../api-types";
 import { toErrorMessage } from "../utils/error-message";
 import { useOverviewWorkflowActions } from "./useOverviewWorkflowActions";
 import { useOverviewActivityStore } from "../stores/overviewActivity";
+import { registerSessionBoundaryListener } from "../session-boundary";
+import { createNotificationForm } from "../types/notification";
 
 export function useAppController() {
   const session = useSessionStore();
@@ -181,8 +183,14 @@ export function useAppController() {
       ]);
     },
     "ai-agents": async () => {
-      const { useAiRunsStore } = await import("../stores/aiRuns.js");
-      await useAiRunsStore().fetchRuns();
+      const [{ useAiRunsStore }, { useAgentWorkspaceStore }] = await Promise.all([
+        import("../stores/aiRuns.js"),
+        import("../stores/agentWorkspace.js"),
+      ]);
+      await Promise.all([
+        useAiRunsStore().fetchRuns(),
+        useAgentWorkspaceStore().fetchWorkspace(),
+      ]);
     },
     tasks: async () => {
       const { useTaskStore } = await import("../stores/tasks.js");
@@ -230,6 +238,27 @@ export function useAppController() {
    * call will abort.
    */
   let loadSignalController: AbortController | null = null;
+
+  const unregisterSessionBoundary = registerSessionBoundaryListener(() => {
+    loadSignalController?.abort();
+    loadSignalController = null;
+    for (const viewLoading of Object.values(loadingMap)) {
+      viewLoading.value = false;
+    }
+    collecting.value = false;
+    freshness.value = [];
+    queueStats.value = null;
+    workerStatus.value = null;
+    viewErrorMessage.value = "";
+    notifications.notificationSchedules.value = [];
+    notifications.notificationLogs.value = [];
+    notifications.notificationForm.value = createNotificationForm();
+    notifications.sendingScheduleId.value = null;
+    clearMessages();
+  });
+
+  onUnmounted(unregisterSessionBoundary);
+
   function acquireLoadSignal(): AbortSignal | undefined {
     if (loadSignalController?.signal.aborted) return undefined;
     return loadSignalController?.signal;

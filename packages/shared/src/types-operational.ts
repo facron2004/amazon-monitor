@@ -104,6 +104,8 @@ export interface DashboardSalesPoint {
 
 export interface DashboardMarketplaceOperations {
   marketplace: string;
+  /** Present when the underlying operational fact carries a native currency. */
+  currency?: string | null;
   metricProductCount: number;
   salesAmount: NullableNumber;
   previousSalesAmount: NullableNumber;
@@ -156,7 +158,7 @@ export interface CollectTaskLogListResponse {
 export interface CollectJob {
   id: number;
   orgId: number;
-  taskType: "keyword" | "category";
+  taskType: "keyword" | "category" | "data_source_sync";
   targetId: number;
   date: string;
   status: "pending" | "processing" | "completed" | "failed";

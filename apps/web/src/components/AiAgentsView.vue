@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ElButton, ElOption, ElSelect } from "element-plus";
+import { ElButton, ElOption, ElSelect, ElTabPane, ElTabs } from "element-plus";
 import { RefreshCw } from "@lucide/vue";
 import { aiAgentTypes, aiRunStatuses, type AiRun } from "@amazon-monitor/shared";
 import { useAiRunsStore } from "../stores/aiRuns";
 import AgentRunDetail from "./ai-agents/AgentRunDetail.vue";
 import AgentRunList from "./ai-agents/AgentRunList.vue";
 import AgentQualityPanel from "./ai-agents/AgentQualityPanel.vue";
+import AgentConversationWorkspace from "./ai-agents/AgentConversationWorkspace.vue";
+import DesktopAgentSettings from "./ai-agents/DesktopAgentSettings.vue";
 import { agentLabels } from "./ai-agents/ai-agent-display";
 import { useWriteAccess } from "../composables/useWriteAccess";
 
@@ -30,6 +32,7 @@ const {
   qualityError
 } = storeToRefs(store);
 const { canWrite: canViewQuality } = useWriteAccess("assign_tasks");
+const workspaceMode = ref<"conversation" | "history">("conversation");
 
 const successCount = computed(() => runs.value.filter((run) => run.status === "success").length);
 const failedCount = computed(() => runs.value.filter((run) => run.status === "failed").length);
@@ -60,6 +63,17 @@ onMounted(() => {
 
 <template>
   <section class="view ai-agents-view">
+    <ElTabs v-model="workspaceMode" class="agent-view-tabs">
+      <ElTabPane label="智能工作台" name="conversation" />
+      <ElTabPane label="确定性历史" name="history" />
+    </ElTabs>
+
+    <template v-if="workspaceMode === 'conversation'">
+      <DesktopAgentSettings />
+      <AgentConversationWorkspace />
+    </template>
+
+    <template v-else>
     <header class="agent-toolbar panel">
       <div>
         <p class="eyebrow">Agent Center</p>
@@ -120,6 +134,7 @@ onMounted(() => {
         @feedback="store.setActionFeedback"
       />
     </div>
+    </template>
   </section>
 </template>
 
@@ -153,6 +168,9 @@ onMounted(() => {
 }
 
 .agent-error { color: #c2410c; margin: 0; }
+.agent-view-tabs { flex: 0 0 auto; }
+.agent-view-tabs :deep(.el-tabs__header) { margin: 0; }
+.agent-view-tabs :deep(.el-tabs__content) { display: none; }
 
 @media (max-width: 1120px) {
   .agent-layout { grid-template-columns: 1fr; }
