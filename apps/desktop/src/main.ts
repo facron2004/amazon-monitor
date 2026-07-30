@@ -15,6 +15,7 @@ import {
 } from "./browser-security.js";
 import {
   createDesktopPaths,
+  findLegacyDatabase,
   migrateLegacyDatabase,
 } from "./desktop-paths.js";
 import { DesktopProcessSupervisor } from "./process-supervisor.js";
@@ -29,8 +30,14 @@ app.enableSandbox();
 
 app.whenReady().then(async () => {
   const paths = createDesktopPaths(app.getPath("userData"));
-  const legacyDatabase = resolve(app.getAppPath(), "../../data/amazon-monitor.sqlite");
-  migrateLegacyDatabase(legacyDatabase, paths.database);
+  const legacyDatabase = findLegacyDatabase([
+    process.env.LEGACY_DB_PATH,
+    resolve(process.cwd(), "data/amazon-monitor.sqlite"),
+    resolve(process.cwd(), "../../data/amazon-monitor.sqlite"),
+    resolve(process.resourcesPath, "../../../../data/amazon-monitor.sqlite"),
+    resolve(app.getAppPath(), "../../data/amazon-monitor.sqlite"),
+  ], paths.database);
+  if (legacyDatabase) await migrateLegacyDatabase(legacyDatabase, paths.database);
 
   const apiEntry = app.isPackaged
     ? pathToFileURL(join(

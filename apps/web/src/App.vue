@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted } from "vue";
+import {
+  defineAsyncComponent,
+  onMounted,
+  type AsyncComponentLoader,
+  type Component,
+} from "vue";
 import Toast from "./components/Toast.vue";
 import AuthModal from "./components/AuthModal.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
+import AppAsyncViewError from "./components/AppAsyncViewError.vue";
 import AppViewState from "./components/AppViewState.vue";
 import { useAppController } from "./composables/useAppController";
 import { useSessionStore } from "./stores/session";
@@ -32,34 +38,35 @@ const viewModules = {
   logs: () => import("./components/CollectorsView.vue")
 } as const;
 
-const OverviewView = defineAsyncComponent(viewModules.overview);
-const CategoriesView = defineAsyncComponent(viewModules.categories);
-const KeywordsView = defineAsyncComponent(viewModules.keywords);
-const CompetitorsView = defineAsyncComponent(viewModules.competitors);
-const ProductsView = defineAsyncComponent(viewModules.products);
-const InventoryView = defineAsyncComponent(viewModules.inventory);
-const ProfitView = defineAsyncComponent(viewModules.profit);
-const ListingHealthView = defineAsyncComponent(viewModules["listing-health"]);
-const AdsView = defineAsyncComponent(viewModules.ads);
-const ReviewVocView = defineAsyncComponent(viewModules["review-voc"]);
-const ActionCenterPanel = defineAsyncComponent(viewModules["action-center"]);
-const AiAgentsView = defineAsyncComponent(viewModules["ai-agents"]);
-const TasksView = defineAsyncComponent(viewModules.tasks);
-const PromotionsView = defineAsyncComponent(viewModules.promotions);
-const SopsView = defineAsyncComponent(viewModules.sops);
-const RulesView = defineAsyncComponent(viewModules.rules);
-const DataSourcesView = defineAsyncComponent(viewModules["data-sources"]);
-const AlertsView = defineAsyncComponent(viewModules.alerts);
-const ReportsView = defineAsyncComponent(viewModules.reports);
-const NotificationsView = defineAsyncComponent(viewModules.notifications);
-const CollectorsView = defineAsyncComponent(viewModules.logs);
-
-function preloadFeatureViews() {
-  const idle = window.requestIdleCallback ?? ((cb: IdleRequestCallback) => window.setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 1200));
-  idle(() => {
-    void Promise.allSettled(Object.values(viewModules).map((load) => load()));
+function defineAppView<T extends Component>(loader: AsyncComponentLoader<T>) {
+  return defineAsyncComponent({
+    loader,
+    errorComponent: AppAsyncViewError,
+    timeout: 15_000,
   });
 }
+
+const OverviewView = defineAppView(viewModules.overview);
+const CategoriesView = defineAppView(viewModules.categories);
+const KeywordsView = defineAppView(viewModules.keywords);
+const CompetitorsView = defineAppView(viewModules.competitors);
+const ProductsView = defineAppView(viewModules.products);
+const InventoryView = defineAppView(viewModules.inventory);
+const ProfitView = defineAppView(viewModules.profit);
+const ListingHealthView = defineAppView(viewModules["listing-health"]);
+const AdsView = defineAppView(viewModules.ads);
+const ReviewVocView = defineAppView(viewModules["review-voc"]);
+const ActionCenterPanel = defineAppView(viewModules["action-center"]);
+const AiAgentsView = defineAppView(viewModules["ai-agents"]);
+const TasksView = defineAppView(viewModules.tasks);
+const PromotionsView = defineAppView(viewModules.promotions);
+const SopsView = defineAppView(viewModules.sops);
+const RulesView = defineAppView(viewModules.rules);
+const DataSourcesView = defineAppView(viewModules["data-sources"]);
+const AlertsView = defineAppView(viewModules.alerts);
+const ReportsView = defineAppView(viewModules.reports);
+const NotificationsView = defineAppView(viewModules.notifications);
+const CollectorsView = defineAppView(viewModules.logs);
 
 const session = useSessionStore();
 
@@ -160,7 +167,6 @@ const {
 } = app;
 
 onMounted(async () => {
-  preloadFeatureViews();
   await session.refreshMe();
   if (session.isAuthenticated) {
     await loadAll();
