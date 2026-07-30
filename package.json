@@ -27,6 +27,7 @@
     "typecheck": "npm run build:shared && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "test:browser": "npm --workspace @amazon-monitor/api run test:browser",
+    "agent:eval": "npm run build:shared && npm run build:agent && npm --workspace @amazon-monitor/agent run eval:gold --",
     "build": "npm run build:shared && npm run build:agent && npm --workspace @amazon-monitor/api run build && npm --workspace @amazon-monitor/web run build && npm --workspace @amazon-monitor/desktop run build",
     "start": "node apps/api/dist/index.js",
     "collect": "cross-env ENABLE_CRON=false tsx apps/api/src/cli.ts collect",

@@ -1,5 +1,6 @@
 export * from "./config.js";
 export * from "./eval-gold-set.js";
+export * from "./eval-gold-set-live.js";
 export * from "./runtime-types.js";
 export * from "./tool-schemas.js";
 export * from "./output-schema.js";

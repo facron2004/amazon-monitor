@@ -62,11 +62,12 @@ export interface AgentGoldMetrics {
 }
 
 export interface AgentGoldExecution {
-  output: AgentRunOutput;
+  output: AgentRunOutput | null;
   toolCalls: Array<{
     toolName: AgentToolName;
-    status: "completed" | "failed";
+    status: "running" | "completed" | "failed";
   }>;
+  errorMessage?: string | null;
   alertValid?: boolean | null;
   recoverySucceeded?: boolean | null;
 }
@@ -136,14 +137,15 @@ export function evaluateAgentGoldExecution(
   const missingTools = taskItem.expectedTools.filter(
     (toolName) => !completedTools.has(toolName),
   );
-  const conclusionsSupported = execution.output.conclusions.length > 0
+  const conclusionsSupported = execution.output !== null
+    && execution.output.conclusions.length > 0
     && execution.output.conclusions.every(
       (conclusion) =>
         conclusion.evidenceRefs.length > 0
         && conclusion.snapshotRefs.length > 0,
     );
-  const freshnessUnsafe = execution.output.freshness.status !== "fresh";
-  const unsupportedDeterministic = freshnessUnsafe && (
+  const freshnessUnsafe = execution.output?.freshness.status !== "fresh";
+  const unsupportedDeterministic = execution.output !== null && freshnessUnsafe && (
     execution.output.conclusions.some((conclusion) => conclusion.confidence > 0.49)
     || execution.output.recommendedActions.some(
       (action) => action.type !== "recollect",

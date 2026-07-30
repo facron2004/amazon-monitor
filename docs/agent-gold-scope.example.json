@@ -1,0 +1,23 @@
+{
+  "categoryId": 1,
+  "keywordId": 1,
+  "marketplace": "amazon.com",
+  "asins": [
+    "B000000001",
+    "B000000002",
+    "B000000003",
+    "B000000004",
+    "B000000005",
+    "B000000006",
+    "B000000007",
+    "B000000008",
+    "B000000009",
+    "B000000010"
+  ],
+  "brands": [
+    "Brand A",
+    "Brand B"
+  ],
+  "maxAgeHours": 24,
+  "annotations": {}
+}

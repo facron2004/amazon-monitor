@@ -12,7 +12,7 @@
 
 | 里程碑 | 状态 | 当前证据 |
 |---|---|---|
-| M0 真实数据底座 | 通过 | 根级测试覆盖五个 workspace 并以 894 个测试正常退出；根级生产构建与浏览器测试通过；SQLite、压缩包、`tmp/`、评审暂存目录和测试日志未进入提交。v0.7/SP-API、安全底座与 Agent 源码已形成提交 `37ba0ce`。 |
+| M0 真实数据底座 | 通过 | 根级测试覆盖五个 workspace 并以 897 个测试正常退出；根级生产构建与浏览器测试通过；SQLite、压缩包、`tmp/`、评审暂存目录和测试日志未进入提交。v0.7/SP-API、安全底座与 Agent 源码已形成提交 `37ba0ce`。 |
 | M1 契约与持久化 | 通过 | 独立 `apps/agent`、`apps/desktop`；9 张 Agent/审批表；组织隔离、分页、状态、期望版本、幂等键与迁移测试。 |
 | M2 工具与新鲜度 | 通过 | 15 个严格 Zod 只读工具；运行时注入组织/用户；统一 envelope；强制前置 freshness；陈旧数据置信度上限 `0.49` 且只保留补采提案。 |
 | M3 单 Agent 与 API | 通过（实现）/待真实验收（模型） | 单 Orchestrator、SQLite Session、10 turns、流式事件、主模型重试/备用模型、工具瞬态重试、SSE 重连、取消、审计、关联 recovery。真实模型成功输出尚未执行。 |
@@ -35,7 +35,7 @@
 
 ## 当前门禁
 
-- 单元测试：894（shared 59、Agent 11、API 598、Web 219、Desktop 7）；Desktop 已纳入根级 `npm test`。
+- 单元测试：897（shared 59、Agent 14、API 598、Web 219、Desktop 7）；Desktop 已纳入根级 `npm test`。
 - 浏览器测试：9。
 - 根级生产构建：通过。
 - `git diff --check`：通过，仅有 Windows 行尾提示。
@@ -43,12 +43,12 @@
 - 源码提交：`37ba0ce feat(agent): establish real-data desktop workflow`；验收矩阵与产品文档由独立文档提交保存。
 - 最新 NSIS：
   - 路径：`release/electron/Amazon Monitor Setup 0.6.1.exe`
-  - 大小：331,302,607 bytes
-  - SHA-256：`0EC59A36B8B58884328EF046306D91592EBBC16F2B005D85CDB96D5EA231A054`
+  - 大小：331,306,002 bytes
+  - SHA-256：`0798636ACC9E7B11992B5CEC0B8DFE0C9EB46589B9D2F6F38482FA64E7262796`
 
 ## 完成目标前的剩余条件
 
 1. 在可见验收实例内通过 Windows safeStorage 保存真实 OpenAI API Key；不得把 Key 写入对话、终端、SQLite 或日志。
 2. 在最终安装包内运行核心场景 1–6，导出审计 JSON。
-3. 顺序运行 30 题金标集并记录五项真实指标；指标不达标则继续修正，不以评分器单测代替。
+3. 使用 `npm run agent:eval` 顺序运行 30 题真实金标集并记录五项指标；运行器通过安装包 API 调用 safeStorage 中的 Key，自动发现当前组织的真实类目、关键词、ASIN 与品牌，逐题保存审计并要求人工标注提醒有效性和恢复结果。指标不达标则继续修正，不以评分器单测代替。
 4. 确认产品发布版本继续使用 `0.6.1`，还是将 Agent V1.0 同步到新的 SemVer，并形成独立发布提交。
