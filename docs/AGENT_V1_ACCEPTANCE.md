@@ -12,12 +12,12 @@
 
 | 里程碑 | 状态 | 当前证据 |
 |---|---|---|
-| M0 真实数据底座 | 通过 | 根级测试覆盖五个 workspace 并以 891 个测试正常退出；根级生产构建与浏览器测试通过；SQLite、压缩包、`tmp/`、评审暂存目录和测试日志未进入提交。v0.7/SP-API、安全底座与 Agent 源码已形成提交 `37ba0ce`。 |
+| M0 真实数据底座 | 通过 | 根级测试覆盖五个 workspace 并以 893 个测试正常退出；根级生产构建与浏览器测试通过；SQLite、压缩包、`tmp/`、评审暂存目录和测试日志未进入提交。v0.7/SP-API、安全底座与 Agent 源码已形成提交 `37ba0ce`。 |
 | M1 契约与持久化 | 通过 | 独立 `apps/agent`、`apps/desktop`；9 张 Agent/审批表；组织隔离、分页、状态、期望版本、幂等键与迁移测试。 |
 | M2 工具与新鲜度 | 通过 | 15 个严格 Zod 只读工具；运行时注入组织/用户；统一 envelope；强制前置 freshness；陈旧数据置信度上限 `0.49` 且只保留补采提案。 |
 | M3 单 Agent 与 API | 通过（实现）/待真实验收（模型） | 单 Orchestrator、SQLite Session、10 turns、流式事件、主模型重试/备用模型、工具瞬态重试、SSE 重连、取消、审计、关联 recovery。真实模型成功输出尚未执行。 |
 | M4 审批与前端 | 通过 | modified 生成新版本并使旧版本失效；服务端固定 L2/L3；飞书二次确认；执行开始/结束各自使用 SAVEPOINT 事务；三栏工作台、步骤、工具、证据、新鲜度、提案与审计导出。 |
-| M5 Electron | 通过 | Electron 43.2.0；API/Agent/Crawler 三 utilityProcess；Agent 独占 Key/SDK；API 独占 SQLite/业务工具；Crawler 独占 Worker/Chromium；sandbox/preload/safeStorage/userData/有限重启/NSIS 均有产物或运行证据。冷启动首次加载失败会按同源 URL 自动重试；强制延迟 API 后约 3.2 秒恢复并渲染登录页。 |
+| M5 Electron | 通过 | Electron 43.2.0；API/Agent/Crawler 三 utilityProcess；Agent 独占 Key/SDK；API 独占 SQLite/业务工具；Crawler 独占 Worker/Chromium；sandbox/preload/safeStorage/userData/有限重启/NSIS 均有产物或运行证据。冷启动首次加载失败会按同源 URL 自动重试；异步视图不再后台预载全部 chunk，加载失败会显示可恢复错误页。旧库通过 SQLite 在线备份迁入正式 userData，覆盖 WAL 数据并保留完整备份；原库、目标库和备份的 68 张表及关键业务计数已核对一致。 |
 | M6 灰度与发布 | 待真实验收 | `AGENT_SDK_ENABLED` 默认关闭；自动更新默认关闭；最终 NSIS 已生成。缺少真实 Key 下的对话、调查、行动、恢复和质量指标证据；正式发布版本号尚未确认。 |
 
 ## 核心场景
@@ -35,7 +35,7 @@
 
 ## 当前门禁
 
-- 单元测试：891（shared 59、Agent 11、API 597、Web 219、Desktop 5）；Desktop 已纳入根级 `npm test`。
+- 单元测试：893（shared 59、Agent 11、API 597、Web 219、Desktop 7）；Desktop 已纳入根级 `npm test`。
 - 浏览器测试：9。
 - 根级生产构建：通过。
 - `git diff --check`：通过，仅有 Windows 行尾提示。
@@ -43,8 +43,8 @@
 - 源码提交：`37ba0ce feat(agent): establish real-data desktop workflow`；验收矩阵与产品文档由独立文档提交保存。
 - 最新 NSIS：
   - 路径：`release/electron/Amazon Monitor Setup 0.6.1.exe`
-  - 大小：331,302,352 bytes
-  - SHA-256：`932EA23C7A8A107327F13C2ECB05449C03BA461F61293F65CB13F761CDAD29CA`
+  - 大小：331,303,161 bytes
+  - SHA-256：`A552464A95E4ABBFB460EED30E1DB33209B02B6572765C7C4F04A3A6157A0B2D`
 
 ## 完成目标前的剩余条件
 
