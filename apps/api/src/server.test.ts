@@ -21,6 +21,26 @@ class ControlledAmazonSearchCollector implements AmazonSearchCollector {
 }
 
 describe("api routes", () => {
+  it("allows the web development origin without retaining the retired Tauri origins", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const app = createApiApp(createStore(db));
+
+    await request(app)
+      .options("/api/auth/login")
+      .set("Origin", "http://localhost:5188")
+      .set("Access-Control-Request-Method", "POST")
+      .expect(204)
+      .expect("Access-Control-Allow-Origin", "http://localhost:5188");
+
+    const retiredOrigin = await request(app)
+      .options("/api/auth/login")
+      .set("Origin", "http://tauri.localhost")
+      .set("Access-Control-Request-Method", "POST")
+      .expect(204);
+    expect(retiredOrigin.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
   it("starts empty, accepts keyword configuration, and can trigger real collector pipeline", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);

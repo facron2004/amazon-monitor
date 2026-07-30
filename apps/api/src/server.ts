@@ -85,10 +85,7 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
     ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
     : [
         "http://localhost:5188",
-        "http://localhost:4000",
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-        "tauri://localhost"
+        "http://localhost:4000"
       ];
   app.use(cors({
     origin: allowedOrigins,

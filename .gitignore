@@ -39,8 +39,6 @@ packages.zip
 
 # Build artifacts
 release/
-src-tauri/gen/
-src-tauri/target/
 *.tsbuildinfo
 
 # IDE / OS

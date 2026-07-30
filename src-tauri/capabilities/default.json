@@ -1,6 +1,0 @@
-{
-  "identifier": "default",
-  "description": "Default desktop capability for Amazon Monitor",
-  "windows": ["main"],
-  "permissions": ["core:default"]
-}
