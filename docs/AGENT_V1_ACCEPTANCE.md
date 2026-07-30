@@ -18,7 +18,7 @@
 | M3 单 Agent 与 API | 通过（实现）/待真实验收（模型） | 单 Orchestrator、SQLite Session、10 turns、流式事件、主模型重试/备用模型、工具瞬态重试、SSE 重连、取消、审计、关联 recovery。模型输出已改为 OpenAI strict structured output 可接受的必填/nullable 范围与五类固定 action payload；打包 EXE 已越过 Schema 转换并到达 OpenAI 鉴权层。真实模型成功输出尚未执行。 |
 | M4 审批与前端 | 通过 | modified 生成新版本并使旧版本失效；服务端固定 L2/L3；飞书二次确认；执行开始/结束各自使用 SAVEPOINT 事务；三栏工作台、步骤、工具、证据、新鲜度、提案与审计导出。 |
 | M5 Electron | 通过 | Electron 43.2.0；API/Agent/Crawler 三 utilityProcess；Agent 独占 Key/SDK；API 独占 SQLite/业务工具；Crawler 独占 Worker/Chromium；sandbox/preload/safeStorage/userData/有限重启/NSIS 均有产物或运行证据。冷启动首次加载失败会按同源 URL 自动重试；异步视图不再后台预载全部 chunk，加载失败会显示可恢复错误页。旧库通过 SQLite 在线备份迁入正式 userData，覆盖 WAL 数据并保留完整备份；原库、目标库和备份的 68 张表及关键业务计数已核对一致。Agent/Crawler 被强制终止后均恢复 running，Main 会向新 Agent 重新注入内存 Key；Agent 中断会失败当前运行且不重放，API 重启会收口中断的运行/步骤/工具调用并保留等待采集的 recovery。Electron 验收完成后已按计划单独移除 Tauri 源码、CLI、锁文件和专用 CORS。 |
-| M6 灰度与发布 | 待真实验收 | `AGENT_SDK_ENABLED` 默认关闭；自动更新默认关闭；最终 NSIS 已生成。缺少真实 Key 下的对话、调查、行动、恢复和质量指标证据；正式发布版本号尚未确认。 |
+| M6 灰度与发布 | 待真实模型验收 | `AGENT_SDK_ENABLED` 默认关闭；自动更新默认关闭；Agent V1.0 已同步为 SemVer `1.0.0` 并生成最终 NSIS。缺少真实 Key 下的对话、调查、行动、恢复和质量指标证据。 |
 
 ## 核心场景
 
@@ -31,7 +31,7 @@
 | 5 | 飞书未经二次确认不发送 | 通过 | 注入 RecordingSender 的服务测试证明批准和首次 execute 均零发送，显式 L3 确认后仅发送一次。 |
 | 6 | 模型/Agent/Crawler 崩溃后 UI 可用且不重放写操作 | 通过（进程/持久化）/待真实模型中断 | 强杀 API 后 Renderer 存活且 API 以新 PID 恢复；强杀 Agent 与 Crawler 后三进程恢复 running，重启 Agent 重新获得 safeStorage Key。Agent 退出会终止 active runs，API 启动会把中断运行、步骤和工具调用标记 failed 并记录 `replayed: false`，等待采集的 recovery 保持可恢复。真实模型流中断仍待 Key。 |
 | 7 | Renderer 无 SQLite/文件/Shell/明文 Key | 通过 | context isolation、sandbox、nodeIntegration 关闭；preload 白名单；测试 Key 不出现在页面文本，清除后加密文件消失。 |
-| 8 | Windows 安装/升级/卸载保留 AppData | 通过 | 静默安装、同目录重装、卸载均成功；Agent 会话在重装后可读，卸载后 SQLite 保留。 |
+| 8 | Windows 安装/升级/卸载保留 AppData | 通过 | 在隔离安装目录完成 `0.6.1 → 1.0.0 → 卸载`；EXE 文件版本从 `0.6.1` 更新为 `1.0.0`。正式 userData SQLite 在全过程中的大小和 SHA-256 完全不变，卸载后仍保留；复核为 68 表、4 用户、4,446 洞察、2 任务且 `PRAGMA integrity_check = ok`。 |
 
 ## 当前门禁
 
@@ -40,15 +40,14 @@
 - 根级生产构建：通过。
 - `git diff --check`：通过，仅有 Windows 行尾提示。
 - 生产依赖审计：2 个 moderate，来自 `exceljs -> uuid`；自动修复会破坏性降级 ExcelJS，未强制执行。
-- 源码提交：`37ba0ce feat(agent): establish real-data desktop workflow`；验收矩阵与产品文档由独立文档提交保存。
+- 关键源码提交：`37ba0ce feat(agent): establish real-data desktop workflow`、`7e789f0 fix(agent): recover desktop runs and strict outputs`；验收矩阵与发布元数据由独立提交保存。
 - 最新 NSIS：
-  - 路径：`release/electron/Amazon Monitor Setup 0.6.1.exe`
-  - 大小：331,306,002 bytes
-  - SHA-256：`0798636ACC9E7B11992B5CEC0B8DFE0C9EB46589B9D2F6F38482FA64E7262796`
+  - 路径：`release/electron/Amazon Monitor Setup 1.0.0.exe`
+  - 大小：331,304,874 bytes
+  - SHA-256：`9CC495259F20E44703B485982502453EFF2222708C6756763356FB6E96AF55D1`
 
 ## 完成目标前的剩余条件
 
 1. 在可见验收实例内通过 Windows safeStorage 保存真实 OpenAI API Key；不得把 Key 写入对话、终端、SQLite 或日志。
 2. 在最终安装包内运行核心场景 1–6，导出审计 JSON。
 3. 使用 `npm run agent:eval` 顺序运行 30 题真实金标集并记录五项指标；运行器通过安装包 API 调用 safeStorage 中的 Key，自动发现当前组织的真实类目、关键词、ASIN 与品牌，逐题保存审计并要求人工标注提醒有效性和恢复结果。指标不达标则继续修正，不以评分器单测代替。
-4. 确认产品发布版本继续使用 `0.6.1`，还是将 Agent V1.0 同步到新的 SemVer，并形成独立发布提交。

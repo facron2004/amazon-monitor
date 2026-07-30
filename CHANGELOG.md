@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-07-30
+
+### Added
+
+- **Amazon 单 Agent 闭环**：自然语言任务、强制新鲜度检查、15 个只读工具、证据化结构输出、行动提案、人工审批、幂等执行和组织级审计。
+- **真实质量验收**：30 题金标集、顺序运行 CLI、真实组织范围发现、五项 PRD 指标和人工提醒/恢复标注。
+- **Electron 桌面端**：API、Agent、Crawler 三个 utilityProcess，Windows safeStorage 密钥管理、旧 SQLite 在线迁移、进程有限重启和 NSIS 安装包。
+
+### Changed
+
+- **运行恢复**：Agent 重启后重新注入内存 Key；Agent/API 中断运行明确失败且不重放写操作，等待采集的 recovery 保持可恢复。
+- **严格模型契约**：输出范围与证据字段改为 OpenAI strict structured output 兼容结构，五类行动使用固定 payload。
+- **桌面数据与渲染**：修复打包页面空白，正式数据库迁移覆盖 WAL 数据并保留源文件与完整备份。
+
 ## [0.6.1] - 2026-07-28
 
 ### Added

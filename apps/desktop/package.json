@@ -1,6 +1,6 @@
 {
   "name": "@amazon-monitor/desktop",
-  "version": "0.6.1",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
@@ -12,9 +12,9 @@
     "package:win": "npm run build && npm run prepare:browser && electron-builder --win nsis"
   },
   "dependencies": {
-    "@amazon-monitor/agent": "0.6.1",
-    "@amazon-monitor/api": "0.6.1",
-    "@amazon-monitor/shared": "0.6.1"
+    "@amazon-monitor/agent": "1.0.0",
+    "@amazon-monitor/api": "1.0.0",
+    "@amazon-monitor/shared": "1.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.19.15",
