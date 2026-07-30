@@ -7,7 +7,10 @@ import {
   configureDesktopAgentTransport,
   receiveDesktopAgentMessage,
 } from "./desktop-agent-transport.js";
-import { AgentRuntimeService } from "./agent-runtime-service.js";
+import {
+  AgentRuntimeService,
+} from "./agent-runtime-service.js";
+import { recoverInterruptedAgentRuns } from "./agent-runtime-recovery.js";
 
 describe("AgentRuntimeService terminal events", () => {
   it("persists a terminal event so SSE clients refresh the failed run", async () => {
@@ -56,6 +59,76 @@ describe("AgentRuntimeService terminal events", () => {
     expect(store.listAgentRunEvents(run.id).at(-1)).toMatchObject({
       type: "run.failed",
       payload: { errorMessage: "model unavailable" },
+    });
+    database.close();
+  });
+
+  it("fails interrupted runtime state without replaying collection recovery", () => {
+    const database = new DatabaseSync(":memory:");
+    initSchema(database);
+    const store = createStore(database);
+    const user = store.listUsers()[0]!;
+    const session = store.createAgentSession({
+      orgId: user.orgId,
+      userId: user.id,
+      title: "Restart reconciliation",
+    });
+    const interrupted = store.createAgentRun({
+      sessionId: session.id,
+      orgId: user.orgId,
+      userId: user.id,
+      taskType: "investigation",
+      input: "Interrupted analysis",
+      model: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+    });
+    store.updateAgentRun(interrupted.id, user.orgId, {
+      status: "running_tools",
+    });
+    const step = store.createAgentStep({
+      runId: interrupted.id,
+      title: "Analyze evidence",
+    });
+    const toolCall = store.createAgentToolCall({
+      runId: interrupted.id,
+      stepId: step.id,
+      toolName: "get_asin_history",
+      arguments: { asin: "B000TEST01" },
+    });
+    const recovery = store.createAgentRun({
+      sessionId: session.id,
+      orgId: user.orgId,
+      userId: user.id,
+      taskType: "recovery",
+      input: "Wait for collection",
+      model: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+      recoveryOfRunId: interrupted.id,
+    });
+    store.appendAgentRunEvent({
+      runId: recovery.id,
+      type: "recovery.waiting_for_collection",
+      payload: { jobId: 42 },
+    });
+
+    expect(recoverInterruptedAgentRuns(store)).toBe(1);
+    expect(store.getAgentRun(interrupted.id, user.orgId)).toMatchObject({
+      status: "failed",
+      errorMessage: expect.stringContaining("API process restart"),
+    });
+    expect(store.listAgentSteps(interrupted.id)[0]).toMatchObject({
+      status: "failed",
+    });
+    expect(store.listAgentToolCalls(interrupted.id)[0]).toMatchObject({
+      id: toolCall.id,
+      status: "failed",
+    });
+    expect(store.listAgentRunEvents(interrupted.id).at(-1)).toMatchObject({
+      type: "run.interrupted",
+      payload: { replayed: false },
+    });
+    expect(store.getAgentRun(recovery.id, user.orgId)).toMatchObject({
+      status: "created",
     });
     database.close();
   });

@@ -226,9 +226,26 @@ function output(): AgentRunOutput {
     summary: "Summary",
     conclusions: [{
       text: "Supported",
-      scope: { asin: "B000000001" },
-      evidenceRefs: [{ kind: "snapshot", id: "1", label: "Evidence" }],
-      snapshotRefs: [{ kind: "snapshot", id: "1", label: "Snapshot" }],
+      scope: {
+        marketplace: null,
+        asin: "B000000001",
+        categoryId: null,
+        categoryName: null,
+        from: null,
+        to: null,
+      },
+      evidenceRefs: [{
+        kind: "snapshot",
+        id: "1",
+        label: "Evidence",
+        observedAt: null,
+      }],
+      snapshotRefs: [{
+        kind: "snapshot",
+        id: "1",
+        label: "Snapshot",
+        observedAt: null,
+      }],
       confidence: 0.8,
     }],
     freshness: {

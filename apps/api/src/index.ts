@@ -17,6 +17,7 @@ import {
   startRecoveryForJob,
 } from "./services/desktop-agent-transport.js";
 import { AgentRuntimeService } from "./services/agent-runtime-service.js";
+import { recoverInterruptedAgentRuns } from "./services/agent-runtime-recovery.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const defaultDbPath = (() => {
@@ -39,6 +40,7 @@ if (!process.env.WEB_DIST_PATH) {
 
 const store = openAppStore(process.env.DB_PATH ?? defaultDbPath);
 configureDesktopAgentStore(store);
+recoverInterruptedAgentRuns(store);
 const agentRuntime = new AgentRuntimeService(store);
 configureDesktopAgentRecoveryStarter((run, freshnessInput) => {
   agentRuntime.start(run, freshnessInput);

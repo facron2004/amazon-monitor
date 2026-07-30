@@ -70,9 +70,26 @@ function output(
     summary: "Summary",
     conclusions: [{
       text: "Conclusion",
-      scope: { asin: "B000TEST01" },
-      evidenceRefs: [{ kind: "snapshot", id: "1", label: "Evidence" }],
-      snapshotRefs: [{ kind: "snapshot", id: "1", label: "Snapshot" }],
+      scope: {
+        marketplace: null,
+        asin: "B000TEST01",
+        categoryId: null,
+        categoryName: null,
+        from: null,
+        to: null,
+      },
+      evidenceRefs: [{
+        kind: "snapshot",
+        id: "1",
+        label: "Evidence",
+        observedAt: null,
+      }],
+      snapshotRefs: [{
+        kind: "snapshot",
+        id: "1",
+        label: "Snapshot",
+        observedAt: null,
+      }],
       confidence,
     }],
     freshness: {

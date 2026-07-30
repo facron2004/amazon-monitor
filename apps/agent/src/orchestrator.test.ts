@@ -6,9 +6,26 @@ const output: AgentRunOutput = {
   summary: "Price moved lower",
   conclusions: [{
     text: "Observed a lower price",
-    scope: { asin: "B000TEST01", from: "2026-07-22", to: "2026-07-29" },
-    evidenceRefs: [{ kind: "price", id: "price:1", label: "Price evidence" }],
-    snapshotRefs: [{ kind: "snapshot", id: "snapshot:1", label: "Snapshot" }],
+    scope: {
+      marketplace: null,
+      asin: "B000TEST01",
+      categoryId: null,
+      categoryName: null,
+      from: "2026-07-22",
+      to: "2026-07-29",
+    },
+    evidenceRefs: [{
+      kind: "price",
+      id: "price:1",
+      label: "Price evidence",
+      observedAt: null,
+    }],
+    snapshotRefs: [{
+      kind: "snapshot",
+      id: "snapshot:1",
+      label: "Snapshot",
+      observedAt: null,
+    }],
     confidence: 0.88,
   }],
   freshness: {

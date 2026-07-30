@@ -75,16 +75,16 @@ export interface AgentEvidenceRef {
   kind: string;
   id: string;
   label: string;
-  observedAt?: string | null;
+  observedAt: string | null;
 }
 
 export interface AgentConclusionScope {
-  marketplace?: string;
-  asin?: string;
-  categoryId?: number;
-  categoryName?: string;
-  from?: string;
-  to?: string;
+  marketplace: string | null;
+  asin: string | null;
+  categoryId: number | null;
+  categoryName: string | null;
+  from: string | null;
+  to: string | null;
 }
 
 export interface AgentConclusion {
@@ -314,6 +314,12 @@ export interface DesktopAgentRecoveryReadyMessage {
   jobId: number;
 }
 
+export interface DesktopAgentProcessUnavailableMessage {
+  type: "agent.process.unavailable";
+  role: "agent";
+  errorMessage: string;
+}
+
 export type DesktopAgentRpcMethod =
   | "tool.execute"
   | "session.get"
@@ -344,5 +350,6 @@ export type DesktopAgentBridgeMessage =
   | DesktopAgentRunCompleteMessage
   | DesktopAgentRunFailMessage
   | DesktopAgentRecoveryReadyMessage
+  | DesktopAgentProcessUnavailableMessage
   | DesktopAgentRpcRequest
   | DesktopAgentRpcResult;

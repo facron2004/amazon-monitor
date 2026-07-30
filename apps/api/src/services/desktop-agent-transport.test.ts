@@ -159,4 +159,74 @@ describe("Desktop Agent transport", () => {
     });
     database.close();
   });
+
+  it("fails active runs when the Agent process exits and never replays them", async () => {
+    const database = new DatabaseSync(":memory:");
+    initSchema(database);
+    const store = createStore(database);
+    const user = store.listUsers()[0]!;
+    const session = store.createAgentSession({
+      orgId: user.orgId,
+      userId: user.id,
+      title: "Interrupted desktop run",
+    });
+    const run = store.createAgentRun({
+      sessionId: session.id,
+      orgId: user.orgId,
+      userId: user.id,
+      taskType: "investigation",
+      input: "Investigate interruption",
+      model: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+    });
+    const complete = vi.fn();
+    const fail = vi.fn();
+    configureDesktopAgentStore(store);
+    configureDesktopAgentTransport(vi.fn());
+    startDesktopAgentRun(
+      run,
+      { datasets: ["category"] },
+      {
+        enabled: true,
+        primaryModel: "gpt-5.6-sol",
+        fallbackModel: "gpt-5.6-terra",
+        reasoningEffort: "medium",
+        maxTurns: 10,
+        tracingDisabled: true,
+      },
+      { appendEvent: vi.fn(), complete, fail },
+    );
+
+    await receiveDesktopAgentMessage({
+      type: "agent.process.unavailable",
+      role: "agent",
+      errorMessage: "Agent process exited; active runs stopped without replay",
+    });
+    await receiveDesktopAgentMessage({
+      type: "agent.run.complete",
+      runId: run.id,
+      output: {
+        summary: "Late result",
+        conclusions: [],
+        freshness: {
+          status: "fresh",
+          checkedAt: "2026-07-30T00:00:00.000Z",
+          maxAgeHours: 24,
+          oldestEvidenceAt: null,
+          staleSources: [],
+          dataGaps: [],
+          warnings: [],
+        },
+        riskNotes: [],
+        recommendedActions: [],
+      },
+    });
+
+    expect(fail).toHaveBeenCalledWith(
+      run.id,
+      "Agent process exited; active runs stopped without replay",
+    );
+    expect(complete).not.toHaveBeenCalled();
+    database.close();
+  });
 });

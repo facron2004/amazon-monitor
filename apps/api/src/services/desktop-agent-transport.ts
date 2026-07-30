@@ -74,6 +74,13 @@ export function cancelDesktopAgentRun(runId: number): void {
 export async function receiveDesktopAgentMessage(
   message: DesktopAgentBridgeMessage,
 ): Promise<void> {
+  if (message.type === "agent.process.unavailable") {
+    for (const [runId, active] of activeRuns) {
+      active.persistence.fail(runId, message.errorMessage);
+      activeRuns.delete(runId);
+    }
+    return;
+  }
   if (message.type === "agent.recovery.ready") {
     startRecoveryForJob(message.jobId);
     return;
