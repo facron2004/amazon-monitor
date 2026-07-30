@@ -1,5 +1,16 @@
 # Workflow Agent 开发进度
 
+## 2026-07-30
+
+Agent model connection expansion:
+
+- Added multiple switchable model connections for OpenAI API Key, OpenAI-compatible API Key, and ChatGPT OAuth. Each connection owns its primary/fallback models, API protocol, reasoning compatibility, and optional provider Base URL.
+- Kept all credentials outside SQLite and Renderer state. API keys are encrypted as one DPAPI-protected connection document, while the bundled official Codex app-server owns OAuth token persistence and refresh in an app-specific `CODEX_HOME`.
+- Bridged the existing 15 organization-scoped Amazon read tools into OAuth runs as experimental dynamic tools. OAuth threads use an ephemeral read-only sandbox with network and built-in coding/plugin capabilities disabled; business data still crosses the existing Agent-to-API RPC boundary.
+- Added desktop IPC and UI for create, edit, activate, remove, connect, refresh, and logout. The API receives only the public active-connection summary; the Agent utility alone receives runtime credentials.
+- Verified the bundled Codex 0.146 account protocol with an isolated login directory, accepted read-only thread configuration and dynamic tool schemas, and confirmed force-close releases its SQLite handles without leaving a background service.
+- Packaged EXE verification rendered the production Agent Center, preserved the formal userData database, showed API/Agent/Crawler as running, and saved an OAuth profile through the real preload/Main/Agent path without console errors.
+
 ## 2026-07-29
 
 Agent V1.0 productization:

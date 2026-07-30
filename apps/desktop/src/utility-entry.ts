@@ -3,6 +3,10 @@ import type {
 } from "@amazon-monitor/shared";
 import type { MessagePortMain } from "electron";
 import { AgentUtilityRuntime } from "./agent-utility-runtime.js";
+import type {
+  AgentConnectionRuntimeMessage,
+  AgentOAuthRequestMessage,
+} from "./desktop-agent-control.js";
 
 type ProcessRole = "api" | "agent" | "crawler";
 
@@ -72,8 +76,22 @@ async function initializeRole(port: MessagePortMain): Promise<void> {
   }
 
   port.on("message", ({ data }) => {
-    if (isAgentKeyMessage(data) && role === "agent") {
-      agentRuntime?.setApiKey(data.apiKey);
+    if (isAgentConnectionMessage(data) && role === "agent") {
+      agentRuntime?.setConnection(data.connection);
+    } else if (isAgentOAuthRequest(data) && role === "agent") {
+      void agentRuntime?.handleOAuthCommand(data.command)
+        .then((result) => port.postMessage({
+          type: "agent.oauth.result",
+          requestId: data.requestId,
+          ok: true,
+          result,
+        }))
+        .catch((error: unknown) => port.postMessage({
+          type: "agent.oauth.result",
+          requestId: data.requestId,
+          ok: false,
+          errorMessage: error instanceof Error ? error.message : "OAuth request failed",
+        }));
     } else if (isBridgeMessage(data)) {
       if (role === "agent") agentRuntime?.handle(data);
       else if (role === "api") void apiReceiver?.(data);
@@ -82,6 +100,9 @@ async function initializeRole(port: MessagePortMain): Promise<void> {
     }
   });
   port.postMessage({ role, type: "ready" });
+  port.on("close", () => {
+    agentRuntime?.close();
+  });
   port.start();
 }
 
@@ -96,20 +117,28 @@ function parseRole(value: string | undefined): ProcessRole {
   throw new Error("Invalid desktop utility process role");
 }
 
-function isAgentKeyMessage(value: unknown): value is {
-  apiKey: string | null;
-  type: "agent.api-key";
-} {
+function isAgentConnectionMessage(
+  value: unknown,
+): value is AgentConnectionRuntimeMessage {
   return isRecord(value)
-    && value.type === "agent.api-key"
-    && (typeof value.apiKey === "string" || value.apiKey === null);
+    && value.type === "agent.connection.runtime"
+    && (isRecord(value.connection) || value.connection === null);
+}
+
+function isAgentOAuthRequest(value: unknown): value is AgentOAuthRequestMessage {
+  return isRecord(value)
+    && value.type === "agent.oauth.request"
+    && typeof value.requestId === "string"
+    && ["start", "status", "logout"].includes(String(value.command));
 }
 
 function isBridgeMessage(value: unknown): value is DesktopAgentBridgeMessage {
   return isRecord(value)
     && typeof value.type === "string"
     && value.type.startsWith("agent.")
-    && value.type !== "agent.api-key";
+    && value.type !== "agent.connection.runtime"
+    && value.type !== "agent.oauth.request"
+    && value.type !== "agent.oauth.result";
 }
 
 function isPingMessage(value: unknown): value is { type: "ping" } {

@@ -1,10 +1,12 @@
 import {
   Agent,
+  Runner,
   run,
   setTracingDisabled,
   tool,
   type Session,
 } from "@openai/agents";
+import { OpenAIProvider } from "@openai/agents-openai";
 import { randomUUID } from "node:crypto";
 import type {
   AgentFreshness,
@@ -21,7 +23,7 @@ import type { AgentRuntimeConfig } from "./config.js";
 import { agentRunOutputSchema } from "./output-schema.js";
 import { agentToolInputSchemas } from "./tool-schemas.js";
 
-const toolDescriptions: Record<AgentToolName, string> = {
+export const agentToolDescriptions: Record<AgentToolName, string> = {
   get_category_snapshot: "Read bounded BSR category snapshots for a dated scope.",
   get_keyword_ranking: "Read bounded keyword SERP rankings for a dated scope.",
   get_asin_history: "Read combined category and keyword history for one ASIN.",
@@ -66,7 +68,7 @@ function createReadTool(
 ) {
   return tool({
     name,
-    description: toolDescriptions[name],
+    description: agentToolDescriptions[name],
     parameters: agentToolInputSchemas[name],
     strict: true,
     timeoutMs: 30_000,
@@ -254,14 +256,17 @@ async function runModel(
   request: AmazonAgentRunRequest,
   freshness: AgentFreshness,
 ): Promise<AgentRunOutput> {
+  const reasoningEnabled = config.modelProvider?.reasoningEnabled ?? true;
   const agent = new Agent({
     name: "Amazon Operations Agent",
     model,
-    modelSettings: {
-      reasoning: { effort: config.reasoningEffort },
-      text: { verbosity: "medium" },
-      store: false,
-    },
+    modelSettings: reasoningEnabled
+      ? {
+          reasoning: { effort: config.reasoningEffort },
+          text: { verbosity: "medium" },
+          store: false,
+        }
+      : {},
     instructions: [
       "You are a single Amazon operations analysis agent.",
       "Use only the registered read-only tools. Never invent evidence.",
@@ -274,16 +279,24 @@ async function runModel(
     outputType: agentRunOutputSchema,
   });
   persistence.appendEvent(request.context.runId, "model.started", { model });
-  const stream = await run(
-    agent,
-    `${request.input}\n\nCode-enforced freshness gate:\n${JSON.stringify(freshness)}`,
-    {
-      stream: true,
-      maxTurns: config.maxTurns,
-      signal: request.context.signal,
-      session: request.session,
-    },
-  );
+  const input = `${request.input}\n\nCode-enforced freshness gate:\n${JSON.stringify(freshness)}`;
+  const options = {
+    stream: true as const,
+    maxTurns: config.maxTurns,
+    signal: request.context.signal,
+    session: request.session,
+  };
+  const stream = config.modelProvider
+    ? await new Runner({
+        modelProvider: new OpenAIProvider({
+          apiKey: config.modelProvider.apiKey,
+          baseURL: config.modelProvider.baseURL,
+          useResponses: config.modelProvider.useResponses,
+          strictFeatureValidation: false,
+        }),
+        tracingDisabled: true,
+      }).run(agent, input, options)
+    : await run(agent, input, options);
   for await (const event of stream) {
     if (event.type === "run_item_stream_event") {
       persistence.appendEvent(request.context.runId, "model.progress", {

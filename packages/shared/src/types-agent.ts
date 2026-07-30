@@ -71,6 +71,58 @@ export type AgentActionType = (typeof agentActionTypes)[number];
 export type AgentRiskLevel = "L1" | "L2" | "L3";
 export type AgentFreshnessStatus = "fresh" | "stale" | "missing" | "failed";
 
+export const agentModelProviderKinds = [
+  "openai",
+  "openai-compatible",
+  "chatgpt-oauth",
+] as const;
+export type AgentModelProviderKind = (typeof agentModelProviderKinds)[number];
+export type AgentModelApiMode = "responses" | "chat-completions";
+
+export interface AgentModelConnectionSummary {
+  id: string;
+  name: string;
+  provider: AgentModelProviderKind;
+  apiMode: AgentModelApiMode;
+  baseUrl: string | null;
+  primaryModel: string;
+  fallbackModel: string;
+  reasoningEnabled: boolean;
+  configured: boolean;
+}
+
+export interface AgentModelConnectionInput {
+  id?: string;
+  name: string;
+  provider: AgentModelProviderKind;
+  apiMode: AgentModelApiMode;
+  baseUrl?: string | null;
+  primaryModel: string;
+  fallbackModel?: string | null;
+  reasoningEnabled?: boolean;
+  apiKey?: string | null;
+}
+
+export interface AgentModelConnectionState {
+  activeConnectionId: string | null;
+  connections: AgentModelConnectionSummary[];
+}
+
+export interface AgentModelRuntimeConnection extends AgentModelConnectionSummary {
+  apiKey: string | null;
+}
+
+export interface AgentOAuthStatus {
+  connected: boolean;
+  authMode: "chatgpt" | null;
+  planType: string | null;
+}
+
+export interface AgentOAuthStartResult {
+  loginId: string;
+  authUrl: string;
+}
+
 export interface AgentEvidenceRef {
   kind: string;
   id: string;
@@ -285,6 +337,11 @@ export interface DesktopAgentRunStart {
   };
 }
 
+export interface DesktopAgentActiveConnectionMessage {
+  type: "agent.connection.active";
+  connection: AgentModelConnectionSummary | null;
+}
+
 export interface DesktopAgentRunCancel {
   type: "agent.run.cancel";
   runId: number;
@@ -345,6 +402,7 @@ export interface DesktopAgentRpcResult {
 
 export type DesktopAgentBridgeMessage =
   | DesktopAgentRunStart
+  | DesktopAgentActiveConnectionMessage
   | DesktopAgentRunCancel
   | DesktopAgentRunEventMessage
   | DesktopAgentRunCompleteMessage

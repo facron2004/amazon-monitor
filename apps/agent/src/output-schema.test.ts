@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { agentRunOutputSchema } from "./output-schema.js";
+import {
+  getAgentDynamicToolSpecs,
+  getAgentRunOutputJsonSchema,
+} from "./json-schema.js";
 
 describe("Agent structured output schema", () => {
   it("uses required nullable scope fields accepted by strict structured output", () => {
@@ -25,6 +29,22 @@ describe("Agent structured output schema", () => {
         payload: {},
       }],
     })).toThrow();
+  });
+
+  it("exports strict JSON schemas for the OAuth app-server bridge", () => {
+    const tools = getAgentDynamicToolSpecs();
+    const outputSchema = getAgentRunOutputJsonSchema();
+
+    expect(tools).toHaveLength(15);
+    expect(tools[0]).toMatchObject({
+      type: "function",
+      inputSchema: { type: "object" },
+    });
+    expect(new Set(tools.map((tool) => tool.name)).size).toBe(15);
+    expect(outputSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+    });
   });
 });
 

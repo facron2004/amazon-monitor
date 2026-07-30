@@ -138,7 +138,7 @@ export function registerAgentRoutes(
       response.status(404).json({ message: "Agent session not found" });
       return;
     }
-    if (!runtime.config.enabled) {
+    if (!runtime.effectiveConfig.enabled) {
       response.status(503).json({ message: "Agent SDK is disabled" });
       return;
     }
@@ -149,8 +149,8 @@ export function registerAgentRoutes(
       userId: context.user.id,
       taskType: body.taskType ?? classifyAgentTask(body.input),
       input: body.input,
-      model: runtime.config.primaryModel,
-      fallbackModel: runtime.config.fallbackModel,
+      model: runtime.effectiveConfig.primaryModel,
+      fallbackModel: runtime.effectiveConfig.fallbackModel,
     });
     store.appendAgentMessage({
       sessionId,

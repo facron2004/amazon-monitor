@@ -5,6 +5,12 @@ export interface AgentRuntimeConfig {
   reasoningEffort: "low" | "medium" | "high";
   maxTurns: number;
   tracingDisabled: true;
+  modelProvider?: {
+    apiKey: string;
+    baseURL?: string;
+    useResponses: boolean;
+    reasoningEnabled: boolean;
+  };
 }
 
 function boundedTurns(value: string | undefined): number {

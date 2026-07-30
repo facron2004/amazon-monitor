@@ -20,6 +20,7 @@ import {
 } from "./desktop-paths.js";
 import { BoundedRestartPolicy } from "./restart-policy.js";
 import { SecureApiKeyStore, type AsyncSafeStorage } from "./secure-key-store.js";
+import { SecureModelConnectionStore } from "./secure-model-connection-store.js";
 
 const temporaryPaths: string[] = [];
 
@@ -65,6 +66,107 @@ describe("desktop security", () => {
 
     expect(readFileSync(encryptedPath, "utf8")).not.toContain("sk-example");
     expect(await store.get()).toBe("sk-example");
+  });
+
+  it("stores multiple encrypted model connections and switches the active one", async () => {
+    const root = temporaryDirectory();
+    const encryptedPath = join(root, "model-connections.bin");
+    const store = new SecureModelConnectionStore(
+      createTestSafeStorage(),
+      encryptedPath,
+    );
+
+    await store.save({
+      name: "OpenAI",
+      provider: "openai",
+      apiMode: "responses",
+      primaryModel: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+      reasoningEnabled: true,
+      apiKey: "sk-openai-secret",
+    });
+    const state = await store.save({
+      name: "Local compatible",
+      provider: "openai-compatible",
+      apiMode: "chat-completions",
+      baseUrl: "http://127.0.0.1:11434/v1/",
+      primaryModel: "local-model",
+      fallbackModel: null,
+      reasoningEnabled: false,
+      apiKey: "local-secret",
+    });
+    const compatible = state.connections.find(
+      (connection) => connection.provider === "openai-compatible",
+    );
+
+    expect(compatible).toMatchObject({
+      baseUrl: "http://127.0.0.1:11434/v1",
+      configured: true,
+      fallbackModel: "local-model",
+    });
+    expect(compatible).not.toHaveProperty("apiKey");
+    expect(readFileSync(encryptedPath, "utf8")).not.toContain("sk-openai-secret");
+    expect(readFileSync(encryptedPath, "utf8")).not.toContain("local-secret");
+
+    await store.activate(compatible!.id);
+    expect(await store.getActive()).toMatchObject({
+      id: compatible!.id,
+      apiKey: "local-secret",
+    });
+  });
+
+  it("preserves an existing API key when editing a connection", async () => {
+    const store = new SecureModelConnectionStore(
+      createTestSafeStorage(),
+      join(temporaryDirectory(), "model-connections.bin"),
+    );
+    const created = await store.save({
+      name: "Provider",
+      provider: "openai-compatible",
+      apiMode: "responses",
+      baseUrl: "https://models.example.com/v1",
+      primaryModel: "model-a",
+      fallbackModel: null,
+      reasoningEnabled: false,
+      apiKey: "secret-value",
+    });
+    const id = created.connections[0]!.id;
+
+    await store.save({
+      id,
+      name: "Renamed provider",
+      provider: "openai-compatible",
+      apiMode: "responses",
+      baseUrl: "https://models.example.com/v1",
+      primaryModel: "model-b",
+      fallbackModel: null,
+      reasoningEnabled: false,
+      apiKey: null,
+    });
+
+    expect(await store.getActive()).toMatchObject({
+      id,
+      name: "Renamed provider",
+      apiKey: "secret-value",
+    });
+  });
+
+  it("rejects insecure remote compatible-provider URLs", async () => {
+    const store = new SecureModelConnectionStore(
+      createTestSafeStorage(),
+      join(temporaryDirectory(), "model-connections.bin"),
+    );
+
+    await expect(store.save({
+      name: "Remote",
+      provider: "openai-compatible",
+      apiMode: "responses",
+      baseUrl: "http://models.example.com/v1",
+      primaryModel: "model",
+      fallbackModel: null,
+      reasoningEnabled: false,
+      apiKey: "secret",
+    })).rejects.toThrow("must use HTTPS");
   });
 });
 
@@ -138,6 +240,18 @@ function temporaryDirectory(): string {
   const path = mkdtempSync(join(tmpdir(), "amazon-monitor-desktop-"));
   temporaryPaths.push(path);
   return path;
+}
+
+function createTestSafeStorage(): AsyncSafeStorage {
+  return {
+    decryptStringAsync: vi.fn(async (value: Buffer) => ({
+      result: Buffer.from(value.toString(), "base64").toString(),
+      shouldReEncrypt: false,
+    })),
+    encryptStringAsync: vi.fn(async (value: string) =>
+      Buffer.from(Buffer.from(value).toString("base64"))),
+    isAsyncEncryptionAvailable: vi.fn(async () => true),
+  };
 }
 
 function readMarker(path: string): string | undefined {

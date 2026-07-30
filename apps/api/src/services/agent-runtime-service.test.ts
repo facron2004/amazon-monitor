@@ -13,6 +13,64 @@ import {
 import { recoverInterruptedAgentRuns } from "./agent-runtime-recovery.js";
 
 describe("AgentRuntimeService terminal events", () => {
+  it("enables the desktop runtime only for a configured active connection", async () => {
+    const database = new DatabaseSync(":memory:");
+    initSchema(database);
+    const store = createStore(database);
+    const runtime = new AgentRuntimeService(store, {
+      enabled: false,
+      primaryModel: "disabled-model",
+      fallbackModel: "disabled-fallback",
+      reasoningEffort: "medium",
+      maxTurns: 10,
+      tracingDisabled: true,
+    });
+
+    await receiveDesktopAgentMessage({
+      type: "agent.connection.active",
+      connection: {
+        id: "oauth",
+        name: "ChatGPT",
+        provider: "chatgpt-oauth",
+        apiMode: "responses",
+        baseUrl: null,
+        primaryModel: "gpt-5.6-sol",
+        fallbackModel: "gpt-5.6-terra",
+        reasoningEnabled: true,
+        configured: false,
+      },
+    });
+    expect(runtime.effectiveConfig).toMatchObject({
+      enabled: false,
+      primaryModel: "gpt-5.6-sol",
+    });
+
+    await receiveDesktopAgentMessage({
+      type: "agent.connection.active",
+      connection: {
+        id: "oauth",
+        name: "ChatGPT",
+        provider: "chatgpt-oauth",
+        apiMode: "responses",
+        baseUrl: null,
+        primaryModel: "gpt-5.6-sol",
+        fallbackModel: "gpt-5.6-terra",
+        reasoningEnabled: true,
+        configured: true,
+      },
+    });
+    expect(runtime.effectiveConfig).toMatchObject({
+      enabled: true,
+      fallbackModel: "gpt-5.6-terra",
+    });
+
+    await receiveDesktopAgentMessage({
+      type: "agent.connection.active",
+      connection: null,
+    });
+    database.close();
+  });
+
   it("persists a terminal event so SSE clients refresh the failed run", async () => {
     const database = new DatabaseSync(":memory:");
     initSchema(database);

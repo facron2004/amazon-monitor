@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
   MessageChannelMain,
@@ -6,7 +7,16 @@ import {
   type MessagePortMain,
   type UtilityProcess,
 } from "electron";
+import type {
+  AgentModelRuntimeConnection,
+  AgentOAuthStartResult,
+  AgentOAuthStatus,
+} from "@amazon-monitor/shared";
 import { BoundedRestartPolicy } from "./restart-policy.js";
+import type {
+  AgentOAuthCommand,
+  AgentOAuthResultMessage,
+} from "./desktop-agent-control.js";
 
 export const desktopProcessNames = ["api", "agent", "crawler"] as const;
 export type DesktopProcessName = (typeof desktopProcessNames)[number];
@@ -24,7 +34,12 @@ export interface SupervisorOptions {
 }
 
 export class DesktopProcessSupervisor {
-  private agentApiKey: string | null = null;
+  private activeConnection: AgentModelRuntimeConnection | null = null;
+  private readonly oauthRequests = new Map<string, {
+    reject(error: Error): void;
+    resolve(value: AgentOAuthStartResult | AgentOAuthStatus | null): void;
+    timeout: ReturnType<typeof setTimeout>;
+  }>();
   private readonly processes = new Map<DesktopProcessName, ManagedProcess>();
   private readonly statuses = new Map<DesktopProcessName, DesktopProcessStatus>();
   private stopping = false;
@@ -54,7 +69,10 @@ export class DesktopProcessSupervisor {
     channel.port1.on("message", ({ data }) => {
       if (isReadyMessage(data)) {
         this.statuses.set(name, "running");
-        if (name === "agent") this.sendAgentApiKey(channel.port1);
+        if (name === "agent") this.sendAgentConnection(channel.port1);
+        if (name === "api") this.sendPublicConnection(channel.port1);
+      } else if (isAgentOAuthResult(data)) {
+        this.resolveOAuthRequest(data);
       } else if (isAgentBridgeMessage(data)) {
         const target = name === "api" ? "agent" : "api";
         if (target) this.processes.get(target)?.port.postMessage(data);
@@ -66,10 +84,36 @@ export class DesktopProcessSupervisor {
     this.processes.set(name, { child, port: channel.port1 });
   }
 
-  async setAgentApiKey(apiKey: string | null): Promise<void> {
-    this.agentApiKey = apiKey;
+  async setAgentConnection(
+    connection: AgentModelRuntimeConnection | null,
+  ): Promise<void> {
+    this.activeConnection = connection;
     const agent = this.processes.get("agent");
-    if (agent) this.sendAgentApiKey(agent.port);
+    if (agent) this.sendAgentConnection(agent.port);
+    const api = this.processes.get("api");
+    if (api) this.sendPublicConnection(api.port);
+  }
+
+  requestOAuth(
+    command: AgentOAuthCommand,
+  ): Promise<AgentOAuthStartResult | AgentOAuthStatus | null> {
+    const agent = this.processes.get("agent");
+    if (!agent || this.statuses.get("agent") !== "running") {
+      return Promise.reject(new Error("Agent process is unavailable"));
+    }
+    const requestId = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.oauthRequests.delete(requestId);
+        reject(new Error(`OAuth ${command} request timed out`));
+      }, 30_000);
+      this.oauthRequests.set(requestId, { reject, resolve, timeout });
+      agent.port.postMessage({
+        type: "agent.oauth.request",
+        requestId,
+        command,
+      });
+    });
   }
 
   getStatuses(): Record<DesktopProcessName, DesktopProcessStatus> {
@@ -96,6 +140,12 @@ export class DesktopProcessSupervisor {
     this.statuses.set(name, "crashed");
     this.log(name, `process exited with code ${code}`);
     if (name === "agent") {
+      const error = new Error("Agent process stopped during OAuth request");
+      this.oauthRequests.forEach(({ reject, timeout }) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      this.oauthRequests.clear();
       this.processes.get("api")?.port.postMessage({
         type: "agent.process.unavailable",
         role: "agent",
@@ -109,11 +159,30 @@ export class DesktopProcessSupervisor {
     }
   }
 
-  private sendAgentApiKey(port: MessagePortMain): void {
+  private sendAgentConnection(port: MessagePortMain): void {
     port.postMessage({
-      apiKey: this.agentApiKey,
-      type: "agent.api-key",
+      connection: this.activeConnection,
+      type: "agent.connection.runtime",
     });
+  }
+
+  private sendPublicConnection(port: MessagePortMain): void {
+    const connection = this.activeConnection
+      ? publicConnection(this.activeConnection)
+      : null;
+    port.postMessage({
+      type: "agent.connection.active",
+      connection,
+    });
+  }
+
+  private resolveOAuthRequest(message: AgentOAuthResultMessage): void {
+    const pending = this.oauthRequests.get(message.requestId);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    this.oauthRequests.delete(message.requestId);
+    if (message.ok) pending.resolve(message.result ?? null);
+    else pending.reject(new Error(message.errorMessage ?? "OAuth request failed"));
   }
 
   private log(name: DesktopProcessName, message: string): void {
@@ -123,6 +192,11 @@ export class DesktopProcessSupervisor {
       `${new Date().toISOString()} ${message.trim()}\n`,
     );
   }
+}
+
+function publicConnection(connection: AgentModelRuntimeConnection) {
+  const { apiKey: _apiKey, ...summary } = connection;
+  return summary;
 }
 
 function isReadyMessage(value: unknown): value is { type: "ready" } {
@@ -138,5 +212,17 @@ function isAgentBridgeMessage(value: unknown): value is { type: string } {
     && "type" in value
     && typeof value.type === "string"
     && value.type.startsWith("agent.")
-    && value.type !== "agent.api-key";
+    && value.type !== "agent.connection.runtime"
+    && value.type !== "agent.oauth.result";
+}
+
+function isAgentOAuthResult(value: unknown): value is AgentOAuthResultMessage {
+  return typeof value === "object"
+    && value !== null
+    && "type" in value
+    && value.type === "agent.oauth.result"
+    && "requestId" in value
+    && typeof value.requestId === "string"
+    && "ok" in value
+    && typeof value.ok === "boolean";
 }

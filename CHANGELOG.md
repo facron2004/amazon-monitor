@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-07-30
+
+### Added
+
+- **多模型连接**：Agent 中心可保存多个 OpenAI、OpenAI-compatible 与 ChatGPT OAuth 连接，并在运行时自由切换主模型、备用模型和 API 协议。
+- **ChatGPT OAuth**：桌面 Agent 内置官方 Codex app-server，使用独立登录目录管理 OAuth Token 与刷新；15 个 Amazon 只读工具通过动态工具桥接。
+
+### Changed
+
+- **安全边界**：API Key 统一由 Windows DPAPI 加密，OAuth Token 不进入 Renderer、SQLite 或应用日志；Codex 线程固定为只读沙箱并关闭非业务工具能力。
+- **模型运行时**：OpenAI-compatible 连接支持自定义 HTTPS Base URL、Responses / Chat Completions 与供应商模型 ID，当前连接的模型配置同步到 API 运行状态。
+
+### Fixed
+
+- **桌面连接表单**：修复 Vue 响应式对象无法通过 Electron IPC 保存的问题，并补齐字段标签和清晰的连接状态展示。
+
 ## [1.0.0] - 2026-07-30
 
 ### Added

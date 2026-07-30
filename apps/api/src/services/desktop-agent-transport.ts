@@ -1,6 +1,7 @@
 import {
   agentToolNames,
   type AgentRun,
+  type AgentModelConnectionSummary,
   type DesktopAgentBridgeMessage,
   type DesktopAgentRpcRequest,
   type DesktopAgentRunStart,
@@ -19,6 +20,7 @@ interface ActiveRemoteRun {
 
 let sender: MessageSender | null = null;
 let store: Store | null = null;
+let activeConnection: AgentModelConnectionSummary | null = null;
 let recoveryStarter:
   | ((run: AgentRun, freshnessInput: Record<string, unknown>) => void)
   | null = null;
@@ -42,6 +44,10 @@ export function configureDesktopAgentRecoveryStarter(
 
 export function hasDesktopAgentTransport(): boolean {
   return sender !== null;
+}
+
+export function getDesktopAgentConnection(): AgentModelConnectionSummary | null {
+  return activeConnection;
 }
 
 export function startDesktopAgentRun(
@@ -74,6 +80,10 @@ export function cancelDesktopAgentRun(runId: number): void {
 export async function receiveDesktopAgentMessage(
   message: DesktopAgentBridgeMessage,
 ): Promise<void> {
+  if (message.type === "agent.connection.active") {
+    activeConnection = message.connection;
+    return;
+  }
   if (message.type === "agent.process.unavailable") {
     for (const [runId, active] of activeRuns) {
       active.persistence.fail(runId, message.errorMessage);

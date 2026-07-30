@@ -1,6 +1,6 @@
 {
   "name": "@amazon-monitor/agent",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -14,8 +14,9 @@
     "eval:gold": "node dist/eval-gold-set-cli.js"
   },
   "dependencies": {
-    "@amazon-monitor/shared": "1.0.0",
+    "@amazon-monitor/shared": "1.1.0",
     "@openai/agents": "0.14.0",
+    "@openai/agents-openai": "0.14.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

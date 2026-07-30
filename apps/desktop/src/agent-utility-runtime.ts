@@ -8,6 +8,7 @@ import {
   type AgentToolBackend,
 } from "@amazon-monitor/agent";
 import type {
+  AgentModelRuntimeConnection,
   AgentRunEvent,
   AgentToolEnvelope,
   AgentToolName,
@@ -16,6 +17,9 @@ import type {
   DesktopAgentRpcResult,
   DesktopAgentRunStart,
 } from "@amazon-monitor/shared";
+import type { AgentOAuthCommand } from "./desktop-agent-control.js";
+import { CodexAppServerClient } from "./codex-app-server-client.js";
+import { executeOAuthAgentRun } from "./oauth-agent-runner.js";
 
 type MessageSender = (message: DesktopAgentBridgeMessage) => void;
 
@@ -26,16 +30,29 @@ interface PendingRpc {
 }
 
 export class AgentUtilityRuntime {
-  private apiKey: string | null = null;
+  private connection: AgentModelRuntimeConnection | null = null;
+  private codexClient: CodexAppServerClient | null = null;
   private readonly controllers = new Map<number, AbortController>();
   private readonly pending = new Map<string, PendingRpc>();
 
   constructor(private readonly send: MessageSender) {}
 
-  setApiKey(apiKey: string | null): void {
-    this.apiKey = apiKey;
-    if (apiKey) process.env.OPENAI_API_KEY = apiKey;
-    else delete process.env.OPENAI_API_KEY;
+  setConnection(connection: AgentModelRuntimeConnection | null): void {
+    this.connection = connection;
+    if (connection?.provider !== "chatgpt-oauth") {
+      this.codexClient?.close();
+      this.codexClient = null;
+    }
+  }
+
+  async handleOAuthCommand(command: AgentOAuthCommand) {
+    const client = this.getCodexClient();
+    if (command === "start") return client.startOAuth();
+    if (command === "logout") {
+      await client.logout();
+      return null;
+    }
+    return client.getOAuthStatus();
   }
 
   handle(message: DesktopAgentBridgeMessage): void {
@@ -50,11 +67,19 @@ export class AgentUtilityRuntime {
 
   private async start(message: DesktopAgentRunStart): Promise<void> {
     if (this.controllers.has(message.run.id)) return;
-    if (!this.apiKey) {
+    if (!this.connection) {
       this.send({
         type: "agent.run.fail",
         runId: message.run.id,
-        errorMessage: "OpenAI API key is not configured in desktop safeStorage",
+        errorMessage: "No active model connection is configured",
+      });
+      return;
+    }
+    if (this.connection.provider !== "chatgpt-oauth" && !this.connection.apiKey) {
+      this.send({
+        type: "agent.run.fail",
+        runId: message.run.id,
+        errorMessage: "The active model connection has no API key",
       });
       return;
     }
@@ -82,27 +107,55 @@ export class AgentUtilityRuntime {
       },
     };
     try {
-      await executeAmazonAgentRun(
-        message.config,
-        new RemoteAgentToolBackend(message.run.id, this.request.bind(this)),
-        persistence,
-        {
-          input: message.run.input,
-          taskType: message.run.taskType,
-          freshnessInput: message.run.freshnessInput,
-          context: {
-            orgId: message.run.orgId,
-            userId: message.run.userId,
-            runId: message.run.id,
-            signal: controller.signal,
-          },
-          session: new RemoteAgentSession(
-            message.run.id,
-            message.run.sessionId,
-            this.request.bind(this),
-          ),
-        },
+      const connection = this.connection;
+      const backend = new RemoteAgentToolBackend(
+        message.run.id,
+        this.request.bind(this),
       );
+      if (connection.provider === "chatgpt-oauth") {
+        await executeOAuthAgentRun(
+          this.getCodexClient(),
+          connection,
+          message.config,
+          backend,
+          persistence,
+          message,
+          requiredEnvironment("AMAZON_MONITOR_AGENT_SANDBOX"),
+          controller.signal,
+        );
+      } else {
+        await executeAmazonAgentRun(
+          {
+            ...message.config,
+            primaryModel: connection.primaryModel,
+            fallbackModel: connection.fallbackModel,
+            modelProvider: {
+              apiKey: connection.apiKey!,
+              baseURL: connection.baseUrl ?? undefined,
+              useResponses: connection.apiMode === "responses",
+              reasoningEnabled: connection.reasoningEnabled,
+            },
+          },
+          backend,
+          persistence,
+          {
+            input: message.run.input,
+            taskType: message.run.taskType,
+            freshnessInput: message.run.freshnessInput,
+            context: {
+              orgId: message.run.orgId,
+              userId: message.run.userId,
+              runId: message.run.id,
+              signal: controller.signal,
+            },
+            session: new RemoteAgentSession(
+              message.run.id,
+              message.run.sessionId,
+              this.request.bind(this),
+            ),
+          },
+        );
+      }
     } catch (error) {
       if (!terminalSent) {
         this.send({
@@ -114,6 +167,18 @@ export class AgentUtilityRuntime {
     } finally {
       this.controllers.delete(message.run.id);
     }
+  }
+
+  close(): void {
+    this.codexClient?.close();
+    this.codexClient = null;
+  }
+
+  private getCodexClient(): CodexAppServerClient {
+    this.codexClient ??= new CodexAppServerClient(
+      requiredEnvironment("AMAZON_MONITOR_CODEX_HOME"),
+    );
+    return this.codexClient;
   }
 
   private request(
@@ -213,4 +278,10 @@ function safeErrorMessage(error: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requiredEnvironment(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
 }

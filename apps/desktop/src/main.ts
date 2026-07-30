@@ -5,6 +5,7 @@ import {
   ipcMain,
   safeStorage,
   session,
+  shell,
 } from "electron";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -20,6 +21,12 @@ import {
 } from "./desktop-paths.js";
 import { DesktopProcessSupervisor } from "./process-supervisor.js";
 import { SecureApiKeyStore } from "./secure-key-store.js";
+import { SecureModelConnectionStore } from "./secure-model-connection-store.js";
+import type {
+  AgentModelConnectionInput,
+  AgentModelConnectionState,
+  AgentOAuthStatus,
+} from "@amazon-monitor/shared";
 
 const rendererOrigin = "http://127.0.0.1:43210";
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
@@ -91,6 +98,8 @@ app.whenReady().then(async () => {
     entryPoint: join(moduleDirectory, "utility-entry.js"),
     environment: {
       AGENT_SDK_ENABLED: process.env.AGENT_SDK_ENABLED ?? "false",
+      AMAZON_MONITOR_AGENT_SANDBOX: join(paths.secrets, "..", "agent-sandbox"),
+      AMAZON_MONITOR_CODEX_HOME: join(paths.secrets, "codex"),
       DB_PATH: paths.database,
       DESKTOP_API_ENTRY: apiEntry,
       DESKTOP_API_BRIDGE_ENTRY: apiBridgeEntry,
@@ -109,12 +118,17 @@ app.whenReady().then(async () => {
   });
   supervisor.startAll();
 
-  const keyStore = new SecureApiKeyStore(
+  const legacyKeyStore = new SecureApiKeyStore(
     safeStorage,
     join(paths.secrets, "openai-api-key.bin"),
   );
-  await supervisor.setAgentApiKey(await keyStore.get());
-  registerIpc(keyStore, paths.exports);
+  const connectionStore = new SecureModelConnectionStore(
+    safeStorage,
+    join(paths.secrets, "model-connections.bin"),
+  );
+  await connectionStore.migrateOpenAIKey(await legacyKeyStore.get());
+  await syncAgentConnection(connectionStore);
+  registerIpc(connectionStore, paths.exports);
 
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
@@ -149,21 +163,56 @@ app.whenReady().then(async () => {
 app.on("before-quit", () => supervisor?.stopAll());
 app.on("window-all-closed", () => app.quit());
 
-function registerIpc(keyStore: SecureApiKeyStore, exportsPath: string): void {
-  ipcMain.handle("desktop:key:set", async (event, apiKey: unknown) => {
+function registerIpc(
+  connectionStore: SecureModelConnectionStore,
+  exportsPath: string,
+): void {
+  ipcMain.handle("desktop:model:list", async (event) => {
     assertTrustedSender(event.senderFrame?.url);
-    if (typeof apiKey !== "string") throw new Error("Invalid API key");
-    await keyStore.set(apiKey);
-    await supervisor?.setAgentApiKey(apiKey.trim());
+    return withOAuthStatus(await connectionStore.list());
   });
-  ipcMain.handle("desktop:key:clear", async (event) => {
+  ipcMain.handle("desktop:model:save", async (event, value: unknown) => {
     assertTrustedSender(event.senderFrame?.url);
-    keyStore.clear();
-    await supervisor?.setAgentApiKey(null);
+    const state = await connectionStore.save(parseModelConnectionInput(value));
+    await syncAgentConnection(connectionStore);
+    return withOAuthStatus(state);
   });
-  ipcMain.handle("desktop:key:has", (event) => {
+  ipcMain.handle("desktop:model:activate", async (event, connectionId: unknown) => {
     assertTrustedSender(event.senderFrame?.url);
-    return keyStore.has();
+    if (typeof connectionId !== "string") throw new Error("Invalid connection ID");
+    const state = await connectionStore.activate(connectionId);
+    await syncAgentConnection(connectionStore);
+    return withOAuthStatus(state);
+  });
+  ipcMain.handle("desktop:model:remove", async (event, connectionId: unknown) => {
+    assertTrustedSender(event.senderFrame?.url);
+    if (typeof connectionId !== "string") throw new Error("Invalid connection ID");
+    const state = await connectionStore.remove(connectionId);
+    await syncAgentConnection(connectionStore);
+    return withOAuthStatus(state);
+  });
+  ipcMain.handle("desktop:oauth:start", async (event) => {
+    assertTrustedSender(event.senderFrame?.url);
+    const result = await supervisor?.requestOAuth("start");
+    if (!result || !("authUrl" in result)) throw new Error("OAuth login did not start");
+    assertOAuthUrl(result.authUrl);
+    await shell.openExternal(result.authUrl);
+    return result;
+  });
+  ipcMain.handle("desktop:oauth:status", async (event) => {
+    assertTrustedSender(event.senderFrame?.url);
+    const status = await readOAuthStatus();
+    await syncAgentConnection(connectionStore, status);
+    return status;
+  });
+  ipcMain.handle("desktop:oauth:logout", async (event) => {
+    assertTrustedSender(event.senderFrame?.url);
+    await supervisor?.requestOAuth("logout");
+    await syncAgentConnection(connectionStore, {
+      connected: false,
+      authMode: null,
+      planType: null,
+    });
   });
   ipcMain.handle("desktop:process-status", (event) => {
     assertTrustedSender(event.senderFrame?.url);
@@ -186,6 +235,49 @@ function registerIpc(keyStore: SecureApiKeyStore, exportsPath: string): void {
   });
 }
 
+async function syncAgentConnection(
+  connectionStore: SecureModelConnectionStore,
+  oauthStatus?: AgentOAuthStatus,
+): Promise<void> {
+  const active = await connectionStore.getActive();
+  if (active?.provider !== "chatgpt-oauth") {
+    await supervisor?.setAgentConnection(active);
+    return;
+  }
+  const status = oauthStatus ?? await readOAuthStatus();
+  await supervisor?.setAgentConnection({
+    ...active,
+    configured: status.connected,
+  });
+}
+
+async function withOAuthStatus(
+  state: AgentModelConnectionState,
+): Promise<AgentModelConnectionState> {
+  if (!state.connections.some((connection) => connection.provider === "chatgpt-oauth")) {
+    return state;
+  }
+  const status = await readOAuthStatus();
+  return {
+    ...state,
+    connections: state.connections.map((connection) => (
+      connection.provider === "chatgpt-oauth"
+        ? { ...connection, configured: status.connected }
+        : connection
+    )),
+  };
+}
+
+async function readOAuthStatus(): Promise<AgentOAuthStatus> {
+  try {
+    const result = await supervisor?.requestOAuth("status");
+    if (result && "connected" in result) return result;
+  } catch {
+    // The settings view can still render while the Agent process starts.
+  }
+  return { connected: false, authMode: null, planType: null };
+}
+
 function assertTrustedSender(url: string | undefined): void {
   if (!url || !isAllowedRendererUrl(url, rendererOrigin)) {
     throw new Error("Untrusted IPC sender");
@@ -206,4 +298,45 @@ function parseExportRequest(value: unknown): { content: string; suggestedName: s
   const suggestedName = value.suggestedName.replace(/[<>:"/\\|?*]/g, "_").slice(0, 120);
   if (!suggestedName) throw new Error("Invalid export filename");
   return { content: value.content, suggestedName };
+}
+
+function parseModelConnectionInput(value: unknown): AgentModelConnectionInput {
+  if (!isRecord(value)) throw new Error("Invalid model connection");
+  const provider = value.provider;
+  const apiMode = value.apiMode;
+  if (
+    !["openai", "openai-compatible", "chatgpt-oauth"].includes(String(provider))
+    || !["responses", "chat-completions"].includes(String(apiMode))
+    || typeof value.name !== "string"
+    || typeof value.primaryModel !== "string"
+  ) {
+    throw new Error("Invalid model connection");
+  }
+  return {
+    id: typeof value.id === "string" ? value.id : undefined,
+    name: value.name,
+    provider: provider as AgentModelConnectionInput["provider"],
+    apiMode: apiMode as AgentModelConnectionInput["apiMode"],
+    baseUrl: typeof value.baseUrl === "string" ? value.baseUrl : null,
+    primaryModel: value.primaryModel,
+    fallbackModel: typeof value.fallbackModel === "string"
+      ? value.fallbackModel
+      : null,
+    reasoningEnabled: value.reasoningEnabled === true,
+    apiKey: typeof value.apiKey === "string" ? value.apiKey : null,
+  };
+}
+
+function assertOAuthUrl(value: string): void {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:"
+    || !["chatgpt.com", "auth.openai.com"].includes(url.hostname)
+  ) {
+    throw new Error("OAuth returned an untrusted authorization URL");
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -10,6 +10,7 @@ import { StoreAgentToolBackend } from "./agent-tool-backend.js";
 import { SqliteAgentSession } from "./sqlite-agent-session.js";
 import {
   cancelDesktopAgentRun,
+  getDesktopAgentConnection,
   hasDesktopAgentTransport,
   startDesktopAgentRun,
 } from "./desktop-agent-transport.js";
@@ -28,8 +29,21 @@ export class AgentRuntimeService {
     readonly config: AgentRuntimeConfig = loadAgentRuntimeConfig(),
   ) {}
 
+  get effectiveConfig(): AgentRuntimeConfig {
+    const connection = getDesktopAgentConnection();
+    return connection
+      ? {
+          ...this.config,
+          enabled: connection.configured,
+          primaryModel: connection.primaryModel,
+          fallbackModel: connection.fallbackModel,
+        }
+      : this.config;
+  }
+
   start(run: AgentRun, freshnessInput: Record<string, unknown>): void {
-    if (!this.config.enabled) {
+    const config = this.effectiveConfig;
+    if (!config.enabled) {
       throw Object.assign(new Error("Agent SDK is disabled"), { statusCode: 503 });
     }
     this.store.updateAgentRun(run.id, run.orgId, { status: "planning" });
@@ -38,7 +52,7 @@ export class AgentRuntimeService {
       startDesktopAgentRun(
         run,
         freshnessInput,
-        this.config,
+        config,
         persistence,
       );
       return;
@@ -47,7 +61,7 @@ export class AgentRuntimeService {
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
     void executeAmazonAgentRun(
-      this.config,
+      config,
       new StoreAgentToolBackend(this.store),
       persistence,
       {

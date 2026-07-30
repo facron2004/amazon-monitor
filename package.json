@@ -1,6 +1,6 @@
 {
   "name": "amazon-keyword-competitor-monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Amazon 关键词竞品价格与排名监控系统",
   "author": "Amazon Monitor Team",
   "private": true,
