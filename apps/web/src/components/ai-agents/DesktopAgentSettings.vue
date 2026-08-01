@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
   ElButton,
   ElCheckbox,
@@ -32,11 +32,13 @@ const oauthStatus = ref<AgentOAuthStatus>({
 const form = ref<AgentModelConnectionInput | null>(null);
 const loading = ref(false);
 const error = ref("");
+const loaded = ref(false);
 const statuses = ref<Record<"api" | "agent" | "crawler", string>>({
   api: "unknown",
   agent: "unknown",
   crawler: "unknown",
 });
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
 const activeConnection = computed(() => state.value.connections.find(
   (connection) => connection.id === state.value.activeConnectionId,
@@ -64,6 +66,7 @@ async function refresh(): Promise<void> {
     state.value = connectionState;
     statuses.value = processStatuses;
     oauthStatus.value = auth;
+    loaded.value = true;
   } catch (cause) {
     error.value = errorMessage(cause, "无法读取桌面 Agent 状态");
   }
@@ -191,7 +194,26 @@ function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
 }
 
-onMounted(() => void refresh());
+onMounted(() => {
+  void refresh();
+  let attempts = 0;
+  refreshTimer = setInterval(() => {
+    attempts += 1;
+    const allProcessesRunning = Object.values(statuses.value).every(
+      (status) => status === "running",
+    );
+    if (attempts >= 10 || (loaded.value && allProcessesRunning)) {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = undefined;
+      return;
+    }
+    void refresh();
+  }, 500);
+});
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer);
+});
 </script>
 
 <template>

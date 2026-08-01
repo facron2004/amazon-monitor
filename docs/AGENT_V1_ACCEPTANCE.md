@@ -43,8 +43,8 @@
 - 关键源码提交：`37ba0ce feat(agent): establish real-data desktop workflow`、`7e789f0 fix(agent): recover desktop runs and strict outputs`；验收矩阵与发布元数据由独立提交保存。
 - 最新 NSIS：
   - 路径：`release/electron/Amazon Monitor Setup 1.1.0.exe`
-  - 大小：428,029,831 bytes
-  - SHA-256：`36C2958E85F2C18F0E0B60DA47FA85D7D9FFCFB02AFD1B18711C68BAA93AE512`
+  - 大小：428,031,224 bytes
+  - SHA-256：`2B148D0151EEED57B373CE62FA249E6228C62B985BABAEAD740E94E2D295A7FD`
 
 ## 完成目标前的剩余条件
 

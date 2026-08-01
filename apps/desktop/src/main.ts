@@ -13,10 +13,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   createSecureWebPreferences,
   isAllowedRendererUrl,
+  resolveExternalUrl,
 } from "./browser-security.js";
 import {
   createDesktopPaths,
   findLegacyDatabase,
+  findProjectDataDatabase,
   migrateLegacyDatabase,
 } from "./desktop-paths.js";
 import { DesktopProcessSupervisor } from "./process-supervisor.js";
@@ -37,14 +39,20 @@ app.enableSandbox();
 
 app.whenReady().then(async () => {
   const paths = createDesktopPaths(app.getPath("userData"));
-  const legacyDatabase = findLegacyDatabase([
-    process.env.LEGACY_DB_PATH,
-    resolve(process.cwd(), "data/amazon-monitor.sqlite"),
-    resolve(process.cwd(), "../../data/amazon-monitor.sqlite"),
-    resolve(process.resourcesPath, "../../../../data/amazon-monitor.sqlite"),
-    resolve(app.getAppPath(), "../../data/amazon-monitor.sqlite"),
-  ], paths.database);
-  if (legacyDatabase) await migrateLegacyDatabase(legacyDatabase, paths.database);
+  const customDbPath = process.env.DB_PATH ? resolve(process.env.DB_PATH) : undefined;
+  const activeDbPath = customDbPath ?? paths.database;
+  if (!customDbPath) {
+    const legacyDatabase = findLegacyDatabase([
+      process.env.LEGACY_DB_PATH,
+      findProjectDataDatabase(process.cwd()),
+      findProjectDataDatabase(moduleDirectory),
+      resolve(process.cwd(), "data/amazon-monitor.sqlite"),
+      resolve(process.cwd(), "../../data/amazon-monitor.sqlite"),
+      resolve(process.resourcesPath, "../../../../data/amazon-monitor.sqlite"),
+      resolve(app.getAppPath(), "../../data/amazon-monitor.sqlite"),
+    ], activeDbPath);
+    if (legacyDatabase) await migrateLegacyDatabase(legacyDatabase, activeDbPath);
+  }
 
   const apiEntry = app.isPackaged
     ? pathToFileURL(join(
@@ -100,7 +108,7 @@ app.whenReady().then(async () => {
       AGENT_SDK_ENABLED: process.env.AGENT_SDK_ENABLED ?? "false",
       AMAZON_MONITOR_AGENT_SANDBOX: join(paths.secrets, "..", "agent-sandbox"),
       AMAZON_MONITOR_CODEX_HOME: join(paths.secrets, "codex"),
-      DB_PATH: paths.database,
+      DB_PATH: activeDbPath,
       DESKTOP_API_ENTRY: apiEntry,
       DESKTOP_API_BRIDGE_ENTRY: apiBridgeEntry,
       DESKTOP_API_STORE_ENTRY: apiStoreEntry,
@@ -141,9 +149,20 @@ app.whenReady().then(async () => {
     webPreferences: createSecureWebPreferences(join(moduleDirectory, "preload.cjs")),
     width: 1440,
   });
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const handleUrlOpening = (url: string) => {
+    void resolveExternalUrl(url, rendererOrigin).then((targetUrl) => {
+      if (targetUrl) void shell.openExternal(targetUrl);
+    });
+  };
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    handleUrlOpening(url);
+    return { action: "deny" };
+  });
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!isAllowedRendererUrl(url, rendererOrigin)) event.preventDefault();
+    if (!isAllowedRendererUrl(url, rendererOrigin)) {
+      event.preventDefault();
+      handleUrlOpening(url);
+    }
   });
   mainWindow.webContents.on("did-fail-load", (
     _event,

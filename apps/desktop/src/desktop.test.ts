@@ -12,11 +12,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSecureWebPreferences,
   isAllowedRendererUrl,
+  resolveExternalUrl,
 } from "./browser-security.js";
 import {
   createDesktopPaths,
   findLegacyDatabase,
+  findProjectDataDatabase,
   migrateLegacyDatabase,
+  shouldMigrateDatabase,
 } from "./desktop-paths.js";
 import { BoundedRestartPolicy } from "./restart-policy.js";
 import { SecureApiKeyStore, type AsyncSafeStorage } from "./secure-key-store.js";
@@ -46,6 +49,13 @@ describe("desktop security", () => {
       "http://127.0.0.1:43210/",
       "http://127.0.0.1:43210",
     )).toBe(true);
+  });
+
+  it("identifies valid external HTTP/HTTPS URLs for shell opening", async () => {
+    expect(await resolveExternalUrl("https://www.amazon.com/dp/B000000000", "http://127.0.0.1:43210")).toBe("https://www.amazon.com/dp/B000000000");
+    expect(await resolveExternalUrl("http://example.com", "http://127.0.0.1:43210")).toBe("http://example.com/");
+    expect(await resolveExternalUrl("file:///C:/secret.txt", "http://127.0.0.1:43210")).toBe(null);
+    expect(await resolveExternalUrl("javascript:alert(1)", "http://127.0.0.1:43210")).toBe(null);
   });
 
   it("encrypts the API key and never stores plaintext", async () => {
@@ -222,6 +232,80 @@ describe("desktop data migration", () => {
     expect(readMarker(paths.database)).toBe("from-wal");
     expect(readMarker(`${paths.database}.legacy-backup`)).toBe("from-wal");
     database.close();
+  });
+
+  it("re-migrates when the legacy database has a newer modification time", async () => {
+    const root = temporaryDirectory();
+    const legacy = join(root, "legacy.sqlite");
+    const paths = createDesktopPaths(join(root, "user-data"));
+
+    // Initial legacy DB setup
+    let db = new DatabaseSync(legacy);
+    db.exec("CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('v1')");
+    db.close();
+
+    expect(await migrateLegacyDatabase(legacy, paths.database)).toBe("migrated");
+    expect(readMarker(paths.database)).toBe("v1");
+
+    // Wait a short moment to ensure distinct timestamp for mtime update
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Update legacy DB with new data
+    db = new DatabaseSync(legacy);
+    db.exec("UPDATE marker SET value = 'v2'");
+    db.close();
+
+    expect(await migrateLegacyDatabase(legacy, paths.database)).toBe("migrated");
+    expect(readMarker(paths.database)).toBe("v2");
+  });
+
+  it("migrates when legacy database has higher task log ID", async () => {
+    const root = temporaryDirectory();
+    const legacy = join(root, "legacy.sqlite");
+    const target = join(root, "target.sqlite");
+
+    let db = new DatabaseSync(target);
+    db.exec("CREATE TABLE amazon_collect_task_log (id INTEGER PRIMARY KEY, status TEXT); INSERT INTO amazon_collect_task_log VALUES (10, 'ok');");
+    db.close();
+
+    db = new DatabaseSync(legacy);
+    db.exec("CREATE TABLE amazon_collect_task_log (id INTEGER PRIMARY KEY, status TEXT); INSERT INTO amazon_collect_task_log VALUES (20, 'ok');");
+    db.close();
+
+    expect(shouldMigrateDatabase(legacy, target)).toBe(true);
+  });
+
+  it("removes stale target WAL files before replacing an existing database", async () => {
+    const root = temporaryDirectory();
+    const legacy = join(root, "legacy.sqlite");
+    const target = join(root, "target.sqlite");
+
+    let db = new DatabaseSync(target);
+    db.exec("CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('old')");
+    db.close();
+    writeFileSync(`${target}-wal`, "stale-wal");
+    writeFileSync(`${target}-shm`, "stale-shm");
+
+    db = new DatabaseSync(legacy);
+    db.exec("CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('new')");
+    db.close();
+
+    expect(await migrateLegacyDatabase(legacy, target)).toBe("migrated");
+    expect(readMarker(target)).toBe("new");
+    expect(existsSync(`${target}-wal`)).toBe(false);
+    expect(existsSync(`${target}-shm`)).toBe(false);
+  });
+
+  it("finds project data database recursively in parent directories", () => {
+    const root = temporaryDirectory();
+    const subDir = join(root, "apps", "desktop", "dist");
+    const dbPath = join(root, "data", "amazon-monitor.sqlite");
+    const paths = createDesktopPaths(root);
+    const database = new DatabaseSync(dbPath);
+    database.exec("CREATE TABLE marker (value TEXT)");
+    database.close();
+
+    expect(findProjectDataDatabase(subDir)).toBe(dbPath);
   });
 });
 

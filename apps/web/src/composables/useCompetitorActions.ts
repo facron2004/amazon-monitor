@@ -66,9 +66,23 @@ export function useCompetitorActions(options: UseCompetitorActionsOptions) {
     });
   }
 
-  function openAmazon(item: CompetitorPoolItem) {
+  async function openAmazon(item: CompetitorPoolItem) {
     const query = options.selectedCompetitorKeywordId.value ? `?keywordId=${options.selectedCompetitorKeywordId.value}` : "";
-    window.open(`/api/competitors/${encodeURIComponent(item.asin)}/open${query}`, "_blank", "noopener,noreferrer");
+    const base = import.meta.env.VITE_API_BASE?.trim() || "/api";
+    try {
+      const res = await fetch(`${base}/competitors/${encodeURIComponent(item.asin)}/link${query}`, { credentials: "include" });
+      if (res.ok) {
+        const data = (await res.json()) as { url?: string };
+        if (data.url) {
+          window.open(data.url, "_blank", "noopener,noreferrer");
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    const fallbackUrl = item.latestProductUrl || `https://www.amazon.com/dp/${encodeURIComponent(item.asin)}`;
+    window.open(fallbackUrl, "_blank", "noopener,noreferrer");
   }
 
   return {
