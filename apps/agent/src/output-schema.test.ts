@@ -45,6 +45,8 @@ describe("Agent structured output schema", () => {
       type: "object",
       additionalProperties: false,
     });
+    expect(JSON.stringify(outputSchema)).not.toContain('"oneOf"');
+    expect(JSON.stringify(outputSchema)).toContain('"anyOf"');
   });
 });
 

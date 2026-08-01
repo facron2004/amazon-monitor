@@ -24,8 +24,30 @@ export function getAgentDynamicToolSpecs(): AgentDynamicToolSpec[] {
 }
 
 export function getAgentRunOutputJsonSchema(): Record<string, unknown> {
-  return z.toJSONSchema(agentRunOutputSchema, {
+  const schema = z.toJSONSchema(agentRunOutputSchema, {
     target: "draft-7",
     unrepresentable: "any",
   }) as Record<string, unknown>;
+  return toCodexCompatibleSchema(schema);
+}
+
+function toCodexCompatibleSchema(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const result: Record<string, unknown> = {};
+  Object.entries(value).forEach(([key, nested]) => {
+    result[key] = Array.isArray(nested)
+      ? nested.map((item) => (isRecord(item) ? toCodexCompatibleSchema(item) : item))
+      : isRecord(nested)
+        ? toCodexCompatibleSchema(nested)
+        : nested;
+  });
+  if (result.oneOf && !result.anyOf) {
+    result.anyOf = result.oneOf;
+    delete result.oneOf;
+  }
+  return result;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
