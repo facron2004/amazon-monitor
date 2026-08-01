@@ -48,7 +48,7 @@
 
 - 真实 EXE 金标报告：
   - 路径：`output/agent-gold-evaluation-exe-2026-08-01.json`
-  - 30/30 题已记录；本次 `runTimeoutMs=60000` 的指标：data support `16.67%`、unsupported deterministic `0%`、tool success `93.62%`；高优提醒和恢复仍待人工标注。
+  - 30/30 题已记录；本次 `runTimeoutMs=60000` 的指标：data support `16.67%`、unsupported deterministic `0%`、high-priority alert validity `0%`、tool success `93.62%`、task recovery `0%`；高优提醒和恢复仍待人工标注。
 
 ## 完成目标前的剩余条件
 
