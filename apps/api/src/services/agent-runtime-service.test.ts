@@ -121,6 +121,51 @@ describe("AgentRuntimeService terminal events", () => {
     database.close();
   });
 
+  it("keeps a cancelled run terminal when a late desktop event arrives", async () => {
+    const database = new DatabaseSync(":memory:");
+    initSchema(database);
+    const store = createStore(database);
+    const user = store.listUsers()[0]!;
+    const session = store.createAgentSession({
+      orgId: user.orgId,
+      userId: user.id,
+      title: "Cancellation race",
+    });
+    const run = store.createAgentRun({
+      sessionId: session.id,
+      orgId: user.orgId,
+      userId: user.id,
+      taskType: "investigation",
+      input: "Investigate cancellation",
+      model: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+    });
+    configureDesktopAgentStore(store);
+    configureDesktopAgentTransport(() => undefined);
+    const runtime = new AgentRuntimeService(store, {
+      enabled: true,
+      primaryModel: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      maxTurns: 10,
+      tracingDisabled: true,
+    });
+
+    runtime.start(run, { datasets: ["category"], categoryId: 1 });
+    expect(runtime.cancel(run.id, user.orgId)).toMatchObject({ status: "cancelled" });
+    await receiveDesktopAgentMessage({
+      type: "agent.run.event",
+      runId: run.id,
+      eventType: "tool.started",
+      payload: { toolName: "get_category_snapshot" },
+    });
+
+    expect(store.getAgentRun(run.id, user.orgId)).toMatchObject({
+      status: "cancelled",
+    });
+    database.close();
+  });
+
   it("fails interrupted runtime state without replaying collection recovery", () => {
     const database = new DatabaseSync(":memory:");
     initSchema(database);

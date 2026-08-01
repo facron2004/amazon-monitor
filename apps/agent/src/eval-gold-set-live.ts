@@ -70,6 +70,7 @@ export interface AgentGoldLiveOptions {
   scope?: AgentGoldLiveScope;
   pollIntervalMs?: number;
   runTimeoutMs?: number;
+  requestTimeoutMs?: number;
   tasks?: AgentGoldTask[];
 }
 
@@ -112,42 +113,75 @@ export async function runLiveAgentGoldEvaluation(
   options: AgentGoldLiveOptions,
   fetcher: FetchLike = fetch,
 ): Promise<AgentGoldLiveReport> {
-  const client = await AgentEvaluationClient.login(options, fetcher);
+  const client = await AgentEvaluationClient.login({
+    ...options,
+    requestTimeoutMs: options.requestTimeoutMs ?? 30_000,
+  }, fetcher);
   const scope = options.scope ?? await discoverScope(client);
   const tasks = options.tasks ?? agentGoldTasks;
   const evaluatedTaskIds = new Set(tasks.map((task) => task.id));
   const liveRuns: AgentGoldLiveRun[] = [];
   const evaluation = await runAgentGoldEvaluation(async (task) => {
-    const session = await client.post<AgentSessionResponse>("/api/agent/sessions", {
-      title: `Gold ${task.id}`,
-    });
-    const created = await client.post<AgentRun>("/api/agent/sessions/"
-      + `${session.id}/runs`, buildRunRequest(task, scope));
-    const detail = await client.waitForRun(
-      created.id,
-      options.pollIntervalMs ?? 1_000,
-      options.runTimeoutMs ?? 600_000,
-    );
-    const audit = await client.get<unknown>(`/api/agent/audit?runId=${created.id}`);
-    liveRuns.push({
-      taskId: task.id,
-      runId: detail.id,
-      sessionId: detail.sessionId,
-      status: detail.status,
-      errorMessage: detail.errorMessage,
-      audit,
-    });
+    let sessionId = 0;
+    let runId = 0;
     const annotation = scope.annotations[task.id];
-    return {
-      output: detail.output,
-      toolCalls: detail.toolCalls.map(({ toolName, status }) => ({
-        toolName,
-        status,
-      })),
-      errorMessage: detail.errorMessage,
-      alertValid: annotation?.alertValid ?? null,
-      recoverySucceeded: annotation?.recoverySucceeded ?? null,
-    };
+    try {
+      const session = await client.post<AgentSessionResponse>("/api/agent/sessions", {
+        title: `Gold ${task.id}`,
+      });
+      sessionId = session.id;
+      const created = await client.post<AgentRun>("/api/agent/sessions/"
+        + `${session.id}/runs`, buildRunRequest(task, scope));
+      runId = created.id;
+      const detail = await client.waitForRun(
+        created.id,
+        options.pollIntervalMs ?? 1_000,
+        options.runTimeoutMs ?? 600_000,
+      );
+      const audit = await client.get<unknown>(`/api/agent/audit?runId=${created.id}`);
+      liveRuns.push({
+        taskId: task.id,
+        runId: detail.id,
+        sessionId: detail.sessionId,
+        status: detail.status,
+        errorMessage: detail.errorMessage,
+        audit,
+      });
+      return {
+        output: detail.output,
+        toolCalls: detail.toolCalls.map(({ toolName, status }) => ({
+          toolName,
+          status,
+        })),
+        errorMessage: detail.errorMessage,
+        alertValid: annotation?.alertValid ?? null,
+        recoverySucceeded: annotation?.recoverySucceeded ?? null,
+      };
+    } catch (error) {
+      if (runId > 0) {
+        try {
+          await client.cancel(runId);
+        } catch {
+          // The run may already be terminal or the API may be restarting.
+        }
+      }
+      const errorMessage = formatError(error);
+      liveRuns.push({
+        taskId: task.id,
+        runId,
+        sessionId,
+        status: "failed",
+        errorMessage,
+        audit: null,
+      });
+      return {
+        output: null,
+        toolCalls: [],
+        errorMessage,
+        alertValid: annotation?.alertValid ?? null,
+        recoverySucceeded: annotation?.recoverySucceeded ?? null,
+      };
+    }
   }, tasks);
 
   return {
@@ -233,6 +267,11 @@ function resolvePrompt(prompt: string, scope: AgentGoldLiveScope): string {
 function firstTaskAsin(prompt: string, scope: AgentGoldLiveScope): string {
   const match = /B000TEST(\d{2})/.exec(prompt);
   return match ? scope.asins[Number(match[1]) - 1] ?? scope.asins[0] : scope.asins[0];
+}
+
+function formatError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, 500);
 }
 
 async function discoverScope(

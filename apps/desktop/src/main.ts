@@ -136,6 +136,7 @@ app.whenReady().then(async () => {
   );
   await connectionStore.migrateOpenAIKey(await legacyKeyStore.get());
   await syncAgentConnection(connectionStore);
+  void retryAgentConnectionSync(connectionStore);
   registerIpc(connectionStore, paths.exports);
 
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
@@ -268,6 +269,32 @@ async function syncAgentConnection(
     ...active,
     configured: status.connected,
   });
+}
+
+async function retryAgentConnectionSync(
+  connectionStore: SecureModelConnectionStore,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await wait(500);
+    if (supervisor?.getStatuses().agent !== "running") continue;
+    try {
+      const active = await connectionStore.getActive();
+      if (!active) return;
+      if (active.provider !== "chatgpt-oauth") {
+        await syncAgentConnection(connectionStore);
+        return;
+      }
+      const status = await readOAuthStatus();
+      await syncAgentConnection(connectionStore, status);
+      if (status.connected) return;
+    } catch {
+      // A later IPC refresh can recover a transient startup failure.
+    }
+  }
+}
+
+function wait(durationMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
 async function withOAuthStatus(

@@ -101,6 +101,10 @@ export class AgentRuntimeService {
   private persistenceFor(run: AgentRun): AgentRuntimePersistence {
     return {
       appendEvent: (runId, type, payload) => {
+        const current = this.store.getAgentRun(runId, run.orgId);
+        if (current && isTerminalStatus(current.status)) {
+          return this.store.appendAgentRunEvent({ runId, type, payload: payload ?? {} });
+        }
         const status = statusForEvent(type);
         if (status) this.store.updateAgentRun(runId, run.orgId, { status });
         this.persistAuditEvent(runId, type, payload ?? {});
@@ -126,6 +130,8 @@ export class AgentRuntimeService {
   }
 
   private complete(run: AgentRun, output: AgentRunOutput): void {
+    const current = this.store.getAgentRun(run.id, run.orgId);
+    if (current && isTerminalStatus(current.status)) return;
     output.recommendedActions.forEach((action, index) => {
       this.store.createActionProposal({
         runId: run.id,
@@ -237,6 +243,10 @@ export class AgentRuntimeService {
       }
     }
   }
+}
+
+function isTerminalStatus(status: AgentRun["status"]): boolean {
+  return ["completed", "failed", "cancelled", "waiting_approval"].includes(status);
 }
 
 export function resolveAgentActionRiskLevel(

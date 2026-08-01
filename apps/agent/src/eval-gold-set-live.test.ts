@@ -101,6 +101,61 @@ describe("live Agent gold evaluation", () => {
     })).toThrow();
   });
 
+  it("continues with later tasks when a live request fails", async () => {
+    let sessionId = 0;
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/login")) {
+        return json({}, { headers: { "set-cookie": "session=test; HttpOnly" } });
+      }
+      if (url.endsWith("/api/agent/sessions")) {
+        sessionId += 1;
+        return json({ id: sessionId });
+      }
+      if (url.endsWith("/runs") && init?.method === "POST") {
+        return json(run(sessionId, "created", null));
+      }
+      if (url.endsWith("/api/agent/runs/1")) {
+        return json({
+          ...run(1, "completed", output()),
+          toolCalls: [
+            tool("check_data_freshness", "completed"),
+            tool("get_asin_history", "completed"),
+          ],
+        });
+      }
+      if (url.endsWith("/api/agent/runs/2")) {
+        throw new Error("temporary network failure");
+      }
+      if (url.endsWith("/api/agent/runs/2/cancel")) {
+        return json(run(2, "failed", null));
+      }
+      if (url.includes("/api/agent/audit?runId=1")) return json({});
+      return new Response("Not found", { status: 404 });
+    };
+
+    const report = await runLiveAgentGoldEvaluation({
+      baseUrl: "http://127.0.0.1:43210",
+      username: "admin",
+      password: "secret",
+      scope: scope(),
+      tasks,
+      pollIntervalMs: 1,
+      runTimeoutMs: 100,
+      requestTimeoutMs: 20,
+    }, fetcher);
+
+    expect(report.runs).toHaveLength(2);
+    expect(report.runs[1]).toMatchObject({
+      taskId: "second",
+      runId: 2,
+      sessionId: 2,
+      status: "failed",
+      errorMessage: "temporary network failure",
+    });
+    expect(report.evaluation.tasks).toHaveLength(2);
+  });
+
   it("discovers a concrete organization scope when no scope file is provided", async () => {
     const fetcher: typeof fetch = async (input, init) => {
       const url = String(input);

@@ -5,7 +5,7 @@
 
 ## 前置条件
 
-1. 在 Agent 中心通过 Windows safeStorage 保存真实 OpenAI API Key。
+1. 在 Agent 中心通过 Windows safeStorage 保存真实 OpenAI API Key，或完成 ChatGPT OAuth。
 2. 关闭应用后，用内部验收开关重新启动：
 
    ```powershell
@@ -42,7 +42,8 @@ npm run agent:eval -- --scope docs/agent-gold-scope.example.json
 
 结果写入 `output/agent-gold-evaluation-<timestamp>.json`，包含每题运行 ID、
 终态、错误、完整审计导出、五项指标、目标判定和实际评估范围。任务严格串行，
-单题失败会被计入结果并继续下一题。
+单题失败会被计入结果并继续下一题；单题等待超时会先请求取消对应 Agent 运行，
+再继续下一题，避免留下并发运行。
 
 ## 人工复核
 
