@@ -1,5 +1,15 @@
 # Workflow Agent 开发进度
 
+## 2026-08-01
+
+Agent V1.0 Gold 与 recovery 收口：
+
+- 为真实 Agent 请求增加确定性 preflight：按任务意图先读取最小只读工具集合，模型只看到本题相关工具；完整 envelope 继续写入审计，模型上下文使用有界摘要。
+- freshness 不再只信前置检查：preflight 工具的 `missing/stale/failed` 会合并到最终 freshness，候选级证据缺失时置信度上限 `0.49`，行动只保留 `recollect`。
+- 修复去重采集 job 的 recovery fan-out：同一个 job 的多个 waiting recovery 会全部启动；并将原始 Agent 请求写入 recovery 输入，确保补采后能够重建分析范围。
+- 正式 Gold 使用真实 EXE 串行运行 30 题（600 秒/题），所有题有终态、预期工具全部完成；基线 data support `100%`、unsupported deterministic `0%`、tool success `100%`。人工复核后的派生报告五项指标均达标，范围保存在 `docs/agent-gold-scope-formal-2026-08-01.json`。
+- 最终 NSIS `release/electron/Amazon Monitor Setup 1.1.0.exe`：428,014,710 bytes，SHA-256 `DCFB03ACB35064186F871466BB4935975F159E376443393DA581218B92AFAABA`。EXE 启动页面、Agent 中心、导航和业务数据均真实渲染，0 个 page/console error；根级单测 920 个通过，浏览器测试 9 个通过，根级构建通过。
+
 ## 2026-07-30
 
 Agent model connection expansion:

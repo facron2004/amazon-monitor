@@ -264,9 +264,9 @@ function resolvePrompt(prompt: string, scope: AgentGoldLiveScope): string {
     .replace(/\bBeta\b/g, scope.brands[1]);
 }
 
-function firstTaskAsin(prompt: string, scope: AgentGoldLiveScope): string {
+function firstTaskAsin(prompt: string, scope: AgentGoldLiveScope): string | undefined {
   const match = /B000TEST(\d{2})/.exec(prompt);
-  return match ? scope.asins[Number(match[1]) - 1] ?? scope.asins[0] : scope.asins[0];
+  return match ? scope.asins[Number(match[1]) - 1] ?? scope.asins[0] : undefined;
 }
 
 function formatError(error: unknown): string {

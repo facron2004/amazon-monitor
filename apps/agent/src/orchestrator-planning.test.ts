@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyAgentTask,
   executeAmazonAgentRun,
+  mergeAgentFreshness,
 } from "./orchestrator.js";
 import type {
   AgentRuntimePersistence,
@@ -10,6 +11,41 @@ import type {
 } from "./runtime-types.js";
 
 describe("Agent planning sequence", () => {
+  it("downgrades the effective freshness when a scoped evidence tool is missing", () => {
+    const merged = mergeAgentFreshness(
+      {
+        status: "fresh",
+        checkedAt: "2026-08-01T00:00:00.000Z",
+        maxAgeHours: 24,
+        oldestEvidenceAt: "2026-08-01",
+        staleSources: [],
+        dataGaps: [],
+        warnings: [],
+      },
+      [{
+        toolName: "get_price_history",
+        envelope: {
+          data: [],
+          evidenceRefs: [],
+          freshness: {
+            status: "missing",
+            checkedAt: "2026-08-01T00:00:00.000Z",
+            maxAgeHours: 24,
+            oldestEvidenceAt: null,
+            staleSources: [],
+            dataGaps: ["No price evidence"],
+            warnings: [],
+          },
+          dataGaps: ["No price evidence"],
+          warnings: [],
+        },
+      }],
+    );
+    expect(merged.status).toBe("missing");
+    expect(merged.staleSources).toContain("get_price_history");
+    expect(merged.dataGaps).toContain("No price evidence");
+  });
+
   it("classifies common Amazon operations tasks deterministically", () => {
     expect(classifyAgentTask("最近 7 天哪些新品进入 Top50")).toBe("investigation");
     expect(classifyAgentTask("执行每日巡检")).toBe("patrol");

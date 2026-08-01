@@ -81,4 +81,45 @@ describe("AgentActionService", () => {
     expect(sender.sent).toHaveLength(1);
     db.close();
   });
+
+  it("carries the original request into a recollection recovery run", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const user = store.listUsers()[0];
+    const session = store.createAgentSession({
+      orgId: user.orgId,
+      userId: user.id,
+      title: "Recovery context",
+    });
+    const source = store.createAgentRun({
+      sessionId: session.id,
+      orgId: user.orgId,
+      userId: user.id,
+      taskType: "query",
+      input: "价格数据过期时评估 B000TEST01，范围为类目 ID 42。",
+      model: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+    });
+    const proposal = store.createActionProposal({
+      runId: source.id,
+      orgId: user.orgId,
+      actionType: "recollect",
+      title: "Recollect category",
+      payload: { taskType: "category", targetId: 42, date: "2026-08-01" },
+      riskLevel: "L2",
+      idempotencyKey: `test:${source.id}:recollect`,
+    });
+    const execution = await new AgentActionService(store).approve(
+      proposal.id,
+      user.orgId,
+      user.id,
+      proposal.expectedVersion,
+    );
+    const recoveryRunId = (execution.execution?.result as { recoveryRunId: number }).recoveryRunId;
+    expect(store.getAgentRun(recoveryRunId, user.orgId)?.input).toContain(
+      source.input,
+    );
+    db.close();
+  });
 });

@@ -6,6 +6,7 @@ export * from "./tool-schemas.js";
 export * from "./output-schema.js";
 export * from "./orchestrator.js";
 export * from "./json-schema.js";
+export * from "./tool-planner.js";
 export type {
   AgentInputItem,
   Session as AgentSdkSession,

@@ -3,11 +3,17 @@ import {
   agentToolInputSchemas,
   applyFreshnessPolicy,
   executeToolWithRetry,
+  collectPlannedAgentEvidence,
+  compactAgentToolEnvelope,
+  formatPlannedAgentEvidence,
   getAgentDynamicToolSpecs,
   getAgentRunOutputJsonSchema,
+  mergeAgentFreshness,
+  planAgentToolCalls,
   type AgentRuntimeConfig,
   type AgentRuntimePersistence,
   type AgentToolBackend,
+  type PlannedAgentEvidence,
 } from "@amazon-monitor/agent";
 import {
   agentToolNames,
@@ -45,6 +51,7 @@ export async function executeOAuthAgentRun(
     orgId: message.run.orgId,
     userId: message.run.userId,
     runId: message.run.id,
+    signal,
   };
   const freshnessEnvelope = await executeToolWithRetry(
     "check_data_freshness",
@@ -57,6 +64,31 @@ export async function executeOAuthAgentRun(
     status: freshnessEnvelope.freshness.status,
     dataGaps: freshnessEnvelope.dataGaps,
   });
+  const plannedEvidence = await collectPlannedAgentEvidence(
+    message.run.input,
+    message.run.taskType,
+    message.run.freshnessInput,
+    backend,
+    context,
+    persistence,
+  );
+  const effectiveFreshness = mergeAgentFreshness(
+    freshnessEnvelope.freshness,
+    plannedEvidence,
+  );
+  persistence.appendEvent(message.run.id, "freshness.effective", {
+    status: effectiveFreshness.status,
+    dataGaps: effectiveFreshness.dataGaps,
+    staleSources: effectiveFreshness.staleSources,
+  });
+  const plannedToolNames = planAgentToolCalls(
+    message.run.input,
+    message.run.taskType,
+    message.run.freshnessInput,
+  ).map(({ toolName }) => toolName);
+  const allowedTools = plannedToolNames.length > 0
+    ? new Set(plannedToolNames)
+    : undefined;
 
   const models = [
     connection.primaryModel,
@@ -73,11 +105,13 @@ export async function executeOAuthAgentRun(
         backend,
         persistence,
         message,
-        freshnessEnvelope.freshness,
+        effectiveFreshness,
+        plannedEvidence,
+        allowedTools,
         sandboxPath,
         signal,
       );
-      const guarded = applyFreshnessPolicy(output, freshnessEnvelope.freshness);
+      const guarded = applyFreshnessPolicy(output, effectiveFreshness);
       persistence.complete(message.run.id, guarded);
       return guarded;
     } catch (error) {
@@ -104,6 +138,8 @@ async function runCodexModel(
   persistence: AgentRuntimePersistence,
   message: DesktopAgentRunStart,
   freshness: AgentFreshness,
+  plannedEvidence: PlannedAgentEvidence[],
+  allowedTools: ReadonlySet<AgentToolName> | undefined,
   sandboxPath: string,
   signal?: AbortSignal,
 ): Promise<AgentRunOutput> {
@@ -119,12 +155,17 @@ async function runCodexModel(
       "",
       `Code-enforced freshness gate:\n${JSON.stringify(freshness)}`,
       "",
+      `Deterministic preflight evidence (read-only):\n${formatPlannedAgentEvidence(plannedEvidence)}`,
+      "",
+      "Use every relevant specialized tool for each requested dimension before finalizing. If freshness is stale or missing, stop analysis and propose recollection only.",
+      "",
       "Return evidence-backed Amazon operations analysis only.",
     ].join("\n"),
     outputSchema: getAgentRunOutputJsonSchema(),
     sandboxPath,
     signal,
-    tools: getAgentDynamicToolSpecs(),
+    tools: getAgentDynamicToolSpecs().filter((spec) =>
+      !allowedTools || allowedTools.has(spec.name as AgentToolName)),
     toolHandler: async (toolName, input) => {
       if (!isAgentToolName(toolName)) throw new Error("Unknown Amazon business tool");
       const parsed = agentToolInputSchemas[toolName].parse(input);
@@ -135,7 +176,7 @@ async function runCodexModel(
         contextFor(message),
         persistence,
       );
-      return JSON.stringify(envelope);
+      return JSON.stringify(compactAgentToolEnvelope(envelope));
     },
   });
   persistence.appendEvent(message.run.id, "model.progress", {

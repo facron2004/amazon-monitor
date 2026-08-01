@@ -160,6 +160,75 @@ describe("Desktop Agent transport", () => {
     database.close();
   });
 
+  it("starts every waiting recovery run when a deduplicated job completes", async () => {
+    const database = new DatabaseSync(":memory:");
+    initSchema(database);
+    const store = createStore(database);
+    const user = store.listUsers()[0]!;
+    const session = store.createAgentSession({
+      orgId: user.orgId,
+      userId: user.id,
+      title: "Recovery fan-out",
+    });
+    const recoveries = [1, 2].map((index) => {
+      const source = store.createAgentRun({
+        sessionId: session.id,
+        orgId: user.orgId,
+        userId: user.id,
+        taskType: "investigation",
+        input: `Investigate category ${index}`,
+        model: "gpt-5.6-sol",
+        fallbackModel: "gpt-5.6-terra",
+      });
+      const recovery = store.createAgentRun({
+        sessionId: session.id,
+        orgId: user.orgId,
+        userId: user.id,
+        taskType: "recovery",
+        input: "Re-evaluate after collection",
+        model: source.model,
+        fallbackModel: source.fallbackModel,
+        recoveryOfRunId: source.id,
+      });
+      store.appendAgentRunEvent({
+        runId: recovery.id,
+        type: "recovery.waiting_for_collection",
+        payload: {
+          jobId: 42,
+          freshnessInput: { datasets: ["category"], categoryId: index },
+        },
+      });
+      return recovery;
+    });
+    const starter = vi.fn();
+    configureDesktopAgentStore(store);
+    configureDesktopAgentRecoveryStarter(starter);
+
+    await receiveDesktopAgentMessage({
+      type: "agent.recovery.ready",
+      jobId: 42,
+    });
+
+    expect(starter).toHaveBeenCalledTimes(2);
+    expect(starter).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: recoveries[0]!.id }),
+      { datasets: ["category"], categoryId: 1 },
+    );
+    expect(starter).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: recoveries[1]!.id }),
+      { datasets: ["category"], categoryId: 2 },
+    );
+    for (const recovery of recoveries) {
+      expect(store.listAgentRunEvents(recovery.id).at(-1)).toMatchObject({
+        type: "recovery.collection_completed",
+        payload: { jobId: 42 },
+      });
+    }
+    database.close();
+  });
+
   it("fails active runs when the Agent process exits and never replays them", async () => {
     const database = new DatabaseSync(":memory:");
     initSchema(database);

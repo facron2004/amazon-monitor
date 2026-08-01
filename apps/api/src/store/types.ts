@@ -738,6 +738,10 @@ export interface AgentStore {
     limit?: number;
     offset?: number;
   }): AgentRun[];
+  listAgentRecoveryRunsForJob(jobId: number): {
+    run: AgentRun;
+    freshnessInput: Record<string, unknown>;
+  }[];
   getAgentRecoveryRunForJob(jobId: number): {
     run: AgentRun;
     freshnessInput: Record<string, unknown>;

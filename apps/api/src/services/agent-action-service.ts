@@ -185,7 +185,11 @@ export class AgentActionService {
         orgId: sourceRun.orgId,
         userId: sourceRun.userId,
         taskType: "recovery",
-        input: `Re-evaluate run #${sourceRun.id} after collection job #${job.id}`,
+        input: [
+          `Re-evaluate run #${sourceRun.id} after collection job #${job.id}.`,
+          "Original Agent request:",
+          sourceRun.input,
+        ].join("\n"),
         model: sourceRun.model,
         fallbackModel: sourceRun.fallbackModel,
         recoveryOfRunId: sourceRun.id,

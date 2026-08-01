@@ -16,7 +16,8 @@ type AgentStoreMethods = Pick<Store,
   "createAgentSession" | "getAgentSession" | "listAgentSessions" |
   "appendAgentMessage" | "listAgentMessages" | "appendAgentSessionItems" |
   "listAgentSessionItems" | "popAgentSessionItem" | "clearAgentSessionItems" |
-  "createAgentRun" | "getAgentRun" | "getAgentRecoveryRunForJob" |
+  "createAgentRun" | "getAgentRun" | "listAgentRecoveryRunsForJob" |
+  "getAgentRecoveryRunForJob" |
   "listAgentRuns" | "updateAgentRun" | "appendAgentRunEvent" |
   "listAgentRunEvents" | "createAgentStep" | "completeAgentStep" |
   "listAgentSteps" | "createAgentToolCall" | "completeAgentToolCall" |
@@ -137,24 +138,28 @@ export function createAgentStore(db: DatabaseSync): AgentStoreMethods {
         unknown as AgentRunRow[];
       return rows.map(mapAgentRun);
     },
-    getAgentRecoveryRunForJob(jobId) {
-      const row = db.prepare(
+    listAgentRecoveryRunsForJob(jobId) {
+      const rows = db.prepare(
         `SELECT r.*, e.payload_json AS recovery_payload_json
          FROM agent_runs r
          INNER JOIN agent_run_events e ON e.run_id = r.id
          WHERE r.task_type = 'recovery' AND r.status = 'created'
            AND e.event_type = 'recovery.waiting_for_collection'
            AND CAST(json_extract(e.payload_json, '$.jobId') AS INTEGER) = ?
-         ORDER BY r.id DESC LIMIT 1`,
-      ).get(jobId) as (AgentRunRow & { recovery_payload_json: string }) | undefined;
-      if (!row) return null;
-      const payload = parseJsonRecord(row.recovery_payload_json);
-      return {
-        run: mapAgentRun(row),
-        freshnessInput: isRecord(payload.freshnessInput)
-          ? payload.freshnessInput
-          : {},
-      };
+         ORDER BY r.id ASC`,
+      ).all(jobId) as unknown as (AgentRunRow & { recovery_payload_json: string })[];
+      return rows.map((row) => {
+        const payload = parseJsonRecord(row.recovery_payload_json);
+        return {
+          run: mapAgentRun(row),
+          freshnessInput: isRecord(payload.freshnessInput)
+            ? payload.freshnessInput
+            : {},
+        };
+      });
+    },
+    getAgentRecoveryRunForJob(jobId) {
+      return this.listAgentRecoveryRunsForJob(jobId).at(-1) ?? null;
     },
     updateAgentRun(id, orgId, input) {
       const hasOutput = Object.hasOwn(input, "output");

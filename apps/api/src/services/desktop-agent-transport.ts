@@ -121,30 +121,33 @@ export async function receiveDesktopAgentMessage(
 }
 
 export function startRecoveryForJob(jobId: number): boolean {
-  const recovery = store?.getAgentRecoveryRunForJob(jobId);
-  if (!recovery || !recoveryStarter) return false;
-  store?.appendAgentRunEvent({
-    runId: recovery.run.id,
-    type: "recovery.collection_completed",
-    payload: { jobId },
-  });
-  try {
-    recoveryStarter(recovery.run, recovery.freshnessInput);
-    return true;
-  } catch (error) {
-    const errorMessage = safeErrorMessage(error);
-    store?.updateAgentRun(recovery.run.id, recovery.run.orgId, {
-      status: "failed",
-      errorMessage,
-      completedAt: new Date().toISOString(),
-    });
+  const recoveries = store?.listAgentRecoveryRunsForJob(jobId) ?? [];
+  if (!recoveries.length || !recoveryStarter) return false;
+  let started = false;
+  for (const recovery of recoveries) {
     store?.appendAgentRunEvent({
       runId: recovery.run.id,
-      type: "recovery.failed",
-      payload: { errorMessage, jobId },
+      type: "recovery.collection_completed",
+      payload: { jobId },
     });
-    return false;
+    try {
+      recoveryStarter(recovery.run, recovery.freshnessInput);
+      started = true;
+    } catch (error) {
+      const errorMessage = safeErrorMessage(error);
+      store?.updateAgentRun(recovery.run.id, recovery.run.orgId, {
+        status: "failed",
+        errorMessage,
+        completedAt: new Date().toISOString(),
+      });
+      store?.appendAgentRunEvent({
+        runId: recovery.run.id,
+        type: "recovery.failed",
+        payload: { errorMessage, jobId },
+      });
+    }
   }
+  return started;
 }
 
 async function handleRpcRequest(message: DesktopAgentRpcRequest): Promise<void> {

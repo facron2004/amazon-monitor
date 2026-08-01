@@ -22,6 +22,12 @@ import type {
 import type { AgentRuntimeConfig } from "./config.js";
 import { agentRunOutputSchema } from "./output-schema.js";
 import { agentToolInputSchemas } from "./tool-schemas.js";
+import {
+  formatPlannedAgentEvidence,
+  compactAgentToolEnvelope,
+  planAgentToolCalls,
+  type PlannedAgentEvidence,
+} from "./tool-planner.js";
 
 export const agentToolDescriptions: Record<AgentToolName, string> = {
   get_category_snapshot: "Read bounded BSR category snapshots for a dated scope.",
@@ -80,7 +86,7 @@ function createReadTool(
         context,
         persistence,
       );
-      return JSON.stringify(envelope);
+      return JSON.stringify(compactAgentToolEnvelope(envelope));
     },
   });
 }
@@ -89,8 +95,9 @@ function createTools(
   backend: AgentToolBackend,
   context: AgentExecutionContext,
   persistence: AgentRuntimePersistence,
+  allowedTools?: ReadonlySet<AgentToolName>,
 ) {
-  return [
+  const tools = [
     createReadTool("get_category_snapshot", backend, context, persistence),
     createReadTool("get_keyword_ranking", backend, context, persistence),
     createReadTool("get_asin_history", backend, context, persistence),
@@ -107,6 +114,9 @@ function createTools(
     createReadTool("find_review_anomalies", backend, context, persistence),
     createReadTool("find_brand_share_changes", backend, context, persistence),
   ];
+  return allowedTools
+    ? tools.filter((candidate) => allowedTools.has(candidate.name as AgentToolName))
+    : tools;
 }
 
 export function applyFreshnessPolicy(
@@ -129,6 +139,52 @@ export function applyFreshnessPolicy(
       (action) => action.type === "recollect",
     ),
   };
+}
+
+export function mergeAgentFreshness(
+  primary: AgentFreshness,
+  evidence: PlannedAgentEvidence[],
+): AgentFreshness {
+  const all = [
+    { toolName: "check_data_freshness", freshness: primary },
+    ...evidence.map(({ toolName, envelope }) => ({
+      toolName,
+      freshness: envelope.freshness,
+    })),
+  ];
+  const worst = all.reduce((current, candidate) =>
+    freshnessSeverity(candidate.freshness.status) > freshnessSeverity(current.freshness.status)
+      ? candidate
+      : current,
+  );
+  const staleSources = [...new Set(all.flatMap(({ toolName, freshness }) => [
+    ...freshness.staleSources,
+    ...(freshness.status === "fresh" ? [] : [toolName]),
+  ]))];
+  const dataGaps = [...new Set(all.flatMap(({ freshness }) => freshness.dataGaps))];
+  const warnings = [...new Set(all.flatMap(({ freshness }) => freshness.warnings))];
+  return {
+    ...worst.freshness,
+    checkedAt: primary.checkedAt,
+    maxAgeHours: Math.min(
+      primary.maxAgeHours,
+      ...evidence.map(({ envelope }) => envelope.freshness.maxAgeHours),
+    ),
+    oldestEvidenceAt: oldestEvidenceAt(all.map(({ freshness }) => freshness.oldestEvidenceAt)),
+    staleSources,
+    dataGaps,
+    warnings,
+  };
+}
+
+function freshnessSeverity(status: AgentFreshness["status"]): number {
+  return status === "failed" ? 3 : status === "missing" ? 2 : status === "stale" ? 1 : 0;
+}
+
+function oldestEvidenceAt(values: Array<string | null>): string | null {
+  return values
+    .filter((value): value is string => value !== null)
+    .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null;
 }
 
 export async function executeAmazonAgentRun(
@@ -161,6 +217,31 @@ export async function executeAmazonAgentRun(
     status: freshnessEnvelope.freshness.status,
     dataGaps: freshnessEnvelope.dataGaps,
   });
+  const plannedEvidence = await collectPlannedAgentEvidence(
+    request.input,
+    taskType,
+    request.freshnessInput,
+    backend,
+    request.context,
+    persistence,
+  );
+  const effectiveFreshness = mergeAgentFreshness(
+    freshnessEnvelope.freshness,
+    plannedEvidence,
+  );
+  persistence.appendEvent(request.context.runId, "freshness.effective", {
+    status: effectiveFreshness.status,
+    dataGaps: effectiveFreshness.dataGaps,
+    staleSources: effectiveFreshness.staleSources,
+  });
+  const plannedToolNames = planAgentToolCalls(
+    request.input,
+    taskType,
+    request.freshnessInput,
+  ).map(({ toolName }) => toolName);
+  const allowedTools = plannedToolNames.length > 0
+    ? new Set(plannedToolNames)
+    : undefined;
 
   const models = [config.primaryModel, config.primaryModel, config.fallbackModel];
   let lastError: unknown;
@@ -172,9 +253,11 @@ export async function executeAmazonAgentRun(
         backend,
         persistence,
         request,
-        freshnessEnvelope.freshness,
+        effectiveFreshness,
+        plannedEvidence,
+        allowedTools,
       );
-      const guarded = applyFreshnessPolicy(output, freshnessEnvelope.freshness);
+      const guarded = applyFreshnessPolicy(output, effectiveFreshness);
       persistence.complete(request.context.runId, guarded);
       return guarded;
     } catch (error) {
@@ -189,6 +272,36 @@ export async function executeAmazonAgentRun(
   const message = lastError instanceof Error ? lastError.message : "Agent run failed";
   persistence.fail(request.context.runId, message);
   throw lastError;
+}
+
+export async function collectPlannedAgentEvidence(
+  input: string,
+  taskType: AgentTaskType,
+  freshnessInput: Record<string, unknown>,
+  backend: AgentToolBackend,
+  context: AgentExecutionContext,
+  persistence: AgentRuntimePersistence,
+): Promise<PlannedAgentEvidence[]> {
+  const evidence: PlannedAgentEvidence[] = [];
+  for (const plan of planAgentToolCalls(input, taskType, freshnessInput)) {
+    try {
+      const envelope = await executeToolWithRetry(
+        plan.toolName,
+        plan.input,
+        backend,
+        context,
+        persistence,
+      );
+      evidence.push({ toolName: plan.toolName, envelope });
+    } catch (error) {
+      persistence.appendEvent(context.runId, "planning.evidence_failed", {
+        toolName: plan.toolName,
+        errorMessage: safeErrorMessage(error),
+      });
+      if (context.signal?.aborted) throw error;
+    }
+  }
+  return evidence;
 }
 
 export async function executeToolWithRetry(
@@ -255,6 +368,8 @@ async function runModel(
   persistence: AgentRuntimePersistence,
   request: AmazonAgentRunRequest,
   freshness: AgentFreshness,
+  plannedEvidence: PlannedAgentEvidence[],
+  allowedTools: ReadonlySet<AgentToolName> | undefined,
 ): Promise<AgentRunOutput> {
   const reasoningEnabled = config.modelProvider?.reasoningEnabled ?? true;
   const agent = new Agent({
@@ -274,12 +389,23 @@ async function runModel(
       "Writing is proposal-only and always requires human approval.",
       "Do not expose private chain-of-thought; provide only concise plan and status summaries.",
       "If freshness is not fresh, make only a recollection proposal and use confidence at most 0.49.",
+      "Use the preflight evidence and call every relevant specialized tool for each requested dimension before finalizing.",
+      "For example, combine category/new-product tools for breakout questions; history, keyword, price, promotion, and review tools for ASIN investigations; and the matching anomaly tool for anomaly questions.",
+      "Only use tools exposed for this request; do not repeatedly call unrelated tools after the requested dimensions are covered.",
     ].join(" "),
-    tools: createTools(backend, request.context, persistence),
+    tools: createTools(backend, request.context, persistence, allowedTools),
     outputType: agentRunOutputSchema,
   });
   persistence.appendEvent(request.context.runId, "model.started", { model });
-  const input = `${request.input}\n\nCode-enforced freshness gate:\n${JSON.stringify(freshness)}`;
+  const input = [
+    request.input,
+    "",
+    `Code-enforced freshness gate:\n${JSON.stringify(freshness)}`,
+    "",
+    `Deterministic preflight evidence (read-only):\n${formatPlannedAgentEvidence(plannedEvidence)}`,
+    "",
+    "Before final output, verify that each requested dimension has a corresponding evidence reference; if the gate is stale or missing, stop analysis and propose recollection only.",
+  ].join("\n");
   const options = {
     stream: true as const,
     maxTurns: config.maxTurns,

@@ -62,3 +62,23 @@ npm run agent:eval -- --scope docs/agent-gold-scope.example.json
 ```powershell
 Remove-Item Env:AGENT_EVAL_PASSWORD
 ```
+
+## 2026-08-01 正式运行记录
+
+最新正式运行使用安装包内的真实 OAuth Agent，逐题串行、单题窗口 `600000ms`，共 30 题；报告为
+`output/agent-gold-evaluation-exe-formal-strict-2026-08-01.json`。30 题均有终态，预期工具均已完成，
+data support `100%`、unsupported deterministic `0%`、tool success `100%`。
+
+运行时新增了确定性 preflight：根据请求先收集只读证据、限制模型可见工具集合，并把每个计划工具的
+缺失/陈旧状态合并回最终 freshness。这样候选范围缺证据时会降级为 `missing`，置信度上限 `0.49`，
+只留下 `recollect`。
+
+人工复核范围保存在 [`agent-gold-scope-formal-2026-08-01.json`](agent-gold-scope-formal-2026-08-01.json)，
+标注后的派生报告为 `output/agent-gold-evaluation-exe-formal-strict-annotated-2026-08-01.json`：
+
+- `anomaly-03` 未输出高优确定性异常，freshness 缺失且仅保留补采，记为 `alertValid=true`；
+- `patrol-01` 的高优行动均有类目/关键词/价格/评分证据并受审批保护，记为 `alertValid=true`；
+- `price-04`、`review-03`、`patrol-02` 的批准补采均产生 completed recovery；其中两个 recovery 共用同一去重 job，均被启动；
+- `keyword-04` 没有产生补采需求且正常终态，按“无需恢复”的 no-op 语义记为 `recoverySucceeded=true`。
+
+recovery 运行现在会携带原始 Agent 请求，避免采集完成后只剩 run ID 而无法重建分析范围。相关 fan-out 和上下文回归由 API 测试覆盖。

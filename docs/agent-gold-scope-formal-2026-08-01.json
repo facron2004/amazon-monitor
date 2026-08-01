@@ -1,0 +1,27 @@
+{
+  "categoryId": 1,
+  "keywordId": 2,
+  "marketplace": "amazon.com",
+  "asins": [
+    "B07W48P1HK",
+    "B0BWHZJHPL",
+    "B0G716LNV5",
+    "B0G722SVTM",
+    "B0GW8MBS9C",
+    "B0H1C8634J",
+    "B0BXXKFJK2",
+    "B0H5WCCFSQ",
+    "B0H8Y5KR6V",
+    "B0C32SGKMJ"
+  ],
+  "brands": ["EUHOMY", "NEWBULIG"],
+  "maxAgeHours": 24,
+  "annotations": {
+    "anomaly-03": {"alertValid": true},
+    "patrol-01": {"alertValid": true},
+    "price-04": {"recoverySucceeded": true},
+    "keyword-04": {"recoverySucceeded": true},
+    "review-03": {"recoverySucceeded": true},
+    "patrol-02": {"recoverySucceeded": true}
+  }
+}
