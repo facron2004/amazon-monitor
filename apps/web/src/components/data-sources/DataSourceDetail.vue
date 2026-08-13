@@ -6,10 +6,11 @@ import {
   dataSourceTypeLabels,
   type DataSourceConfig
 } from "@amazon-monitor/shared";
-import { dataSourceStatusType, dataSourceSyncType, dataSourceTimeText } from "./data-source-display";
+import { dataSourceSyncType, dataSourceTimeText } from "./data-source-display";
 import DataSourceImportPanel from "./DataSourceImportPanel.vue";
 import SpApiConnectionPanel from "./SpApiConnectionPanel.vue";
 import DataSourceSyncHistory from "./DataSourceSyncHistory.vue";
+import DataSourceOverrideHistory from "./DataSourceOverrideHistory.vue";
 
 defineProps<{
   source: DataSourceConfig | null;
@@ -94,6 +95,12 @@ const emit = defineEmits<{
       />
 
       <DataSourceSyncHistory :key="`runs-${source.id}`" :source-id="source.id" />
+
+      <DataSourceOverrideHistory
+        v-if="source.sourceType === 'csv_import'"
+        :key="`overrides-${source.id}`"
+        :source-id="source.id"
+      />
 
       <section class="data-source-section">
         <h3>Approval boundary</h3>

@@ -1,11 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   DataSourceMappingIssue,
-  DataSourceMappingIssueListFilter,
   DataSourceMappingIssueStatus,
   DataSourceMappingIssueType,
   SpApiSyncDomain,
-  UpdateDataSourceMappingIssueInput,
   UpsertDataSourceMappingIssueInput
 } from "@amazon-monitor/shared";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq } from "./sql-utils.js";

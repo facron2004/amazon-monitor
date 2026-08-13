@@ -50,7 +50,7 @@ const { filteredJobs, jobs, taskTypeFilter, statusFilter, sort, query, loading }
       <table>
         <thead>
           <tr>
-            <th>任务</th><th>类型</th><th>目标</th><th>业务日期</th><th>入队时间</th><th>耗时</th><th>重试</th><th>状态</th><th>异常原因</th>
+            <th>任务</th><th>类型</th><th>目标</th><th>业务日期</th><th>入队时间</th><th>耗时</th><th>重试</th><th>下次尝试</th><th>状态</th><th>异常原因</th>
           </tr>
         </thead>
         <tbody>
@@ -62,6 +62,7 @@ const { filteredJobs, jobs, taskTypeFilter, statusFilter, sort, query, loading }
             <td>{{ formatLocalDateTime(job.createdAt) }}</td>
             <td>{{ formatCollectorDuration(job.startedAt, job.completedAt) }}</td>
             <td>{{ job.retryCount }}</td>
+            <td>{{ job.nextAttemptAt ? formatLocalDateTime(job.nextAttemptAt) : "-" }}</td>
             <td><span :class="['collector-status', `is-${job.status}`]">{{ collectorJobStatusLabels[job.status] }}</span></td>
             <td class="collector-error-cell"><span :title="job.errorMessage ?? undefined">{{ job.errorMessage || "-" }}</span></td>
           </tr>

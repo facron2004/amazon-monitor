@@ -5,11 +5,12 @@ import type {
   ProductProfitPlan,
   ProductProfitPlanFilter,
   ProductProfitSetting,
-  ProductSyncStatus,
-  UpsertProductProfitSettingInput
+  ProductSyncStatus
 } from "@amazon-monitor/shared";
 import { buildProductProfitPlan } from "../services/profit-planning-service.js";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, type WhereBuilder } from "./sql-utils.js";
+import { listSpApiProductSalesMetrics } from "./sp-api-product-evidence.js";
+import { resolveEffectiveProductMetrics } from "./product-metric-effective-store.js";
 import type { Store } from "./types.js";
 
 type ProfitStoreMethods = Pick<Store, "upsertProfitSetting" | "getProfitSetting" | "getProfitPlan" | "listProfitPlans">;
@@ -209,7 +210,14 @@ function listMetrics(db: DatabaseSync, productId: number, date: string | undefin
      ORDER BY metric_date DESC
      LIMIT 30`
   ).all(...params) as unknown as ProductMetricRow[];
-  return rows.map(mapMetric);
+  const manualMetrics = rows.map(mapMetric);
+  return resolveEffectiveProductMetrics(
+    db,
+    productId,
+    manualMetrics,
+    listSpApiProductSalesMetrics(db, productId, date, 30),
+    30
+  );
 }
 
 function getSetting(db: DatabaseSync, productId: number): ProductProfitSetting | null {

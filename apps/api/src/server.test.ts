@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import request from "supertest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { SerpProductInput } from "@amazon-monitor/shared";
 import type { AmazonSearchCollector, CollectedSearchPage } from "./amazon-collector.js";
@@ -21,6 +24,95 @@ class ControlledAmazonSearchCollector implements AmazonSearchCollector {
 }
 
 describe("api routes", () => {
+  it("exposes a non-sensitive readiness snapshot", async () => {
+    const originalRunWorker = process.env.RUN_WORKER;
+    delete process.env.RUN_WORKER;
+    const webDistPath = mkdtempSync(join(tmpdir(), "amazon-monitor-ready-web-"));
+    writeFileSync(join(webDistPath, "index.html"), "<!doctype html>");
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    try {
+      const app = createApiApp(createStore(db), {
+        bootId: "boot-test",
+        schemaVersion: 2,
+        webDistPath,
+      });
+      const response = await request(app).get("/api/ready").expect(200);
+      expect(response.body).toMatchObject({
+        ok: true,
+        bootId: "boot-test",
+        schemaVersion: 2,
+        database: "ready",
+        worker: { required: false, status: "not_required", ageMs: null },
+      });
+      expect(response.body).not.toHaveProperty("password");
+      expect(response.body).not.toHaveProperty("apiKey");
+    } finally {
+      db.close();
+      rmSync(webDistPath, { force: true, recursive: true });
+      if (originalRunWorker === undefined) delete process.env.RUN_WORKER;
+      else process.env.RUN_WORKER = originalRunWorker;
+    }
+  });
+
+  it("fails readiness when an embedded Worker is required but offline", async () => {
+    const originalRunWorker = process.env.RUN_WORKER;
+    process.env.RUN_WORKER = "true";
+    const webDistPath = mkdtempSync(join(tmpdir(), "amazon-monitor-ready-web-"));
+    writeFileSync(join(webDistPath, "index.html"), "<!doctype html>");
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    try {
+      const app = createApiApp(store, { webDistPath });
+      const offline = await request(app).get("/api/ready").expect(503);
+      expect(offline.body).toMatchObject({
+        ok: false,
+        database: "ready",
+        worker: { required: true, status: "offline", ageMs: null },
+      });
+
+      store.recordWorkerHeartbeat({
+        workerId: "ready-test-worker",
+        pid: process.pid,
+        host: "ready-test-host",
+        startedAt: new Date().toISOString(),
+        version: "test",
+        lastStatus: "completed",
+      });
+      const alive = await request(app).get("/api/ready").expect(200);
+      expect(alive.body.worker).toMatchObject({ required: true, status: "alive" });
+    } finally {
+      db.close();
+      rmSync(webDistPath, { force: true, recursive: true });
+      if (originalRunWorker === undefined) delete process.env.RUN_WORKER;
+      else process.env.RUN_WORKER = originalRunWorker;
+    }
+  });
+
+  it("fails readiness when the bundled web entrypoint is missing", async () => {
+    const originalRunWorker = process.env.RUN_WORKER;
+    delete process.env.RUN_WORKER;
+    const webDistPath = mkdtempSync(join(tmpdir(), "amazon-monitor-ready-web-"));
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    try {
+      const app = createApiApp(createStore(db), { webDistPath });
+      const response = await request(app).get("/api/ready").expect(503);
+      expect(response.body).toMatchObject({
+        ok: false,
+        database: "ready",
+        webAssets: false,
+        worker: { required: false, status: "not_required" },
+      });
+    } finally {
+      db.close();
+      rmSync(webDistPath, { force: true, recursive: true });
+      if (originalRunWorker === undefined) delete process.env.RUN_WORKER;
+      else process.env.RUN_WORKER = originalRunWorker;
+    }
+  });
+
   it("allows the web development origin without retaining the retired Tauri origins", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
@@ -264,8 +356,10 @@ describe("api authentication and docs", () => {
   it("does not authenticate requests through the retired global API key", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalApiKey = process.env.AMAZON_MONITOR_API_KEY;
+    const originalInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
     process.env.NODE_ENV = "development";
     process.env.AMAZON_MONITOR_API_KEY = "retired-global-key";
+    process.env.ADMIN_INITIAL_PASSWORD = "Admin123!";
     const db = new DatabaseSync(":memory:");
     try {
       initSchema(db);
@@ -291,6 +385,8 @@ describe("api authentication and docs", () => {
       else process.env.NODE_ENV = originalNodeEnv;
       if (originalApiKey === undefined) delete process.env.AMAZON_MONITOR_API_KEY;
       else process.env.AMAZON_MONITOR_API_KEY = originalApiKey;
+      if (originalInitialPassword === undefined) delete process.env.ADMIN_INITIAL_PASSWORD;
+      else process.env.ADMIN_INITIAL_PASSWORD = originalInitialPassword;
     }
   });
 

@@ -3,6 +3,7 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiApp } from "../server.js";
 import { createStore, initSchema } from "../store.js";
+import { loadDashboardEffectiveMarketplaceMetricRows } from "../store/dashboard-effective-sql.js";
 
 let db: DatabaseSync;
 let store: ReturnType<typeof createStore>;
@@ -160,6 +161,314 @@ describe("dashboard operations overview", () => {
         adSpend: 100,
         acos: 0.2,
         grossMargin: null
+      })
+    ]);
+  });
+
+  it("uses the effective SKU override in dashboard aggregation when no store-daily fact exists", async () => {
+    const apiSource = store.createDataSource({ orgId: 1, name: "US SKU SP-API", sourceType: "amazon_sp_api" });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "US SKU seller",
+      marketplace: "amazon.com",
+      sellerId: "DASH-SKU-SELLER"
+    });
+    const salesRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "dashboard-sku-sales"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "SKU-DASH-OVERRIDE",
+      asin: "B0DASHOVR01",
+      title: "Dashboard override product"
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      syncRunId: salesRun.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-16",
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sourceAsin: product.asin,
+      sessions: 70,
+      orders: 3,
+      unitsSold: 4,
+      salesAmount: 120,
+      currency: "USD"
+    }]);
+    store.upsertProductDailyMetric({
+      productId: product.id,
+      date: "2026-07-16",
+      salesAmount: 999,
+      orders: 9,
+      adSpend: 100,
+      adSales: 500,
+      grossMargin: 0.3,
+      dataSource: "manual"
+    });
+    const fileSource = store.createDataSource({ orgId: 1, name: "Dashboard override CSV", sourceType: "csv_import" });
+    const fileRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      operation: "product_csv_import",
+      credentialVersion: 0,
+      idempotencyKey: "dashboard-sku-override"
+    });
+    store.createDataSourceOverrideAudit({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      syncRunId: fileRun.id,
+      productId: product.id,
+      domain: "sales_traffic",
+      effectiveDate: "2026-07-16",
+      fieldName: "salesAmount",
+      previousDataSourceId: apiSource.id,
+      previousSyncRunId: salesRun.id,
+      previousValue: 120,
+      newValue: 999,
+      overriddenById: 1,
+      reason: "Dashboard reconciliation",
+      restoreOnSpApiSuccess: false
+    });
+    store.createDataSourceOverrideAudit({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      syncRunId: fileRun.id,
+      productId: product.id,
+      domain: "sales_traffic",
+      effectiveDate: "2026-07-16",
+      fieldName: "orders",
+      previousDataSourceId: apiSource.id,
+      previousSyncRunId: salesRun.id,
+      previousValue: 3,
+      newValue: 9,
+      overriddenById: 1,
+      reason: "Dashboard reconciliation",
+      restoreOnSpApiSuccess: false
+    });
+
+    const response = await request(app)
+      .get("/api/dashboard/summary?date=2026-07-16")
+      .set("Cookie", token)
+      .expect(200);
+
+    expect(response.body.operations.marketplaces).toEqual([
+      expect.objectContaining({
+        marketplace: "US",
+        currency: "USD",
+        metricProductCount: 1,
+        salesAmount: 999,
+        orders: 9,
+        adSpend: 100,
+        acos: 0.2,
+        grossMargin: 0.3
+      })
+    ]);
+  });
+
+  it("restores a SKU override after a newer SP-API fact arrives", async () => {
+    const apiSource = store.createDataSource({ orgId: 1, name: "US SKU SP-API restore", sourceType: "amazon_sp_api" });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "US SKU restore seller",
+      marketplace: "amazon.com",
+      sellerId: "DASH-SKU-RESTORE"
+    });
+    const salesRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "dashboard-sku-restore-sales"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "SKU-DASH-RESTORE",
+      asin: "B0DASHREST01",
+      title: "Dashboard restore product"
+    });
+    store.upsertProductDailyMetric({
+      productId: product.id,
+      date: "2026-07-17",
+      salesAmount: 999,
+      orders: 9,
+      adSpend: 100,
+      adSales: 500,
+      grossMargin: 0.3,
+      dataSource: "manual"
+    });
+    const fileSource = store.createDataSource({ orgId: 1, name: "Dashboard restore CSV", sourceType: "csv_import" });
+    const fileRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      operation: "product_csv_import",
+      credentialVersion: 0,
+      idempotencyKey: "dashboard-sku-restore-override"
+    });
+    const audit = store.createDataSourceOverrideAudit({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      syncRunId: fileRun.id,
+      productId: product.id,
+      domain: "sales_traffic",
+      effectiveDate: "2026-07-17",
+      fieldName: "salesAmount",
+      previousDataSourceId: apiSource.id,
+      previousSyncRunId: salesRun.id,
+      previousValue: 120,
+      newValue: 999,
+      overriddenById: 1,
+      reason: "Dashboard restore verification",
+      restoreOnSpApiSuccess: true
+    });
+    store.createDataSourceOverrideAudit({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      syncRunId: fileRun.id,
+      productId: product.id,
+      domain: "sales_traffic",
+      effectiveDate: "2026-07-17",
+      fieldName: "orders",
+      previousDataSourceId: apiSource.id,
+      previousSyncRunId: salesRun.id,
+      previousValue: 3,
+      newValue: 9,
+      overriddenById: 1,
+      reason: "Dashboard restore verification",
+      restoreOnSpApiSuccess: true
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      syncRunId: salesRun.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-17",
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sourceAsin: product.asin,
+      orders: 3,
+      unitsSold: 4,
+      salesAmount: 120,
+      currency: "USD"
+    }]);
+    const newerSyncedAt = new Date(new Date(audit.createdAt).getTime() + 1000).toISOString();
+    db.prepare(`
+      UPDATE sp_api_sales_traffic_daily
+      SET synced_at = ?
+      WHERE product_id = ? AND business_date = ? AND scope = 'sku_daily'
+    `).run(newerSyncedAt, product.id, "2026-07-17");
+
+    const response = await request(app)
+      .get("/api/dashboard/summary?date=2026-07-17")
+      .set("Cookie", token)
+      .expect(200);
+
+    expect(response.body.operations.marketplaces).toEqual([
+      expect.objectContaining({
+        marketplace: "US",
+        currency: "USD",
+        metricProductCount: 1,
+        salesAmount: 120,
+        orders: 3,
+        adSpend: 100,
+        acos: 0.2,
+        grossMargin: 0.3
+      })
+    ]);
+  });
+
+  it("does not hide an SP-API fallback when an audited manual row is absent", () => {
+    const apiSource = store.createDataSource({ orgId: 1, name: "US SKU SP-API fallback", sourceType: "amazon_sp_api" });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "US SKU fallback seller",
+      marketplace: "amazon.com",
+      sellerId: "DASH-SKU-FALLBACK"
+    });
+    const salesRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "dashboard-sku-fallback-sales"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "SKU-DASH-FALLBACK",
+      asin: "B0DASHFALL01",
+      title: "Dashboard fallback product"
+    });
+    const fileSource = store.createDataSource({ orgId: 1, name: "Dashboard fallback CSV", sourceType: "csv_import" });
+    const fileRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      operation: "product_csv_import",
+      credentialVersion: 0,
+      idempotencyKey: "dashboard-sku-fallback-override"
+    });
+    const audit = store.createDataSourceOverrideAudit({
+      orgId: 1,
+      dataSourceId: fileSource.id,
+      syncRunId: fileRun.id,
+      productId: product.id,
+      domain: "sales_traffic",
+      effectiveDate: "2026-07-18",
+      fieldName: "salesAmount",
+      previousDataSourceId: apiSource.id,
+      previousSyncRunId: salesRun.id,
+      previousValue: 120,
+      newValue: 999,
+      overriddenById: 1,
+      reason: "Dashboard fallback verification",
+      restoreOnSpApiSuccess: true
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      syncRunId: salesRun.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-18",
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sourceAsin: product.asin,
+      orders: 3,
+      salesAmount: 120,
+      currency: "USD"
+    }]);
+    db.prepare(`
+      UPDATE sp_api_sales_traffic_daily
+      SET synced_at = ?
+      WHERE product_id = ? AND business_date = ? AND scope = 'sku_daily'
+    `).run(new Date(new Date(audit.createdAt).getTime() + 1000).toISOString(), product.id, "2026-07-18");
+
+    expect(loadDashboardEffectiveMarketplaceMetricRows(db, 1, "2026-07-18", "2026-07-18")).toEqual([
+      expect.objectContaining({
+        marketplace: "US",
+        currency: "USD",
+        metric_date: "2026-07-18",
+        metric_product_count: 1,
+        sales_amount: 120,
+        orders: 3
       })
     ]);
   });

@@ -211,6 +211,31 @@ export interface OwnedProduct extends ProductDataFreshness {
   updatedAt: string;
 }
 
+export type OwnedProductDailyMetricField =
+  | "sessions"
+  | "pageViews"
+  | "orders"
+  | "unitsSold"
+  | "salesAmount"
+  | "buyBoxPercentage"
+  | "conversionRate"
+  | "rating"
+  | "reviewCount"
+  | "bsrRank"
+  | "inventoryAvailable"
+  | "inventoryDays"
+  | "adSpend"
+  | "adSales"
+  | "acos"
+  | "tacos"
+  | "grossMargin"
+  | "keywordRank";
+
+export interface OwnedProductDailyMetricFieldSource extends ProductDataFreshness {
+  dataSourceId?: number | null;
+  syncRunId?: number | null;
+}
+
 export interface OwnedProductDailyMetric extends ProductDataFreshness {
   id: number;
   productId: number;
@@ -233,6 +258,8 @@ export interface OwnedProductDailyMetric extends ProductDataFreshness {
   tacos: NullableNumber;
   grossMargin: NullableNumber;
   keywordRank: NullableNumber;
+  /** Present when one effective metric row intentionally combines field-level sources. */
+  fieldSources?: Partial<Record<OwnedProductDailyMetricField, OwnedProductDailyMetricFieldSource>>;
   createdAt: string;
 }
 

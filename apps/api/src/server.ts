@@ -40,6 +40,11 @@ import { registerTaskRoutes } from "./routes/tasks.js";
 import type { Store } from "./store.js";
 import { AgentRuntimeService } from "./services/agent-runtime-service.js";
 import { AgentActionService } from "./services/agent-action-service.js";
+import {
+  getWorkerReadiness,
+  isWorkerReady,
+  unavailableWorkerReadiness,
+} from "./readiness.js";
 
 export interface ApiAppOptions {
   collector?: AmazonSearchCollector;
@@ -47,6 +52,10 @@ export interface ApiAppOptions {
   notificationSender?: NotificationSender;
   reportPdfRenderer?: ReportPdfRenderer;
   agentRuntime?: AgentRuntimeService;
+  setupToken?: string;
+  bootId?: string;
+  schemaVersion?: number;
+  webDistPath?: string;
 }
 
 export function createApiApp(store: Store, options: ApiAppOptions = {}) {
@@ -108,6 +117,23 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   // Collect submission limiter — 5/min for POST only, NOT applied to GET job polling
   const collectLimiter = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
 
+  // Credential endpoints get a dedicated budget so a caller cannot spend the
+  // general API allowance on password guessing. Development/test keeps the
+  // limiter effectively disabled to preserve local polling and test isolation.
+  const credentialAttemptMax = isDevelopment ? 100_000 : 10;
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    max: credentialAttemptMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  const bootstrapLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    max: isDevelopment ? 100_000 : 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
   // Load openapi.json
   const openapiPath = fileURLToPath(new URL("./openapi.json", import.meta.url));
   let openapiDoc: unknown = null;
@@ -155,6 +181,7 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
     // Health check and static frontend files are always public
     if (
       req.path === "/api/health" ||
+      req.path === "/api/ready" ||
       !req.path.startsWith("/api/")
     ) {
       return next();
@@ -188,13 +215,44 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   });
 
   // Static file serving for Electron / embedded mode - MUST be before API routes
-  const webDistPath = process.env.WEB_DIST_PATH ?? join(process.cwd(), "apps", "web", "dist");
+  const webDistPath = options.webDistPath
+    ?? process.env.WEB_DIST_PATH
+    ?? join(process.cwd(), "apps", "web", "dist");
   if (existsSync(webDistPath)) {
     app.use(express.static(webDistPath));
   }
 
   app.get("/api/health", (_request, response) => {
     response.json({ ok: true, service: "amazon-keyword-competitor-monitor" });
+  });
+
+  app.get("/api/ready", (_request, response) => {
+    const webAssets = existsSync(join(webDistPath, "index.html"));
+    const workerRequired = process.env.RUN_WORKER === "true";
+    try {
+      store.listOrganizations();
+      const worker = getWorkerReadiness(store, workerRequired);
+      const ready = webAssets && isWorkerReady(worker);
+      response.status(ready ? 200 : 503).json({
+        ok: ready,
+        service: "amazon-keyword-competitor-monitor",
+        bootId: options.bootId ?? null,
+        schemaVersion: options.schemaVersion ?? null,
+        database: "ready",
+        webAssets,
+        worker,
+      });
+    } catch {
+      response.status(503).json({
+        ok: false,
+        service: "amazon-keyword-competitor-monitor",
+        bootId: options.bootId ?? null,
+        schemaVersion: options.schemaVersion ?? null,
+        database: "unavailable",
+        webAssets,
+        worker: unavailableWorkerReadiness(workerRequired),
+      });
+    }
   });
 
   app.get("/api/dashboard/summary", (request, response) => {
@@ -237,7 +295,11 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   registerKeywordRoutes(app, store, { collector: options.collector, collectLimiter });
   registerCategoryRoutes(app, store, { categoryCollector: options.categoryCollector, collectLimiter });
   registerCollectorRoutes(app, store, { collectLimiter });
-  registerAuthRoutes(app, store);
+  registerAuthRoutes(app, store, {
+    setupToken: options.setupToken,
+    loginLimiter,
+    bootstrapLimiter,
+  });
   registerInsightEventRoutes(app, store);
   registerBrandPlaybookRoutes(app, store);
   registerInsightRoutes(app, store);
@@ -268,7 +330,6 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   // Fallback to index.html for SPA routing
   app.use((req, response, next) => {
     if (req.path.startsWith("/api/")) return next();
-    const webDistPath = process.env.WEB_DIST_PATH ?? join(process.cwd(), "apps", "web", "dist");
     if (existsSync(join(webDistPath, "index.html"))) {
       response.sendFile(join(webDistPath, "index.html"));
     } else {

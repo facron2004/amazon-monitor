@@ -19,6 +19,15 @@ export function isAllowedRendererUrl(url: string, productionOrigin: string): boo
   }
 }
 
+/** IPC may only be invoked by the application renderer, never by DevTools. */
+export function isTrustedRendererUrl(url: string, productionOrigin: string): boolean {
+  try {
+    return new URL(url).origin === productionOrigin;
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveExternalUrl(
   url: string,
   rendererOrigin: string,

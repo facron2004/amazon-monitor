@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeEach } from "vitest";
-import { openAppStore } from "../store.js";
+import { DatabaseSync } from "node:sqlite";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { initSchema, openAppStore } from "../store.js";
 
 describe("QueueStore", () => {
   let store: ReturnType<typeof openAppStore>;
@@ -32,6 +33,19 @@ describe("QueueStore", () => {
     
     const list = store.listJobs();
     expect(list.length).toBe(1);
+  });
+
+  it("rolls back transaction work when the ownership guard is lost before commit", () => {
+    expect(() => store.runInTransaction(
+      () => {
+        store.pushJob("keyword", 42, "2026-06-11");
+      },
+      () => {
+        throw new DOMException("lost lease", "AbortError");
+      }
+    )).toThrowError("lost lease");
+
+    expect(store.listJobs()).toEqual([]);
   });
 
   it("deduplicates jobs within an organization without merging organizations", () => {
@@ -101,6 +115,59 @@ describe("QueueStore", () => {
     expect(status2.retryCount).toBe(2);
     expect(status2.errorMessage).toBe("Attempt 2 failed");
     expect(status2.completedAt).not.toBeNull();
+  });
+
+  it("does not claim a retry before its retry-after delay expires", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-11T00:00:00.000Z"));
+    try {
+      const job = store.pushJob("keyword", 100, "2026-06-11");
+      const claimed = store.claimNextJob("test-worker", 60_000)!;
+
+      store.failJob(claimed.id, claimed.leaseOwner, claimed.leaseToken, "rate limited", 3, 30_000);
+
+      expect(store.getJobStatus(job.id)).toMatchObject({
+        status: "pending",
+        retryCount: 1,
+        nextAttemptAt: "2026-06-11T00:00:30.000Z"
+      });
+      expect(store.claimNextJob("test-worker", 60_000)).toBeNull();
+
+      vi.advanceTimersByTime(30_000);
+      expect(store.claimNextJob("test-worker", 60_000)).toMatchObject({ id: job.id, retryCount: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("adds the retry schedule column when opening a legacy queue schema", () => {
+    const legacyDb = new DatabaseSync(":memory:");
+    legacyDb.exec(`
+      CREATE TABLE amazon_collect_job_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id INTEGER NOT NULL DEFAULT 1,
+        task_type TEXT NOT NULL,
+        target_id INTEGER,
+        date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        error_message TEXT,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        lease_owner TEXT,
+        lease_token TEXT,
+        lease_expires_at TEXT
+      )
+    `);
+
+    try {
+      initSchema(legacyDb);
+      const columns = legacyDb.prepare("PRAGMA table_info(amazon_collect_job_queue)").all() as Array<{ name: string }>;
+      expect(columns.some((column) => column.name === "next_attempt_at")).toBe(true);
+    } finally {
+      legacyDb.close();
+    }
   });
 
   describe("getCollectionFreshness", () => {
@@ -294,14 +361,20 @@ describe("QueueStore", () => {
       expect(store.getJobStatus(job.id)?.status).toBe("completed");
     });
 
-    it("renews an active lease before it expires", async () => {
-      const job = store.pushJob("keyword", 1, "2026-06-01");
-      const lease = store.claimNextJob("test-worker", 100)!;
+    it("does not recover a lease renewed while another lease expires", async () => {
+      const expiredJob = store.pushJob("keyword", 1, "2026-06-01");
+      const renewedJob = store.pushJob("category", 1, "2026-06-01");
+      const expiredLease = store.claimNextJob("test-worker", 1)!;
+      const renewedLease = store.claimNextJob("test-worker", 1_000)!;
 
-      expect(store.renewJobLease(job.id, lease.leaseOwner, lease.leaseToken, 60_000)).toBe(true);
       await new Promise((resolve) => setTimeout(resolve, 5));
-      expect(store.recoverExpiredJobLeases(1)).toEqual([]);
-      expect(store.isJobLeaseActive(job.id, lease.leaseOwner, lease.leaseToken)).toBe(true);
+      expect(store.renewJobLease(renewedJob.id, renewedLease.leaseOwner, renewedLease.leaseToken, 60_000)).toBe(true);
+
+      expect(store.recoverExpiredJobLeases(1)).toEqual([expiredJob.id]);
+      expect(store.getJobStatus(expiredJob.id)?.status).toBe("failed");
+      expect(store.getJobStatus(renewedJob.id)?.status).toBe("processing");
+      expect(store.isJobLeaseActive(renewedJob.id, renewedLease.leaseOwner, renewedLease.leaseToken)).toBe(true);
+      expect(store.completeJob(expiredLease.id, expiredLease.leaseOwner, expiredLease.leaseToken)).toBe(false);
     });
   });
 });

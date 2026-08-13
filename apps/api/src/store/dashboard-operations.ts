@@ -1,5 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
-import { isoDateOffset, type DashboardMarketplaceOperations, type DashboardOperationsSummary } from "@amazon-monitor/shared";
+import {
+  isoDateOffset,
+  type DashboardMarketplaceOperations,
+  type DashboardOperationsSummary,
+  type OwnedProductDailyMetric
+} from "@amazon-monitor/shared";
+import { loadEffectiveMarketplaceMetricRows, type EffectiveMarketplaceMetricRow } from "./dashboard-effective-metrics.js";
+import { loadDashboardEffectiveMarketplaceMetricRows } from "./dashboard-effective-sql.js";
+import { MAX_EFFECTIVE_METRIC_ROWS } from "./product-metric-effective-store.js";
 
 interface OperationsStatsRow {
   active_product_count: number;
@@ -9,26 +17,17 @@ interface OperationsStatsRow {
   last_synced_at: string | null;
 }
 
-interface MarketplaceMetricRow {
-  marketplace: string;
-  currency: string | null;
-  metric_date: string;
-  metric_product_count: number;
-  sales_amount: number | null;
-  orders: number | null;
-  ad_spend: number | null;
-  ad_sales: number | null;
-  average_acos: number | null;
-  margin_numerator: number | null;
-  margin_denominator: number | null;
-  average_gross_margin: number | null;
-}
+export type DashboardMetricLoader = (
+  orgId: number,
+  filter: { startDate: string; endDate: string; limit: number }
+) => OwnedProductDailyMetric[];
 
 /** Combines independent sales, inventory, and manual domains without overwriting fact ownership. */
 export function getDashboardOperationsSummary(
   db: DatabaseSync,
   orgId: number,
-  date: string
+  date: string,
+  metricLoader?: DashboardMetricLoader
 ): DashboardOperationsSummary {
   const startDate = isoDateOffset(date, -6);
   const previousDate = isoDateOffset(date, -1);
@@ -39,7 +38,15 @@ export function getDashboardOperationsSummary(
       WHERE org_id = ? AND status = 'active'
       ORDER BY marketplace ASC`
   ).all(orgId) as unknown as Array<{ marketplace: string }>;
-  const metricRows = loadMarketplaceMetricRows(db, orgId, startDate, date);
+  const metricRows = metricLoader
+    ? loadEffectiveMarketplaceMetricRows(
+      db,
+      orgId,
+      startDate,
+      date,
+      metricLoader(orgId, { startDate, endDate: date, limit: MAX_EFFECTIVE_METRIC_ROWS })
+    )
+    : loadDashboardEffectiveMarketplaceMetricRows(db, orgId, startDate, date);
   const dates = Array.from({ length: 7 }, (_, index) => isoDateOffset(startDate, index));
   return {
     date,
@@ -118,144 +125,12 @@ function loadOperationsStats(db: DatabaseSync, orgId: number, date: string): Ope
   ) as unknown as OperationsStatsRow;
 }
 
-function loadMarketplaceMetricRows(
-  db: DatabaseSync,
-  orgId: number,
-  startDate: string,
-  date: string
-): MarketplaceMetricRow[] {
-  return db.prepare(
-    `WITH manual_metrics AS (
-      SELECT
-        p.marketplace,
-        NULL AS currency,
-        m.metric_date,
-        COUNT(*) AS metric_product_count,
-        SUM(CASE WHEN NOT EXISTS (
-          SELECT 1 FROM sp_api_sales_traffic_daily s
-           WHERE s.org_id = p.org_id AND s.marketplace = p.marketplace
-             AND s.business_date = m.metric_date AND s.status = 'success'
-             AND ((s.scope = 'sku_daily' AND s.product_id = p.id)
-               OR (s.scope = 'store_daily' AND s.commerce_store_id = p.store_id))
-        ) THEN m.sales_amount END) AS sales_amount,
-        SUM(CASE WHEN NOT EXISTS (
-          SELECT 1 FROM sp_api_sales_traffic_daily s
-           WHERE s.org_id = p.org_id AND s.marketplace = p.marketplace
-             AND s.business_date = m.metric_date AND s.status = 'success'
-             AND ((s.scope = 'sku_daily' AND s.product_id = p.id)
-               OR (s.scope = 'store_daily' AND s.commerce_store_id = p.store_id))
-        ) THEN m.orders END) AS orders,
-        SUM(m.ad_spend) AS ad_spend,
-        SUM(m.ad_sales) AS ad_sales,
-        AVG(m.acos) AS average_acos,
-        SUM(CASE WHEN m.sales_amount IS NOT NULL AND m.gross_margin IS NOT NULL
-             AND NOT EXISTS (
-               SELECT 1 FROM sp_api_sales_traffic_daily s
-                WHERE s.org_id = p.org_id AND s.marketplace = p.marketplace
-                  AND s.business_date = m.metric_date AND s.status = 'success'
-                  AND ((s.scope = 'sku_daily' AND s.product_id = p.id)
-                    OR (s.scope = 'store_daily' AND s.commerce_store_id = p.store_id))
-             ) THEN m.sales_amount * m.gross_margin END) AS margin_numerator,
-        SUM(CASE WHEN m.sales_amount IS NOT NULL AND m.gross_margin IS NOT NULL
-             AND NOT EXISTS (
-               SELECT 1 FROM sp_api_sales_traffic_daily s
-                WHERE s.org_id = p.org_id AND s.marketplace = p.marketplace
-                  AND s.business_date = m.metric_date AND s.status = 'success'
-                  AND ((s.scope = 'sku_daily' AND s.product_id = p.id)
-                    OR (s.scope = 'store_daily' AND s.commerce_store_id = p.store_id))
-             ) THEN m.sales_amount END) AS margin_denominator,
-        AVG(CASE WHEN NOT EXISTS (
-          SELECT 1 FROM sp_api_sales_traffic_daily s
-           WHERE s.org_id = p.org_id AND s.marketplace = p.marketplace
-             AND s.business_date = m.metric_date AND s.status = 'success'
-             AND ((s.scope = 'sku_daily' AND s.product_id = p.id)
-               OR (s.scope = 'store_daily' AND s.commerce_store_id = p.store_id))
-        ) THEN m.gross_margin END) AS average_gross_margin
-       FROM own_product_daily_metrics m
-       JOIN own_products p ON p.id = m.product_id
-      WHERE p.org_id = ? AND p.status = 'active' AND m.metric_date BETWEEN ? AND ?
-      GROUP BY p.marketplace, m.metric_date
-    ), store_sales AS (
-      SELECT
-        marketplace,
-        MIN(currency) AS currency,
-        business_date AS metric_date,
-        0 AS metric_product_count,
-        SUM(sales_amount) AS sales_amount,
-        SUM(orders) AS orders,
-        NULL AS ad_spend,
-        NULL AS ad_sales,
-        NULL AS average_acos,
-        NULL AS margin_numerator,
-        NULL AS margin_denominator,
-        NULL AS average_gross_margin
-       FROM sp_api_sales_traffic_daily
-      WHERE org_id = ? AND scope = 'store_daily' AND status = 'success'
-        AND business_date BETWEEN ? AND ?
-      GROUP BY marketplace, business_date
-    ), sku_sales_without_store_daily AS (
-      SELECT
-        s.marketplace,
-        MIN(s.currency) AS currency,
-        s.business_date AS metric_date,
-        COUNT(DISTINCT CASE WHEN NOT EXISTS (
-          SELECT 1 FROM own_product_daily_metrics m
-           WHERE m.product_id = s.product_id AND m.metric_date = s.business_date
-        ) THEN s.product_id END) AS metric_product_count,
-        SUM(s.sales_amount) AS sales_amount,
-        SUM(s.orders) AS orders,
-        NULL AS ad_spend,
-        NULL AS ad_sales,
-        NULL AS average_acos,
-        NULL AS margin_numerator,
-        NULL AS margin_denominator,
-        NULL AS average_gross_margin
-       FROM sp_api_sales_traffic_daily s
-       JOIN own_products p ON p.id = s.product_id
-      WHERE s.org_id = ? AND p.org_id = ? AND p.status = 'active'
-        AND s.scope = 'sku_daily' AND s.status = 'success'
-        AND s.business_date BETWEEN ? AND ?
-        AND NOT EXISTS (
-          SELECT 1 FROM sp_api_sales_traffic_daily total
-           WHERE total.org_id = s.org_id AND total.commerce_store_id = s.commerce_store_id
-             AND total.marketplace = s.marketplace AND total.business_date = s.business_date
-             AND total.scope = 'store_daily' AND total.status = 'success'
-        )
-      GROUP BY s.marketplace, s.business_date
-    ), combined_metrics AS (
-      SELECT * FROM manual_metrics
-      UNION ALL SELECT * FROM store_sales
-      UNION ALL SELECT * FROM sku_sales_without_store_daily
-    )
-    SELECT
-      marketplace,
-      MAX(currency) AS currency,
-      metric_date,
-      SUM(metric_product_count) AS metric_product_count,
-      SUM(sales_amount) AS sales_amount,
-      SUM(orders) AS orders,
-      SUM(ad_spend) AS ad_spend,
-      SUM(ad_sales) AS ad_sales,
-      AVG(average_acos) AS average_acos,
-      SUM(margin_numerator) AS margin_numerator,
-      SUM(margin_denominator) AS margin_denominator,
-      AVG(average_gross_margin) AS average_gross_margin
-     FROM combined_metrics
-     GROUP BY marketplace, metric_date
-     ORDER BY marketplace ASC, metric_date ASC`
-  ).all(
-    orgId, startDate, date,
-    orgId, startDate, date,
-    orgId, orgId, startDate, date
-  ) as unknown as MarketplaceMetricRow[];
-}
-
 function buildMarketplaceOperations(
   marketplace: string,
   date: string,
   previousDate: string,
   dates: string[],
-  rows: MarketplaceMetricRow[]
+  rows: EffectiveMarketplaceMetricRow[]
 ): DashboardMarketplaceOperations {
   const byDate = new Map(rows.map((row) => [row.metric_date, row]));
   const current = byDate.get(date);

@@ -7,12 +7,14 @@ import {
   session,
   shell,
 } from "electron";
+import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   createSecureWebPreferences,
   isAllowedRendererUrl,
+  isTrustedRendererUrl,
   resolveExternalUrl,
 } from "./browser-security.js";
 import {
@@ -24,21 +26,39 @@ import {
 import { DesktopProcessSupervisor } from "./process-supervisor.js";
 import { SecureApiKeyStore } from "./secure-key-store.js";
 import { SecureModelConnectionStore } from "./secure-model-connection-store.js";
+import { findDesktopEnvFile } from "./runtime-env.js";
 import type {
   AgentModelConnectionInput,
   AgentModelConnectionState,
   AgentOAuthStatus,
 } from "@amazon-monitor/shared";
 
-const rendererOrigin = "http://127.0.0.1:43210";
+let rendererOrigin = "http://127.0.0.1:43210";
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let supervisor: DesktopProcessSupervisor | null = null;
+let quitting = false;
 
-app.enableSandbox();
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+    mainWindow?.focus();
+  });
+  app.enableSandbox();
 
 app.whenReady().then(async () => {
   const paths = createDesktopPaths(app.getPath("userData"));
+  const envFilePath = findDesktopEnvFile({
+    appPath: app.getAppPath(),
+    configuredPath: process.env.AMAZON_MONITOR_ENV_FILE,
+    cwd: process.cwd(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged,
+    userDataPath: app.getPath("userData"),
+  });
   const customDbPath = process.env.DB_PATH ? resolve(process.env.DB_PATH) : undefined;
   const activeDbPath = customDbPath ?? paths.database;
   if (!customDbPath) {
@@ -102,13 +122,17 @@ app.whenReady().then(async () => {
         "worker.js",
       )).href
     : pathToFileURL(resolve(app.getAppPath(), "../api/dist/worker.js")).href;
+  const setupToken = randomBytes(32).toString("base64url");
   supervisor = new DesktopProcessSupervisor({
     entryPoint: join(moduleDirectory, "utility-entry.js"),
     environment: {
       AGENT_SDK_ENABLED: process.env.AGENT_SDK_ENABLED ?? "false",
+      ...(envFilePath ? { AMAZON_MONITOR_ENV_FILE: envFilePath } : {}),
       AMAZON_MONITOR_AGENT_SANDBOX: join(paths.secrets, "..", "agent-sandbox"),
       AMAZON_MONITOR_CODEX_HOME: join(paths.secrets, "codex"),
       DB_PATH: activeDbPath,
+      HOST: "127.0.0.1",
+      NODE_ENV: app.isPackaged ? "production" : "development",
       DESKTOP_API_ENTRY: apiEntry,
       DESKTOP_API_BRIDGE_ENTRY: apiBridgeEntry,
       DESKTOP_API_STORE_ENTRY: apiStoreEntry,
@@ -117,14 +141,25 @@ app.whenReady().then(async () => {
       PLAYWRIGHT_BROWSERS_PATH: app.isPackaged
         ? join(process.resourcesPath, "playwright-browsers")
         : paths.browser,
-      PORT: "43210",
+      PORT: "0",
       WEB_DIST_PATH: app.isPackaged
         ? join(process.resourcesPath, "web")
         : resolve(app.getAppPath(), "../web/dist"),
     },
     logsPath: paths.logs,
   });
-  supervisor.startAll();
+  const readiness = await supervisor.startAll({ setupToken });
+  const apiPort = readiness.api.port;
+  if (!apiPort) throw new Error("Desktop API did not report a listening port");
+  rendererOrigin = `http://127.0.0.1:${apiPort}`;
+  await session.defaultSession.cookies.set({
+    url: rendererOrigin,
+    name: "amazon_monitor_setup",
+    value: setupToken,
+    httpOnly: true,
+    sameSite: "strict",
+    expirationDate: Math.floor(Date.now() / 1000) + 600,
+  });
 
   const legacyKeyStore = new SecureApiKeyStore(
     safeStorage,
@@ -178,9 +213,26 @@ app.whenReady().then(async () => {
   });
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   void mainWindow.loadURL(rendererOrigin);
+}).catch((error: unknown) => {
+  console.error(
+    "[Desktop] startup failed:",
+    error instanceof Error ? error.stack ?? error.message : String(error),
+  );
+  dialog.showErrorBox(
+    "Amazon Monitor 启动失败",
+    "桌面服务未能启动，请检查日志后重试。",
+  );
+  app.quit();
 });
+}
 
-app.on("before-quit", () => supervisor?.stopAll());
+app.on("before-quit", (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+  const shutdown = supervisor?.stopAll() ?? Promise.resolve();
+  void shutdown.finally(() => app.quit());
+});
 app.on("window-all-closed", () => app.quit());
 
 function registerIpc(
@@ -325,7 +377,7 @@ async function readOAuthStatus(): Promise<AgentOAuthStatus> {
 }
 
 function assertTrustedSender(url: string | undefined): void {
-  if (!url || !isAllowedRendererUrl(url, rendererOrigin)) {
+  if (!url || !isTrustedRendererUrl(url, rendererOrigin)) {
     throw new Error("Untrusted IPC sender");
   }
 }

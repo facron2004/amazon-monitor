@@ -3,8 +3,7 @@ import type {
   AdDailyMetric,
   AdsMetricListFilter,
   AdsWorkflowSummary,
-  ProductSyncStatus,
-  UpsertAdDailyMetricInput
+  ProductSyncStatus
 } from "@amazon-monitor/shared";
 import { buildAdsWorkflowItem, type AdsMetricHistoryContext } from "../services/ads-workflow-service.js";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, type WhereBuilder } from "./sql-utils.js";

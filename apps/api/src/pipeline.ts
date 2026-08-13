@@ -116,7 +116,6 @@ export async function runCollectionForKeyword(
     console.log(`[${ts()}] [Pipeline] Analysis done in ${formatDuration(t2 - t1)} — ${snapshots.length} snapshots, storing...`);
     ensureCollectionActive(options);
     store.runInTransaction(() => {
-      ensureCollectionActive(options);
       store.deleteSnapshotsForKeywordDate(keyword.id, date);
       store.insertSnapshots(snapshots);
       store.replaceBsrRankHistoryForDate({
@@ -141,8 +140,7 @@ export async function runCollectionForKeyword(
       store.upsertCompetitorsFromSnapshots(snapshots, keyword.orgId);
       generateKeywordSnapshotDiffEvents(store, keyword, date, snapshots, previous);
       store.saveDailyReport(date, keyword.keyword, report, keyword.orgId);
-      ensureCollectionActive(options);
-    });
+    }, () => ensureCollectionActive(options));
 
     ensureCollectionActive(options);
     const totalMs = Date.now() - t0;

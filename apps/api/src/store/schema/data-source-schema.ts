@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS data_source_sync_runs (
   failed_rows INTEGER NOT NULL DEFAULT 0,
   created_records INTEGER NOT NULL DEFAULT 0,
   updated_records INTEGER NOT NULL DEFAULT 0,
+  error_code TEXT,
   error_summary TEXT,
   initiated_by_id INTEGER,
   started_at TEXT NOT NULL,
@@ -140,6 +141,40 @@ CREATE TABLE IF NOT EXISTS data_source_mapping_issues (
 CREATE INDEX IF NOT EXISTS idx_data_source_mapping_issues_list
   ON data_source_mapping_issues(org_id, data_source_id, status, updated_at DESC, id DESC);
 
+CREATE TABLE IF NOT EXISTS data_source_override_audits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL,
+  data_source_id INTEGER NOT NULL,
+  sync_run_id INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  effective_date TEXT NOT NULL,
+  field_name TEXT NOT NULL,
+  previous_data_source_id INTEGER NOT NULL,
+  previous_sync_run_id INTEGER NOT NULL,
+  previous_value REAL,
+  new_value REAL,
+  overridden_by_id INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  restore_on_sp_api_success INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (data_source_id) REFERENCES data_source_configs(id) ON DELETE CASCADE,
+  FOREIGN KEY (sync_run_id) REFERENCES data_source_sync_runs(id) ON DELETE RESTRICT,
+  FOREIGN KEY (product_id) REFERENCES own_products(id) ON DELETE CASCADE,
+  FOREIGN KEY (previous_data_source_id) REFERENCES data_source_configs(id) ON DELETE RESTRICT,
+  FOREIGN KEY (previous_sync_run_id) REFERENCES data_source_sync_runs(id) ON DELETE RESTRICT,
+  FOREIGN KEY (overridden_by_id) REFERENCES users(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_data_source_override_audits_list
+  ON data_source_override_audits(org_id, data_source_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_data_source_override_audits_product
+  ON data_source_override_audits(org_id, product_id, effective_date DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_data_source_override_audits_product_date
+  ON data_source_override_audits(product_id, effective_date, domain, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_data_source_override_audits_effective_window
+  ON data_source_override_audits(org_id, domain, effective_date, product_id, field_name, created_at DESC, id DESC);
+
 CREATE TABLE IF NOT EXISTS sp_api_sales_traffic_daily (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org_id INTEGER NOT NULL,
@@ -174,6 +209,10 @@ CREATE TABLE IF NOT EXISTS sp_api_sales_traffic_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_sp_api_sales_traffic_org_date
   ON sp_api_sales_traffic_daily(org_id, commerce_store_id, marketplace, business_date DESC);
+CREATE INDEX IF NOT EXISTS idx_sp_api_sales_traffic_effective_scope_date
+  ON sp_api_sales_traffic_daily(org_id, scope, status, business_date, product_id, commerce_store_id, marketplace);
+CREATE INDEX IF NOT EXISTS idx_sp_api_sales_traffic_effective_product_date
+  ON sp_api_sales_traffic_daily(org_id, product_id, business_date, scope, status);
 
 CREATE TABLE IF NOT EXISTS sp_api_inventory_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

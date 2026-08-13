@@ -3,8 +3,6 @@ import { computed, onMounted, reactive, watch } from "vue";
 import { storeToRefs } from "pinia";
 import {
   ElButton,
-  ElCheckbox,
-  ElCheckboxGroup,
   ElDatePicker,
   ElInput,
   ElOption,
@@ -46,6 +44,7 @@ const form = reactive({
 });
 
 const health = computed(() => spApiHealthSourceId.value === props.source.id ? spApiHealth.value : null);
+const connectorEnabled = computed(() => health.value?.connectorEnabled ?? true);
 const issues = computed(() => mappingIssuesSourceId.value === props.source.id ? mappingIssues.value : []);
 const selectedStoreIds = computed(() => health.value?.linkedStoreIds.length ? health.value.linkedStoreIds : form.commerceStoreIds);
 const marketplaces = computed(() => stores.value
@@ -106,7 +105,7 @@ async function queueBackfill(): Promise<void> {
 function healthType(status: SpApiConnectionHealthStatus | undefined): "success" | "warning" | "danger" | "info" {
   if (status === "healthy") return "success";
   if (status === "attention" || status === "revoked") return "danger";
-  if (status === "degraded") return "warning";
+  if (status === "degraded" || status === "disabled") return "warning";
   return "info";
 }
 
@@ -146,10 +145,13 @@ function marketplaceCode(value: string): string | null {
         <span>连接状态</span>
         <ElTag size="small" :type="healthType(health?.status)">{{ health?.status ?? "not_configured" }}</ElTag>
       </div>
+      <div><span>连接器开关</span><ElTag size="small" :type="connectorEnabled ? 'success' : 'warning'">{{ connectorEnabled ? "已启用" : "已关闭" }}</ElTag></div>
       <div><span>已绑定店铺</span><strong>{{ selectedStoreIds.length }}</strong></div>
       <div><span>待映射</span><strong>{{ health?.mappingIssueCount ?? 0 }}</strong></div>
       <div><span>最近验证</span><strong>{{ health?.lastTestedAt?.slice(0, 16).replace("T", " ") ?? "未验证" }}</strong></div>
     </div>
+
+    <p v-if="health && !connectorEnabled" class="sp-api-panel__notice"><TriangleAlert :size="14" />SP-API 连接器当前已关闭；保存凭据、连接测试和同步操作都会被阻止。</p>
 
     <div class="sp-api-panel__steps">
       <div class="sp-api-panel__step">
@@ -167,8 +169,8 @@ function marketplaceCode(value: string): string | null {
         <label class="sp-api-panel__wide"><span>LWA refresh token</span><ElInput v-model="form.lwaRefreshToken" type="password" show-password autocomplete="new-password" :disabled="!canManageDataSources" /></label>
       </div>
       <div class="sp-api-panel__actions">
-        <ElButton type="primary" :disabled="!canManageDataSources || !form.commerceStoreIds.length || !form.lwaClientId || !form.lwaClientSecret || !form.lwaRefreshToken" :loading="spApiSaving" @click="saveCredentials"><ShieldCheck :size="14" />保存凭据</ElButton>
-        <ElButton :disabled="!canManageDataSources || !health?.credentialsConfigured" :loading="spApiSaving" @click="testConnection"><CheckCircle2 :size="14" />测试连接</ElButton>
+        <ElButton type="primary" :disabled="!connectorEnabled || !canManageDataSources || !form.commerceStoreIds.length || !form.lwaClientId || !form.lwaClientSecret || !form.lwaRefreshToken" :loading="spApiSaving" @click="saveCredentials"><ShieldCheck :size="14" />保存凭据</ElButton>
+        <ElButton :disabled="!connectorEnabled || !canManageDataSources || !health?.credentialsConfigured" :loading="spApiSaving" @click="testConnection"><CheckCircle2 :size="14" />测试连接</ElButton>
       </div>
     </div>
 
@@ -178,15 +180,15 @@ function marketplaceCode(value: string): string | null {
         <div><strong>按数据域同步</strong><p>Sales D-1 和 FBA Inventory 的运行、健康与失败彼此独立。</p></div>
       </div>
       <div class="sp-api-panel__actions">
-        <ElButton type="primary" plain :disabled="!canManageCollection || !health?.credentialsConfigured || !marketplaces.length" :loading="spApiSyncing" @click="queueSync('sales_traffic', 'incremental')"><Send :size="14" />同步 Sales D-1</ElButton>
-        <ElButton plain :disabled="!canManageCollection || !health?.credentialsConfigured || !marketplaces.length" :loading="spApiSyncing" @click="queueSync('fba_inventory', 'incremental')">同步 FBA 增量</ElButton>
-        <ElButton plain :disabled="!canManageCollection || !health?.credentialsConfigured || !marketplaces.length" :loading="spApiSyncing" @click="queueSync('fba_inventory', 'full')">FBA 全量对账</ElButton>
+        <ElButton type="primary" plain :disabled="!connectorEnabled || !canManageCollection || !health?.credentialsConfigured || !marketplaces.length" :loading="spApiSyncing" @click="queueSync('sales_traffic', 'incremental')"><Send :size="14" />同步 Sales D-1</ElButton>
+        <ElButton plain :disabled="!connectorEnabled || !canManageCollection || !health?.credentialsConfigured || !marketplaces.length" :loading="spApiSyncing" @click="queueSync('fba_inventory', 'incremental')">同步 FBA 增量</ElButton>
+        <ElButton plain :disabled="!connectorEnabled || !canManageCollection || !health?.credentialsConfigured || !marketplaces.length" :loading="spApiSyncing" @click="queueSync('fba_inventory', 'full')">FBA 全量对账</ElButton>
       </div>
       <div class="sp-api-panel__backfill">
         <span>Sales 回补（最多 90 日）</span>
         <ElDatePicker v-model="form.backfillFromDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日" :disabled="!canManageCollection" />
         <ElDatePicker v-model="form.backfillToDate" type="date" value-format="YYYY-MM-DD" placeholder="结束日" :disabled="!canManageCollection" />
-        <ElButton :disabled="!canManageCollection || !health?.credentialsConfigured || !marketplaces.length || !form.backfillFromDate || !form.backfillToDate" :loading="spApiSyncing" @click="queueBackfill">排队回补</ElButton>
+        <ElButton :disabled="!connectorEnabled || !canManageCollection || !health?.credentialsConfigured || !marketplaces.length || !form.backfillFromDate || !form.backfillToDate" :loading="spApiSyncing" @click="queueBackfill">排队回补</ElButton>
       </div>
     </div>
 
@@ -213,7 +215,7 @@ function marketplaceCode(value: string): string | null {
 .sp-api-panel__head { justify-content: space-between; gap: 12px; }
 .sp-api-panel__head h3, .sp-api-panel__head p, .sp-api-panel__step p, .sp-api-panel__domains p, .sp-api-panel__issues h4 { margin: 0; }
 .sp-api-panel__head p, .sp-api-panel__step p { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.sp-api-panel__health { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.sp-api-panel__health { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .sp-api-panel__health > div { border: 1px solid var(--border); border-radius: 6px; display: grid; gap: 5px; min-width: 0; padding: 9px; }
 .sp-api-panel__health span, .sp-api-panel__health strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-api-panel__health span { color: var(--muted); font-size: 11px; }
@@ -232,6 +234,7 @@ function marketplaceCode(value: string): string | null {
 .sp-api-panel__domains span, .sp-api-panel__issues span { color: var(--muted); font-size: 11px; }
 .sp-api-panel__domains p { color: var(--el-color-danger); font-size: 11px; margin-left: auto; max-width: 45%; }
 .sp-api-panel__issues article { align-items: flex-start; flex-direction: column; gap: 3px; }
-.sp-api-panel__error { color: var(--el-color-danger); gap: 5px; margin: 10px 0 0; font-size: 12px; }
+.sp-api-panel__error, .sp-api-panel__notice { color: var(--el-color-danger); gap: 5px; margin: 10px 0 0; font-size: 12px; }
+.sp-api-panel__notice { align-items: center; color: var(--el-color-warning); display: flex; }
 @media (max-width: 680px) { .sp-api-panel__health, .sp-api-panel__form { grid-template-columns: 1fr; } .sp-api-panel__wide { grid-column: auto; } .sp-api-panel__backfill { align-items: stretch; flex-direction: column; } }
 </style>

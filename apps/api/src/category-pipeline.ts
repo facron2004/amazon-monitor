@@ -205,7 +205,6 @@ export async function runCategoryCollectionForMonitor(
 
     // Wrap all writes in a single transaction to maintain consistency
     store.runInTransaction(() => {
-      ensureCollectionActive(options);
       store.deleteCategorySnapshotsForDate(category.id, date);
       store.insertCategorySnapshots(snapshots);
       store.replaceBsrRankHistoryForDate({
@@ -233,8 +232,7 @@ export async function runCategoryCollectionForMonitor(
       store.saveCategoryReport(date, category.id, report);
       generateInsightEvents(store, date, { categoryId: category.id, orgId: category.orgId });
       evaluateDueInsightEventReviews(store, date, { categoryId: category.id, orgId: category.orgId });
-      ensureCollectionActive(options);
-    });
+    }, () => ensureCollectionActive(options));
 
     ensureCollectionActive(options);
     // Record BSR quality for partial collections

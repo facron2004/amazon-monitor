@@ -22,7 +22,7 @@ import type {
   TopInsightFilterOptions,
   TopInsightFilters
 } from "@amazon-monitor/shared";
-import { request, withSignal, type RequestOptions } from "./api-base";
+import { request, withSignal } from "./api-base";
 import { fetchAllInsightEventPages } from "./api-insight-event-pagination";
 
 export interface InsightEventQuery {
@@ -317,8 +317,3 @@ function setOptional(query: URLSearchParams, key: string, value: string | number
     query.set(key, String(value));
   }
 }
-
-// Suppress unused-import warning for the explicit RequestOptions type
-// (callers only pass { signal } via withSignal). Keep the import in case we
-// later want to expose the full options shape (timeoutMs, headers, ...).
-type _InsightEventRequestOptions = RequestOptions;

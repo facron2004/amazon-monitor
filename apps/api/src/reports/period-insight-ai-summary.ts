@@ -27,18 +27,20 @@ interface ResponsesApiPayload {
 const promptVersion = "period-insight-report-v1";
 
 export async function summarizePeriodInsightReport(report: PeriodInsightReport): Promise<PeriodInsightAiSummary> {
+  if (process.env.INSIGHT_REPORT_LLM_ENABLED?.trim().toLowerCase() !== "true") {
+    return disabledSummary(
+      null,
+      "External report AI summaries are disabled by default. Set INSIGHT_REPORT_LLM_ENABLED=true only after approving the data-sharing scope."
+    );
+  }
+
   const apiKey = process.env.INSIGHT_REPORT_LLM_API_KEY ?? process.env.OPENAI_API_KEY;
   const model = process.env.INSIGHT_REPORT_LLM_MODEL;
   if (!apiKey || !model) {
-    return {
-      status: "disabled",
-      provider: "openai-responses",
-      model: model ?? null,
-      text: null,
-      error: "Set INSIGHT_REPORT_LLM_API_KEY or OPENAI_API_KEY, plus INSIGHT_REPORT_LLM_MODEL, to enable AI summaries.",
-      promptVersion,
-      generatedAt: null
-    };
+    return disabledSummary(
+      model ?? null,
+      "Set INSIGHT_REPORT_LLM_API_KEY or OPENAI_API_KEY, plus INSIGHT_REPORT_LLM_MODEL, after enabling external report AI summaries."
+    );
   }
 
   try {
@@ -92,6 +94,18 @@ export async function summarizePeriodInsightReport(report: PeriodInsightReport):
       generatedAt: null
     };
   }
+}
+
+function disabledSummary(model: string | null, error: string): PeriodInsightAiSummary {
+  return {
+    status: "disabled",
+    provider: "openai-responses",
+    model,
+    text: null,
+    error,
+    promptVersion,
+    generatedAt: null
+  };
 }
 
 function llmBaseUrl(): string {

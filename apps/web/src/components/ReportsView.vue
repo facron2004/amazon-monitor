@@ -331,6 +331,15 @@ function selectPane(value: string): void {
       @close="archiveError = ''; exportError = ''"
     />
 
+    <ElAlert
+      v-if="activePane === 'ai'"
+      title="外部数据共享提示"
+      type="warning"
+      show-icon
+    >
+      AI 摘要仅在服务端显式启用后请求外部模型；请求最多包含本周期摘要、8 条 Top 事件（含 ASIN、品牌和证据摘要）及 6 条 Top 品牌信号。请先完成数据共享评审。
+    </ElAlert>
+
     <ElRow :gutter="12" class="report-kpis">
       <ElCol v-for="item in kpis" :key="item.label" :xs="24" :sm="12" :lg="6">
         <ElCard class="report-kpi" shadow="never">

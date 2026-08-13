@@ -7,6 +7,7 @@ import type {
   DataSourceImportPayload,
   DataSourceInventoryImportResult,
   DataSourceMappingIssue,
+  DataSourceOverrideAudit,
   DataSourceProductImportResult,
   DataSourceStatus,
   DataSourceSyncRun,
@@ -45,6 +46,8 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
   const spApiHealthSourceId = ref<number | null>(null);
   const mappingIssues = ref<DataSourceMappingIssue[]>([]);
   const mappingIssuesSourceId = ref<number | null>(null);
+  const overrideAudits = ref<DataSourceOverrideAudit[]>([]);
+  const overrideAuditsSourceId = ref<number | null>(null);
   const spApiLoading = ref(false);
   const spApiSaving = ref(false);
   const spApiSyncing = ref(false);
@@ -149,6 +152,16 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
     }
   }
 
+  async function fetchOverrideAudits(id: number): Promise<void> {
+    try {
+      overrideAudits.value = await dataSourceApi.listOverrides(id);
+      overrideAuditsSourceId.value = id;
+    } catch {
+      overrideAudits.value = [];
+      overrideAuditsSourceId.value = id;
+    }
+  }
+
   async function saveSpApiCredentials(id: number, payload: SaveSpApiCredentialsPayload): Promise<void> {
     spApiSaving.value = true;
     spApiError.value = null;
@@ -203,10 +216,10 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
     try {
       const result = await dataSourceApi.importProductsFile(id, payload);
       importResult.value = result;
-      await Promise.all([fetchSources(), fetchSyncRuns(id)]);
+      await Promise.all([fetchSources(), fetchSyncRuns(id), fetchOverrideAudits(id)]);
       return result;
     } catch (err) {
-      await Promise.all([fetchSources(), fetchSyncRuns(id)]);
+      await Promise.all([fetchSources(), fetchSyncRuns(id), fetchOverrideAudits(id)]);
       error.value = (err as Error).message;
       throw err;
     } finally {
@@ -311,6 +324,8 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
     spApiHealthSourceId,
     mappingIssues,
     mappingIssuesSourceId,
+    overrideAudits,
+    overrideAuditsSourceId,
     spApiLoading,
     spApiSaving,
     spApiSyncing,
@@ -322,6 +337,7 @@ export const useDataSourcesStore = defineStore("dataSources", () => {
     updateSource,
     fetchSyncRuns,
     fetchSpApiState,
+    fetchOverrideAudits,
     saveSpApiCredentials,
     testSpApiConnection,
     syncSpApi,

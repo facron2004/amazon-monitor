@@ -45,11 +45,11 @@ function storeName(stores: CommerceStore[], id: number | null): string {
 }
 
 function salesAmount(item: OwnedProductListItem): number | null {
-  return item.spApiEvidence.sales?.salesAmount ?? item.latestMetric?.salesAmount ?? null;
+  return item.latestMetric?.salesAmount ?? null;
 }
 
 function orders(item: OwnedProductListItem): number | null {
-  return item.spApiEvidence.sales?.orders ?? item.latestMetric?.orders ?? null;
+  return item.latestMetric?.orders ?? null;
 }
 
 function inventoryAvailable(item: OwnedProductListItem): number | null {
@@ -57,19 +57,31 @@ function inventoryAvailable(item: OwnedProductListItem): number | null {
 }
 
 function operationalSyncLabel(item: OwnedProductListItem): string {
+  if (item.latestMetric?.dataSource === "sp_api") return "SP-API";
+  if (item.latestMetric?.dataSource === "mixed") return "混合";
+  if (item.latestMetric) return syncLabel(item.latestMetric.syncStatus);
   if (item.spApiEvidence.sales || item.spApiEvidence.inventory) return "SP-API";
-  return syncLabel(item.latestMetric?.syncStatus ?? item.syncStatus);
+  return syncLabel(item.syncStatus);
 }
 
 function operationalSyncedAt(item: OwnedProductListItem): string {
-  return item.spApiEvidence.inventory?.lastSyncedAt
+  return item.latestMetric?.lastSyncedAt
+    ?? item.spApiEvidence.inventory?.lastSyncedAt
     ?? item.spApiEvidence.sales?.lastSyncedAt
-    ?? item.latestMetric?.lastSyncedAt
     ?? item.lastSyncedAt
     ?? "未同步";
 }
 
 function operationalTrace(item: OwnedProductListItem): string | null {
+  const fieldSources = Object.values(item.latestMetric?.fieldSources ?? {});
+  const sourceRefs = [...new Map(
+    fieldSources
+      .filter((source) => source.dataSourceId !== null && source.dataSourceId !== undefined)
+      .map((source) => [`${source.dataSourceId}:${source.syncRunId ?? ""}`, source])
+  ).values()];
+  if (sourceRefs.length) {
+    return sourceRefs.map((source) => `来源 #${source.dataSourceId} · 运行 #${source.syncRunId}`).join(" / ");
+  }
   const evidence = item.spApiEvidence.inventory ?? item.spApiEvidence.sales;
   return evidence ? `来源 #${evidence.dataSourceId} · 运行 #${evidence.syncRunId}` : null;
 }

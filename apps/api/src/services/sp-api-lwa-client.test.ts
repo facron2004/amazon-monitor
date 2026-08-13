@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SpApiConnectorError } from "./sp-api-errors.js";
 import { SpApiLwaTokenCache, type SpApiLwaTokenRequest } from "./sp-api-lwa-client.js";
 
@@ -65,6 +65,30 @@ describe("SP-API LWA token cache", () => {
       category: "credentials_revoked",
       retryable: false
     });
+  });
+
+  it("invalidates an in-flight refresh when a data source credential is replaced", async () => {
+    let resolveOldResponse: ((value: Response) => void) | undefined;
+    const oldResponse = new Promise<Response>((resolve) => { resolveOldResponse = resolve; });
+    const request = vi.fn()
+      .mockImplementationOnce(async () => oldResponse)
+      .mockResolvedValueOnce(response({ access_token: "new-token", expires_in: 3600 }));
+    const cache = new SpApiLwaTokenCache(request);
+
+    const oldRefresh = cache.get(tokenRequest);
+    await Promise.resolve();
+    cache.clearDataSource(tokenRequest.dataSourceId);
+
+    await expect(cache.get({ ...tokenRequest, credentialVersion: 2 })).resolves.toMatchObject({
+      accessToken: "new-token"
+    });
+    resolveOldResponse?.(response({ access_token: "old-token", expires_in: 3600 }));
+
+    await expect(oldRefresh).rejects.toMatchObject<Partial<SpApiConnectorError>>({
+      category: "credentials_invalid",
+      retryable: false
+    });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });
 

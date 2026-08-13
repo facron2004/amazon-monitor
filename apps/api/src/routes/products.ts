@@ -14,6 +14,16 @@ import {
   validateQuery
 } from "./validation.js";
 
+const SP_API_AUTHORITY_FIELDS = [
+  "sessions",
+  "pageViews",
+  "orders",
+  "unitsSold",
+  "salesAmount",
+  "buyBoxPercentage",
+  "conversionRate"
+] as const;
+
 function requireSessionContext(request: Request): SessionContext {
   const ctx = (request as Request & { sessionContext?: SessionContext }).sessionContext;
   if (!ctx) {
@@ -100,6 +110,18 @@ export function registerProductRoutes(app: Express, store: Store): void {
       return;
     }
     const data = validateBody(productMetricSchema, request.body);
+    const spApiFact = store.getSpApiSalesTrafficFactForProductDate(ctx.organization.id, id, data.date);
+    if (spApiFact) {
+      const attemptedOverride = SP_API_AUTHORITY_FIELDS.filter((field) => (
+        Object.hasOwn(data, field) && data[field] !== null && data[field] !== undefined
+      ));
+      if (attemptedOverride.length > 0) {
+        throw Object.assign(
+          new Error(`Fresh SP-API fields ${attemptedOverride.join(", ")} are authoritative; use a data-source override import with an audit reason`),
+          { statusCode: 409 }
+        );
+      }
+    }
     const metric = store.upsertProductDailyMetric({
       productId: id,
       date: data.date,

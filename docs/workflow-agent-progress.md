@@ -1,5 +1,73 @@
 # Workflow Agent 开发进度
 
+## 2026-08-12
+
+- 将租约守卫下沉到 Store SAVEPOINT 提交边界：关键词、类目和 FBA 分页 promotion 在事务释放前再次确认 lease；新增租约在提交边界丢失时回滚全部事实的回归。API 全量 660/660、Queue/Pipeline 27/27、SP-API/Fact/Worker 24/24、API 与脚本类型检查均通过。
+- 修复 Worker 租约回收竞态：回收器在候选快照之后再次校验 `lease_expires_at`，并将“仍已过期”纳入最终 compare-and-set 更新条件；即使续租发生在回收候选读取之后，也不会误回收新租约。新增过期任务与续租任务并行回归；QueueStore 20/20、Worker 7/7、API 全量 658/658、API 类型检查和脚本类型检查均通过。
+- 新增只读 `verify:openapi-routes` 双向契约门禁：扫描生产 route 源码中的 216 个 Express 操作，并将 `/health`、`/ready` 和三个 Dashboard 直接端点纳入比对；当前与 OpenAPI 的 221 个 operation 完全一致，新增路由或幽灵 operation 会在根级 `npm run verify` 中失败，并补充参数归一化、重复声明和双向漂移回归。
+- 收紧周期报告外部 LLM 摘要：即使存在通用 `OPENAI_API_KEY` 和模型，也必须显式设置 `INSIGHT_REPORT_LLM_ENABLED=true` 才允许发送报告数据；补充“配置但未 opt-in 不发网络请求”的回归，`.env.example`、README 和类目/报告说明明确外发字段与评审边界。
+- 本轮 API 报告回归 6/6、Web 58 文件 221 用例、脚本类型检查和构建均通过；根级单元基线更新为 989（shared 59、Agent 23、API 658、Web 221、Desktop 28）。
+
+## 2026-08-10
+
+- 收紧 SP-API connector 的 opt-in 边界：HTTP、周期调度和已入队 Worker 统一读取 `SP_API_CONNECTOR_ENABLED`；关闭时不再产生周期任务，旧队列会以 `connector_disabled` 可解释失败并保持数据源为手动状态。health 接口和数据源面板现在明确显示连接器开关，关闭时在客户端禁用必然失败的操作。补充 feature-flag、scheduler、runner、health 和 LWA 刷新失效竞态回归；根级 `npm run verify` 通过（shared 59、Agent 23、API 627、Web 219、Desktop 28；浏览器 9；备份演练、发布门禁、生产依赖审计均通过）。
+- 修复 SP-API 失败分类未传递到通用 Worker 的重试边界：凭据、权限、连接器关闭等终态错误现在只失败一次并保留可解释原因；限流和网络等瞬态错误继续使用队列最大重试次数。新增 runner/Worker 回归覆盖；本次根级验证为 958 个单元测试（API 629）。
+- 将同步运行的失败分类和队列重试次数落到统一契约：`DataSourceSyncRun.errorCode` 与 domain health 继续区分稳定机器码和人类错误文本，SP-API 终态/限流/权限/映射失败均可在运行历史中追溯；兼容旧 SQLite 通过 `error_code` 列迁移。新增 store、runner 和 partial promotion 回归。
+- 将瞬态重试从“立即回队列”收敛为可持久化调度：SP-API/LWA 的 `Retry-After`（秒数或 HTTP 日期）会传到 Worker，队列新增 `next_attempt_at` 迁移并在到期前不 claim；无服务端提示时使用 1 秒起步、5 分钟封顶的指数退避，终态失败不会留下延迟时间。补充 queue、Worker、HTTP client 和同步 runner 回归。
+- 为 FBA Inventory 增加可恢复的逐页同步：每页先 promotion 再持久化 `startDateTime`、`nextToken`、页码和累计计数；失败重试复用同一 run/checkpoint，从最后成功页继续，已完成 checkpoint 不再重复请求；覆盖组织边界、迁移兼容、分页回调和限流后恢复回归。
+- 将 FBA 每页事实 promotion 与 checkpoint 更新放入同一 SQLite 外层事务，模拟 checkpoint 写失败时整页回滚；同步历史新增安全解析的页数、导入行数和可恢复/完成状态展示。
+- SP-API client 对 401 只刷新一次 access token，并在并发请求间共享 refresh promise；Sales/FBA Runner 均通过同一 LWA cache 重新取 token，覆盖过期 token、刷新失败和并发 401 回归。
+- Worker 在缺少 `Retry-After` 时对指数退避增加有界 jitter；服务端明确给出的 `Retry-After` 保持精确延迟，避免多 Worker 同时重试形成同步尖峰。
+- 收紧混合数据的来源边界：库存/利润计划现在读取 SKU 级 SP-API 销售事实作为无手工日指标时的回退，既有手工日行按兼容策略保留；SP-API 事实表保持独立且不被 CSV/手工导入改写，覆盖仅 SP-API、混合和手工优先回归，显式 override 审计与字段级有效指标已在后续切片完成。
+- 根级 `npm run verify` 复验通过：shared 59、Agent 23、API 644、Web 221、Desktop 28，共 975 个单元测试；浏览器 9、备份演练、发布门禁 12 和生产依赖审计均通过。
+- 收紧产品文件导入的来源治理：同日存在成功的 SKU 级 SP-API Sales & Traffic 事实时，CSV/XLSX 默认跳过整条日指标写入并返回字段级 warning，避免把空的手工行伪装成 API 事实；显式 `allowSpApiOverride` 必须携带理由，按字段记录前后值、SP-API source/run、文件 source/run、操作人和日期，并新增组织隔离的 `GET /api/data-sources/:id/overrides` 与数据源页审计列表。有效指标现已在产品详情、组织报表、库存和利润读路径统一按字段解析，`restoreOnSpApiSuccess` 开启时，更新的成功 SP-API 事实会在读取时恢复对应字段权威，原始手工行和事实表均不被回写。
+- 本次根级 `npm run verify` 通过：shared 59、Agent 23、API 648、Web 221、Desktop 28，共 979 个单元测试；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；浏览器 9、备份演练、发布门禁 12 和生产依赖审计均通过。
+- 将 Dashboard 概览聚合接入字段级有效指标：`store_daily` 继续作为店铺级销售权威；没有店铺汇总事实时按 SKU 有效指标聚合，保留显式 CSV/手工 override 的字段选择，同时继续合并广告与毛利字段，避免概览与 Owned SKU/组织报表出现来源口径分叉。有效指标读取中的 override 审计改为按产品日期批量读取，避免滚动窗口内逐日查询。
+- 本轮根级 `npm run verify` 通过：shared 59、Agent 23、API 649、Web 221、Desktop 28，共 980 个单元测试；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；备份演练、发布门禁 12、浏览器 9 和生产依赖审计（0 high/critical）均通过。
+- 消除组织级有效指标读取的 override 审计 N+1：产品日指标现在先收集跨产品/日期的有效键，再用分块参数化查询读取审计，新增 `(product_id, effective_date, domain, created_at)` 索引；多产品回归验证 override 值不变且同窗口只执行一次审计查询。
+- 本轮根级 `npm run verify` 通过：shared 59、Agent 23、API 650、Web 221、Desktop 28，共 981 个单元测试；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；备份演练、发布门禁 12、浏览器 9 和生产依赖审计（0 high/critical）均通过。真实店铺 shadow run 与大规模 SKU 基准仍是发布前验收项。
+- 新增隔离命令 `npm run benchmark:effective-metrics`，并修复组织级有效指标读取误用通用 1000 行上限的问题；有效指标内部上限统一为显式 100000，新增 1001 行回归。7 日内存 SQLite 基准（2026-07-21 至 2026-07-27）：产品详情读取 1k/10k 分别返回 7k/70k 行，查询约 145/1242ms；100k SKU 按显式 100000 行上限返回 100k/700k 行，约 2894ms 并明确标记截断。Dashboard 已改用 SQLite CTE 直接聚合，1k/10k/100k SKU 概览分别约 25/304/3721ms，均返回 7 个趋势点且产品数、销售额自校验通过。
+- 新增 Dashboard 概览的 `restoreOnSpApiSuccess` 回归：新鲜 SP-API SKU 事实到达后仅恢复被授权的销售额/订单字段，广告与毛利继续来自产品日指标；本轮聚合不再把多日有效 SKU 行全部物化到 API 进程。完整根级验证和真实店铺 shadow run 仍是发布前验收项。
+- 本轮根级 `npm run verify` 通过：shared 59、Agent 23、API 652、Web 221、Desktop 28，共 983 个单元测试；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；备份演练、发布门禁 12、浏览器 9 和生产依赖审计（0 high/critical）均通过。benchmark 仍只使用隔离内存 SQLite，真实店铺 shadow run 与签名交付复验仍是发布前验收项。
+- 根据 SQLite `EXPLAIN QUERY PLAN` 补充销售事实与 override 窗口索引（`org/scope/status/date`、`org/product/date`、`org/domain/effectiveDate`），并修复“仅有 SP-API 事实但历史手工行已删除时，活动 override 会错误隐藏事实”的 Dashboard 边界。相同 7 日基准下，100k SKU Dashboard 约 3483ms、有效指标读取约 2840ms；写入基准约 7730ms，需在真实店铺 shadow run 继续观察索引写入代价。
+- 新增 `npm run verify:sp-api-fixture-shadow` 并接入根级 `npm run verify`：在隔离内存 SQLite 中通过真实同步 runner 编排 Sales & Traffic/FBA fixture、队列租约、来源/run 追溯、Sales 重放幂等、Dashboard STORE_DAILY 权威和“不得发起网络请求”断言。该门禁强化本地 shadow 证据，但不替代至少 7 个业务日的真实私有店铺对账。
+- 本轮根级 `npm run verify` 通过：shared 59、Agent 23、API 651、Web 221、Desktop 28，共 982 个单元测试；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；备份演练、发布门禁 12、浏览器 9 和生产依赖审计（0 high/critical）均通过。benchmark 不接触真实数据库，真实店铺 shadow run 和多日大规模基准仍是发布前验收项。
+- 将真实店铺 shadow 证据收敛为可校验的脱敏 manifest：新增 `npm run verify:sp-api-shadow-evidence`、七日合成样例和 5 个结构/失败回归；默认检查窗口覆盖、时区、最小单位金额等式、币种/来源字段、FBA freshness、映射差异、重放新增数和凭据/未知字段，并明确 `--allow-example` 不能替代真实店铺证据。该校验器不读数据库、不发网络请求，根级 `npm run verify` 已接入示例门禁。
+- 本轮根级 `npm run verify` 通过：shared 59、Agent 23、API 654、Web 221、Desktop 28，共 985 个单元测试；新增 shadow evidence 5 个回归、fixture shadow 网络请求 0 次；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；备份演练、发布门禁 12、浏览器 9 和生产依赖审计（0 high/critical）均通过。
+- 优化 Dashboard 7 日聚合的产品日期集合：用已过滤的 SKU 事实 CTE 加 `NOT EXISTS` 唯一键反查替代全量 `UNION` 去重排序，保留手工日指标优先和无手工行 SP-API 回退语义。100k SKU 隔离基准连续运行三次 Dashboard 约 3042–3150ms、有效指标读取约 2973–3035ms，产品数、销售额和 7 个趋势点均自校验通过；真实店铺写入成本和 SQLite 文件增长仍需 shadow 观察。
+- 新增 `npm run verify:sp-api-recovery-shadow`：在不访问 Amazon 的本地 HTTP stub 上走真实 LWA/FBA client 与同步 Runner，先返回 429/Retry-After，再关闭并重新打开持久化 SQLite、清空 token cache，经真实队列 lease 从 `nextToken` 恢复第二页；验证同一 run、`startDateTime`、checkpoint counters、页级事实 promotion、重新获取 LWA token 和最终成功收口。该门禁补足 live 路径和数据库重启边界的本地证据，但不替代真实限流、桌面 utility 重启和私有店铺验收。
+- 为有效指标基准增加可选 file-backed 命令 `npm run benchmark:effective-metrics:storage -- 10000 100000`：临时文件库强制 WAL 并输出主库/WAL/SHM 字节数。100k SKU/7 日隔离运行写入约 12712ms、有效指标读取约 4534ms、Dashboard 约 3894ms，主库约 369602560 bytes、WAL 约 374458592 bytes；10k SKU 对应约 1127/1417/385ms，文件约 37MB/WAL 40MB。该结果用于容量和备份窗口预估，不作为单机生产 SLA，真实店铺仍需观察 WAL 增长和 checkpoint 行为。
+- 本轮存储基准改动后的根级 `npm run verify` 通过：shared 59、Agent 23、API 654、Web 221、Desktop 28，共 985 个单元测试；fixture shadow 网络请求 0 次、恢复 shadow 验证进程/数据库重启后从 `nextToken` 完成 2 页；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；备份演练、发布门禁 12、浏览器 9 和生产依赖审计（0 high/critical）均通过。
+- 新增 `npm run inspect:db-storage -- <shadow-db-path>`：默认只读输出 journal mode、页数/freelist、主库/WAL/SHM 字节数和显式阈值结果；`observerBusyTimeoutMs` 仅表示观测连接参数。`--checkpoint=passive|truncate` 必须由调用方明确选择，避免观测命令隐式改动运行中的 WAL。当前工作库实测为 WAL、主库约 79.2MB、WAL 约 10.9MB，总计约 90.1MB；该数值仅是当前实例快照，不作为生产容量 SLA。
+- SQLite 观测切片后的根级 `npm run verify` 通过：shared 59、Agent 23、API 657、Web 221、Desktop 28，共 988 个单元测试；Web 初始 CSS 108168 bytes、JS 226890 bytes 均低于预算；fixture/recovery shadow、备份演练、发布门禁 12、浏览器 9 和生产依赖审计（0 high/critical）均通过。
+- 新增 `collect:sp-api-shadow-evidence` 只读收集器和示例配置：按七个业务日读取 STORE_DAILY/SKU/FBA facts、sync run replay counters、金额最小单位、unmapped bucket 和 freshness，内部 run ID 以 bundle 盐哈希脱敏；FBA freshness 使用事实 `source_time`，成功 run 还必须有已完成且行数一致的分页 checkpoint；v2 额外区分历史 `asOfRows` 与采集时当前 `latestRows`，避免后续库存同步污染旧业务日；缺失/非法时间、checkpoint 不完整、缺失 STORE_DAILY、unmapped revenue、缺 replay、最新同步失败或 freshness 超阈值只产生 `delayed`/`failed`，不会伪造 `pass`。校验器保留 v1 兼容，收集器回归覆盖上述边界。
+- 扩展只读 `verify:sp-api-shadow-preflight`：除七日配置、shadow/production 数据库隔离、SP-API connector、fixture、WAL 和组织—数据源—店铺—连接绑定外，新增备份完整性与 SHA-256、shadow/production userData 不重叠、运行时 `DB_PATH` 绑定，以及事实表逐行的组织/店铺/marketplace 越界扫描；不会读取或输出凭据，也不访问 Amazon。示例 collector 配置继续使用不存在的隔离 `tmp/shadow.sqlite` 占位路径，真实私有店铺网络/权限与七日对账仍是发布前验收项。
+- 新增只读 `verify:sp-api-shadow-package`：要求真实七日 manifest、preflight 全部新增安全检查、README/run-lineage/reconciliation/signoff 和完整 SHA-256 校验，递归拒绝符号链接、数据库/环境/密钥文件及凭据样式文本；4 个回归覆盖成功包、缺文件、hash 不匹配和敏感内容，真实店铺七日网络/权限/对账仍是外部验收项。
+- 扩展安装包 Agent smoke 为 ASIN/审批闭环：隔离数据库中执行 `B000TEST01` investigation，freshness、ASIN 历史、关键词排名、价格、Coupon、评论五个专用工具均需完成；结果明确标记无业务证据，缺失新鲜度生成 L2 `recollect` 提案，批准后创建 recovery run；重复批准验证同一 execution 幂等复用，并同时校验审批/执行审计、SSE 终态回放、配置 API Key 脱敏和三 utility 状态。
+- 在真实 NSIS 安装目录复用同一 approval smoke：`verify:package-install-recovery` 已通过 Agent approval、API/Agent/Crawler recovery、通知 SMTP 和静默卸载，最终安装目录为空。
+
+## 2026-08-09
+
+Agent utility-process dispatch and shutdown hardening:
+
+- 修复 Agent utility 关闭边界：关闭时主动取消运行、拒绝未完成 RPC、清理定时器，并忽略关闭后的 bridge 消息，避免退出/重启留下悬挂任务。
+- 修复 API 到 Agent utility 的发送竞态：MessagePort 在发送 `agent.run.start` 时关闭，会立即清理 active run 并将运行收口为 `failed`，不再永久停留在 `planning`。
+- 新增桌面 runtime 生命周期测试、API dispatch 失败测试和 transport active-run 回滚测试。
+- 修复 API utility 重启后的端口漂移和初始化丢失：首次动态分配的 readiness 端口会被 supervisor 固定到后续 API utility 环境，首次安装的 setup token 也会在重启时复用，Renderer origin 不再因重启失联；新增 `verify:package-api-recovery`，真实强杀 API utility 后验证同端口 readiness、bootId、Renderer 和三 utility 状态恢复。
+- 收紧 supervisor 的跨 utility MessagePort 转发：Agent/Crawler 退出或端口关闭时不再让 Main 因 `postMessage` 竞态抛错；API 到 Agent 的转发失败会主动发送 `agent.process.unavailable`，让 active run 进入失败终态。新增 `verify:package-agent-crawler-recovery`，排除持有监听端口的 API 后分别强杀 Agent/Crawler utility，并验证同一 Renderer、API readiness、三角色状态和替换进程恢复。
+- 收紧 supervisor 的退出生命周期：`stopAll()` 会取消已排队的 utility restart timer、立即拒绝 pending OAuth，并阻止 shutdown 后的迟到 restart；utility 成功 ready 后会 reset bounded restart policy，避免历史崩溃计数污染稳定运行。
+- 全仓 `npm run verify` 通过：shared 59、Agent 23、API 618、Web 219、Desktop 28；浏览器 9；备份演练、发布门禁、生产依赖审计均通过。
+- 重建并复验 Windows 交付物：包扫描 9,645 项且无 first-party 禁止项，真实启动 readiness/Renderer、干净安装/卸载、升级迁移和五项发布证据校验均通过。
+- 新增包级 Agent boundary/approval smoke：使用隔离 userData 和本地 OpenAI-compatible 流式 stub，真实走 Renderer/preload/Main、safeStorage、API、Agent utility 与 Session/RPC；缺失新鲜度进入 `waiting_approval`，批准 L2 recollect 后创建 recovery run，重复批准复用同一 execution；同时验证 `check_data_freshness`、关键事件、SSE 事件回放、Agent 审计导出和进程输出不含配置 API Key，API/Agent/Crawler 均为 `running`。该 smoke 已纳入 `verify:release:win`。
+- 重建当前 NSIS 交付包：`Amazon Monitor Setup 1.1.0.exe` 为 427,796,361 bytes，SHA-256 `E096CC589C7F69C3D2F0848302BBF5E830DE4A89E424339D6909FFFA943F643A`；安装、升级迁移和发布证据校验均通过。
+- 当前本地包仍为 `NotSigned` 兼容验收包；正式发布仍需代码签名证书和发布授权。
+- 收敛 Windows release workflow：`verify:release:win` 已统一覆盖包扫描、签名、基础 runtime、Agent、API recovery 和 Agent/Crawler recovery；CI 通过 job-level `REQUIRE_PACKAGE_*` 显式强制这些 smoke，移除重复的独立调用，避免同一包被重复启动验收。
+- 抽取四个 Windows smoke 共用的 `findFreePort`、`fetchJson` 和 `rendererTarget` 到 `scripts/package-smoke-utils.mjs`，减少运行时验收脚本分叉；重跑完整 `verify:release:win` 后包扫描、Web 预算、Agent boundary、API recovery 和 Agent/Crawler recovery 均通过。
+- 扩展安装器验收：新增 `verify:package-install-recovery`，在真实 NSIS 安装目录中的 EXE 上复用 Agent approval、API 与 Agent/Crawler recovery 及通知矩阵，避免只验证 `win-unpacked` 而漏掉安装路径、资源和 userData 边界；该步骤已纳入 Windows release workflow。
+- 新增包级 notification runtime smoke：在隔离 userData 写入不含真实凭据的 `.env`，通过真实 Renderer/API 创建邮件计划，由本地假 SMTP 完成认证、收件和 MIME 接收，并确认 SMTP 密码不出现在进程输出；该 smoke 已纳入 `verify:release:win`，安装版 recovery 也会复用它验证 `%APPDATA%` 配置发现和白名单传递。
+- 收紧桌面安全/恢复边界：IPC 可信发送方只接受应用 Renderer 同源 URL，DevTools 仅保留导航判定；supervisor 的退出回调绑定具体 child，忽略旧 utility 的迟到事件；Agent provider/RPC 错误回传先做凭据脱敏再进入 API/SQLite。
+- 补齐 Windows release workflow 的根级门禁：签名打包前先运行 `npm run verify`，确保全量构建、单测、浏览器测试、备份演练、发布门禁和生产依赖审计先通过，再进入包级安装与 recovery 验收。
+
 ## 2026-08-01
 
 Agent V1.0 Gold 与 recovery 收口：

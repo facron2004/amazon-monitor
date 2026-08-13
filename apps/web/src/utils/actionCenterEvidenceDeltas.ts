@@ -197,12 +197,6 @@ function getRankDelta(event: InsightEvent): number | null {
   return before !== null && after !== null ? before - after : toFiniteNumber(event.evidence.rankChange);
 }
 
-function getPriceDelta(event: InsightEvent): number | null {
-  const before = getPriceBefore(event);
-  const after = getPriceAfter(event);
-  return before !== null && after !== null ? after - before : null;
-}
-
 function getReviewDelta(event: InsightEvent): number | null {
   const before = getReviewBefore(event);
   const after = getReviewAfter(event);

@@ -58,19 +58,24 @@ export function startDesktopAgentRun(
 ): void {
   if (!sender) throw new Error("Desktop Agent transport is unavailable");
   activeRuns.set(run.id, { persistence, run });
-  sender({
-    type: "agent.run.start",
-    config,
-    run: {
-      id: run.id,
-      sessionId: run.sessionId,
-      orgId: run.orgId,
-      userId: run.userId,
-      input: run.input,
-      taskType: run.taskType,
-      freshnessInput,
-    },
-  });
+  try {
+    sender({
+      type: "agent.run.start",
+      config,
+      run: {
+        id: run.id,
+        sessionId: run.sessionId,
+        orgId: run.orgId,
+        userId: run.userId,
+        input: run.input,
+        taskType: run.taskType,
+        freshnessInput,
+      },
+    });
+  } catch (error) {
+    activeRuns.delete(run.id);
+    throw error;
+  }
 }
 
 export function cancelDesktopAgentRun(runId: number): void {

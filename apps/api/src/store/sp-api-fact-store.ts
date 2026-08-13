@@ -2,16 +2,48 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   SpApiFactPromotionResult,
   SpApiInventoryFactInput,
+  SpApiProductSalesEvidence,
   SpApiSalesTrafficFactInput,
   SpApiSyncDomain
 } from "@amazon-monitor/shared";
 import { nowIso, withTransaction } from "./sql-utils.js";
 import type { Store } from "./types.js";
 
-type SpApiFactStoreMethods = Pick<Store, "promoteSpApiSalesTrafficFacts" | "promoteSpApiInventoryFacts">;
+type SpApiFactStoreMethods = Pick<
+  Store,
+  "promoteSpApiSalesTrafficFacts" | "promoteSpApiInventoryFacts" | "getSpApiSalesTrafficFactForProductDate"
+>;
+
+interface SalesFactRow {
+  data_source_id: number;
+  sync_run_id: number;
+  business_date: string;
+  sessions: number | null;
+  page_views: number | null;
+  orders: number | null;
+  units_sold: number | null;
+  sales_amount: number | null;
+  buy_box_percentage: number | null;
+  conversion_rate: number | null;
+  currency: string;
+  synced_at: string;
+}
 
 export function createSpApiFactStore(db: DatabaseSync): SpApiFactStoreMethods {
   return {
+    getSpApiSalesTrafficFactForProductDate(orgId, productId, businessDate) {
+      const row = db.prepare(`
+        SELECT data_source_id, sync_run_id, business_date, sessions, page_views, orders, units_sold,
+               sales_amount, buy_box_percentage, conversion_rate, currency, synced_at
+        FROM sp_api_sales_traffic_daily
+        WHERE org_id = ? AND product_id = ? AND business_date = ?
+          AND scope = 'sku_daily' AND status = 'success'
+        ORDER BY synced_at DESC, id DESC
+        LIMIT 1
+      `).get(orgId, productId, businessDate) as SalesFactRow | undefined;
+      return row ? mapSalesFact(row) : null;
+    },
+
     promoteSpApiSalesTrafficFacts(facts, options = {}) {
       if (facts.length === 0) return emptyPromotionResult();
       assertFactsBelongToSource(db, facts.map(factContext), "sales_traffic");
@@ -110,6 +142,26 @@ export function createSpApiFactStore(db: DatabaseSync): SpApiFactStoreMethods {
       });
       return { importedRows: facts.length, createdRecords, updatedRecords };
     }
+  };
+}
+
+function mapSalesFact(row: SalesFactRow): SpApiProductSalesEvidence {
+  return {
+    dataSource: "sp_api",
+    lastSyncedAt: row.synced_at,
+    syncStatus: "success",
+    syncError: null,
+    dataSourceId: row.data_source_id,
+    syncRunId: row.sync_run_id,
+    businessDate: row.business_date,
+    sessions: row.sessions,
+    pageViews: row.page_views,
+    orders: row.orders,
+    unitsSold: row.units_sold,
+    salesAmount: row.sales_amount,
+    buyBoxPercentage: row.buy_box_percentage,
+    conversionRate: row.conversion_rate,
+    currency: row.currency
   };
 }
 

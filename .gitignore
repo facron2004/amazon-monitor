@@ -14,6 +14,7 @@ dist-electron/
 # Data & databases
 data/*.sqlite
 data/*.sqlite-*
+/*amazon-monitor.sqlite
 data/*.png
 data/*.xlsx
 data/collector-screenshots/
@@ -48,6 +49,8 @@ Thumbs.db
 # AI tool directories
 .claude/
 .workbuddy/
+.review-package-stage/
+tmp/
 
 # Generated output
 output/

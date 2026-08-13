@@ -19,7 +19,7 @@ export async function runDataSourceFileImport<T extends FileImportResult>(
   source: DataSourceConfig,
   initiatedById: number,
   operation: DataSourceSyncOperation,
-  execute: () => Promise<T>
+  execute: (context: { syncRunId: number; initiatedById: number }) => Promise<T>
 ): Promise<T> {
   const run = store.createDataSourceSyncRun({
     orgId: source.orgId,
@@ -28,7 +28,7 @@ export async function runDataSourceFileImport<T extends FileImportResult>(
     initiatedById
   });
   try {
-    const result = await execute();
+    const result = await execute({ syncRunId: run.id, initiatedById });
     const counts = importRecordCounts(result);
     store.finishDataSourceSyncRun(run.id, {
       status: completedRunStatus(result.source.syncStatus),

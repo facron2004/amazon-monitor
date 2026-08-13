@@ -169,6 +169,30 @@
   font-size: 12px;
 }
 
+.data-source-import-policy {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  max-width: 360px;
+}
+
+.data-source-import-policy .el-checkbox {
+  margin-right: 0;
+}
+
+.data-source-import-policy > span {
+  display: block;
+  margin-top: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.data-source-import-policy-help {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .data-source-import-option .el-button {
   flex: 0 0 auto;
   min-width: 128px;
@@ -209,6 +233,7 @@
 }
 
 .data-source-import-errors,
+.data-source-import-warnings,
 .data-source-import-error {
   margin: 10px 0 0;
   color: var(--el-color-danger);
@@ -217,6 +242,13 @@
 
 .data-source-import-errors {
   padding-left: 18px;
+}
+
+.data-source-import-warnings {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--el-color-warning);
+  font-size: 12px;
 }
 
 .data-source-runs__head,
@@ -279,10 +311,15 @@
 }
 
 .data-source-run__retry,
+.data-source-run__checkpoint,
 .data-source-runs__empty {
   margin-top: 8px !important;
   color: var(--muted);
   font-size: 12px;
+}
+
+.data-source-run__checkpoint {
+  color: var(--el-color-primary);
 }
 
 @media (max-width: 680px) {

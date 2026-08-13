@@ -1,19 +1,18 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
+  dataSourceSyncErrorCodes,
   dataSourceSyncOperations,
-  type CreateDataSourceInput,
   type DataSourceConfig,
-  type DataSourceListFilter,
   type DataSourceStatus,
   type DataSourceSyncStatus,
   type DataSourceSyncOperation,
+  type DataSourceSyncErrorCode,
   type DataSourceSyncRun,
   type DataSourceSyncRunStatus,
   type DataSourceType,
   type SpApiSyncDomain,
   type SpApiSyncMode,
-  type SpApiSyncTrigger,
-  type UpdateDataSourceInput
+  type SpApiSyncTrigger
 } from "@amazon-monitor/shared";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, type WhereBuilder } from "./sql-utils.js";
 import type { Store } from "./types.js";
@@ -27,6 +26,7 @@ type DataSourceStoreMethods = Pick<
   | "createDataSourceSyncRun"
   | "getDataSourceSyncRun"
   | "setDataSourceSyncRunExternalRequest"
+  | "setDataSourceSyncRunCheckpoint"
   | "finishDataSourceSyncRun"
   | "listDataSourceSyncRuns"
 >;
@@ -70,6 +70,7 @@ interface DataSourceSyncRunRow {
   failed_rows: number;
   created_records: number;
   updated_records: number;
+  error_code: string | null;
   error_summary: string | null;
   initiated_by_id: number | null;
   initiated_by_name: string | null;
@@ -235,11 +236,20 @@ export function createDataSourceStore(db: DatabaseSync): DataSourceStoreMethods 
       return this.getDataSourceSyncRun(id, orgId);
     },
 
+    setDataSourceSyncRunCheckpoint(id, orgId, checkpointSummary) {
+      db.prepare(`
+        UPDATE data_source_sync_runs
+        SET checkpoint_summary = ?
+        WHERE id = ? AND org_id = ? AND status IN ('pending', 'failed')
+      `).run(checkpointSummary, id, orgId);
+      return this.getDataSourceSyncRun(id, orgId);
+    },
+
     finishDataSourceSyncRun(id, input) {
       db.prepare(
         `UPDATE data_source_sync_runs SET
           status = ?, total_rows = ?, imported_rows = ?, failed_rows = ?,
-          created_records = ?, updated_records = ?, error_summary = ?,
+          created_records = ?, updated_records = ?, error_code = ?, error_summary = ?,
           checkpoint_summary = COALESCE(?, checkpoint_summary),
           external_request_id = COALESCE(?, external_request_id),
           retry_count = COALESCE(?, retry_count), finished_at = ?
@@ -251,6 +261,7 @@ export function createDataSourceStore(db: DatabaseSync): DataSourceStoreMethods 
         input.failedRows,
         input.createdRecords,
         input.updatedRecords,
+        input.errorCode ?? null,
         input.errorSummary ?? null,
         input.checkpointSummary ?? null,
         input.externalRequestId ?? null,
@@ -326,12 +337,19 @@ function mapSyncRun(row: DataSourceSyncRunRow): DataSourceSyncRun {
     failedRows: row.failed_rows,
     createdRecords: row.created_records,
     updatedRecords: row.updated_records,
+    errorCode: mapErrorCode(row.error_code),
     errorSummary: row.error_summary,
     initiatedById: row.initiated_by_id,
     initiatedByName: row.initiated_by_name,
     startedAt: row.started_at,
     finishedAt: row.finished_at
   };
+}
+
+function mapErrorCode(value: string | null): DataSourceSyncErrorCode | null {
+  return dataSourceSyncErrorCodes.includes(value as DataSourceSyncErrorCode)
+    ? value as DataSourceSyncErrorCode
+    : null;
 }
 
 function qWhere(q: string | undefined): WhereBuilder | null {

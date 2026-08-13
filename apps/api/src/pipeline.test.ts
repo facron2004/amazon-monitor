@@ -247,6 +247,34 @@ describe("collection pipeline", () => {
     expect(store.listTaskLogs()).toHaveLength(0);
     expect(store.listSnapshots({ date: "2026-05-17" })).toHaveLength(0);
   });
+
+  it("rolls back collected facts when the lease is lost at transaction commit", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const keyword = store.createKeyword({
+      keyword: "cordless leaf blower",
+      marketplace: "amazon.com",
+      crawlPages: 1,
+      status: "enabled"
+    });
+    const collector = new ControlledAmazonSearchCollector({
+      "2026-05-17": [product("B0LEASELOSS1", "Lease Guard Blower", 99.99, null, false)]
+    });
+
+    await expect(runCollectionForKeyword(store, keyword.id, "2026-05-17", {
+      collector,
+      ensureActive: () => {
+        if (store.listSnapshots({ date: "2026-05-17", keywordId: keyword.id }).length > 0) {
+          throw new DOMException("lost lease", "AbortError");
+        }
+      }
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(store.listSnapshots({ date: "2026-05-17", keywordId: keyword.id })).toHaveLength(0);
+    expect(store.listTaskLogs()).toHaveLength(0);
+    db.close();
+  });
 });
 
 function product(asin: string, title: string, currentPrice: number, couponText: string | null, isSponsored: boolean): SerpProductInput {

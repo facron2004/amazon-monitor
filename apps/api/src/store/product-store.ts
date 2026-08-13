@@ -1,6 +1,5 @@
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import type {
-  CreateOwnedProductInput,
   OwnedProduct,
   OwnedProductDailyMetric,
   OwnedProductDetail,
@@ -14,7 +13,16 @@ import type {
   UpsertOwnedProductDailyMetricInput
 } from "@amazon-monitor/shared";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, whereGte, whereLte, type WhereBuilder } from "./sql-utils.js";
-import { getSpApiProductEvidence } from "./sp-api-product-evidence.js";
+import {
+  getSpApiProductEvidence,
+  listSpApiOrganizationProductSalesMetrics,
+  listSpApiProductSalesMetrics
+} from "./sp-api-product-evidence.js";
+import {
+  MAX_EFFECTIVE_METRIC_ROWS,
+  resolveEffectiveProductMetrics,
+  resolveEffectiveProductMetricsForProducts
+} from "./product-metric-effective-store.js";
 import type { Store } from "./types.js";
 
 type ProductStoreMethods = Pick<
@@ -380,6 +388,7 @@ function metricRows(db: DatabaseSync, productId: number, filter: {
   endDate?: string;
   limit?: number;
   offset?: number;
+  effective?: boolean;
 } = {}): OwnedProductDailyMetric[] {
   const { sql, params } = buildWhere(
     whereEq("product_id", productId),
@@ -388,10 +397,21 @@ function metricRows(db: DatabaseSync, productId: number, filter: {
   );
   const limit = clampLimit(filter.limit ?? 90);
   const offset = clampOffset(filter.offset);
+  const fetchLimit = Math.min(MAX_EFFECTIVE_METRIC_ROWS, limit + offset);
   const rows = db
-    .prepare(`SELECT * FROM own_product_daily_metrics ${sql} ORDER BY metric_date DESC LIMIT ? OFFSET ?`)
-    .all(...params, limit, offset) as unknown as ProductMetricRow[];
-  return rows.map(mapMetric);
+    .prepare(`SELECT * FROM own_product_daily_metrics ${sql} ORDER BY metric_date DESC LIMIT ?`)
+    .all(...params, fetchLimit) as unknown as ProductMetricRow[];
+  if (filter.effective === false) {
+    return rows.map(mapMetric).slice(offset, offset + limit);
+  }
+  const effective = resolveEffectiveProductMetrics(
+    db,
+    productId,
+    rows.map(mapMetric),
+    listSpApiProductSalesMetrics(db, productId, filter.endDate, fetchLimit, filter.startDate),
+    fetchLimit
+  );
+  return effective.slice(offset, offset + limit);
 }
 
 function qWhere(q: string | undefined): WhereBuilder | null {
@@ -597,24 +617,57 @@ export function createProductStore(db: DatabaseSync): ProductStoreMethods {
     },
 
     listOrganizationProductDailyMetrics(orgId, filter = {}) {
+      const limit = clampLimit(filter.limit ?? 1000, MAX_EFFECTIVE_METRIC_ROWS);
+      const offset = clampOffset(filter.offset);
+      const fetchLimit = Math.min(MAX_EFFECTIVE_METRIC_ROWS, limit + offset);
       const { sql, params } = buildWhere(
         whereEq("p.org_id", orgId),
         whereEq("p.status", "active"),
         whereGte("m.metric_date", filter.startDate),
         whereLte("m.metric_date", filter.endDate)
       );
-      const limit = clampLimit(filter.limit ?? 1000);
-      const offset = clampOffset(filter.offset);
-      return (
-        db.prepare(
-          `SELECT m.*
-           FROM own_product_daily_metrics m
-           JOIN own_products p ON p.id = m.product_id
-           ${sql}
-           ORDER BY m.metric_date DESC, m.product_id ASC
-           LIMIT ? OFFSET ?`
-        ).all(...params, limit, offset) as unknown as ProductMetricRow[]
-      ).map(mapMetric);
+      const manualRows = db.prepare(
+        `SELECT m.*
+         FROM own_product_daily_metrics m
+         JOIN own_products p ON p.id = m.product_id
+         ${sql}
+         ORDER BY m.metric_date DESC, m.product_id ASC
+         LIMIT ?`
+      ).all(...params, fetchLimit) as unknown as ProductMetricRow[];
+      const manualByProduct = new Map<number, OwnedProductDailyMetric[]>();
+      for (const row of manualRows) {
+        const metrics = manualByProduct.get(row.product_id) ?? [];
+        metrics.push(mapMetric(row));
+        manualByProduct.set(row.product_id, metrics);
+      }
+      const spApiMetrics = listSpApiOrganizationProductSalesMetrics(
+        db,
+        orgId,
+        filter.endDate,
+        fetchLimit,
+        filter.startDate
+      );
+      const spApiByProduct = new Map<number, OwnedProductDailyMetric[]>();
+      for (const metric of spApiMetrics) {
+        const metrics = spApiByProduct.get(metric.productId) ?? [];
+        metrics.push(metric);
+        spApiByProduct.set(metric.productId, metrics);
+      }
+      const productIds = new Set([...manualByProduct.keys(), ...spApiByProduct.keys()]);
+      const effectiveByProduct = resolveEffectiveProductMetricsForProducts(
+        db,
+        [...productIds].map((productId) => ({
+          productId,
+          manualMetrics: manualByProduct.get(productId) ?? [],
+          spApiMetrics: spApiByProduct.get(productId) ?? []
+        })),
+        fetchLimit,
+        orgId
+      );
+      const effective = [...effectiveByProduct.values()].flat();
+      return effective
+        .sort((left, right) => right.date.localeCompare(left.date) || left.productId - right.productId || right.id - left.id)
+        .slice(offset, offset + limit);
     },
 
     getProductRiskScore(id, date) {

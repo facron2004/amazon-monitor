@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { resolveConfig, type ProxyOptions } from "vite";
-import { resolveApiProxyTarget } from "./utils/viteProxyTarget";
+import { resolveApiProxyTarget } from "./utils/viteProxyTarget.js";
 
 const require = createRequire(import.meta.url);
 

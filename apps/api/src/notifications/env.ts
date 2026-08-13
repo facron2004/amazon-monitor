@@ -41,14 +41,20 @@ const ALLOWED_ENV_KEYS = new Set([
 export function loadEnv() {
   try {
     const currentFile = fileURLToPath(import.meta.url);
+    const configuredPath = cleanEnvValue(process.env.AMAZON_MONITOR_ENV_FILE);
     const searchPaths = [
+      ...(configuredPath ? [path.resolve(process.cwd(), configuredPath)] : []),
       path.join(process.cwd(), ".env"),
       path.join(process.cwd(), "../..", ".env"),
       path.resolve(path.dirname(currentFile), "../../../../..", ".env")
     ];
+    const seenPaths = new Set<string>();
     for (const envPath of searchPaths) {
-      if (fs.existsSync(envPath)) {
-        const content = fs.readFileSync(envPath, "utf-8");
+      const normalizedPath = path.resolve(envPath);
+      if (seenPaths.has(normalizedPath)) continue;
+      seenPaths.add(normalizedPath);
+      if (fs.existsSync(normalizedPath)) {
+        const content = fs.readFileSync(normalizedPath, "utf-8");
         for (const line of content.split(/\r?\n/)) {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith("#")) continue;

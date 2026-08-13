@@ -110,12 +110,9 @@ export const useInsightEventsStore = defineStore("insightEvents", {
     reviewedConfirmedCount: (state) => state.events.filter((event) => event.reviewResult === "CONFIRMED").length,
     coreRiskCount: (state) => state.events.filter((event) => event.eventType === "CORE_COMPETITOR_RISK").length,
     visibleEvents: (state) => filterAndSortEvents(state.events, state.watchStates, state.filters),
-    visibleAsinGroups(state): AsinGroupedView[] {
+    visibleAsinGroups(): AsinGroupedView[] {
       // Group from the filtered set so toggles (核心竞品/新品/待复盘) still apply.
-      return groupEventsByAsin(
-        filterAndSortEvents(state.events, state.watchStates, state.filters),
-        state.watchStates
-      );
+      return groupEventsByAsin(this.visibleEvents, this.watchStates);
     }
   },
   actions: {

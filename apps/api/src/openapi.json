@@ -45,6 +45,14 @@
       }
     },
     "schemas": {
+      "DataSourceImportPolicy": {
+        "type": "object",
+        "properties": {
+          "allowSpApiOverride": { "type": "boolean", "default": false },
+          "overrideReason": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "restoreOnSpApiSuccess": { "type": "boolean", "default": false, "description": "When true, a later successful SP-API fact restores field authority at read time" }
+        }
+      },
       "TaskMetricEntries": {
         "type": "array",
         "maxItems": 20,
@@ -634,7 +642,7 @@
         "summary": "Get independent sales and inventory health for an SP-API data source",
         "parameters": [{ "$ref": "#/components/parameters/Id" }],
         "responses": {
-          "200": { "description": "SP-API connection and domain health without credential material" },
+          "200": { "description": "SP-API connection and domain health without credential material; includes connectorEnabled and reports disabled when the opt-in flag is off" },
           "404": { "description": "Data source not found" },
           "409": { "description": "Data source is not an Amazon SP-API source" }
         }
@@ -763,6 +771,23 @@
           "403": { "description": "Data-source management capability required" },
           "404": { "description": "Data source, issue, or owned product not found" },
           "409": { "description": "Data source is not an Amazon SP-API source" }
+        }
+      }
+    },
+    "/data-sources/{id}/overrides": {
+      "get": {
+        "summary": "List field-level source override audits for a data source",
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "name": "productId", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Organization-scoped field-level source override audits" },
+          "400": { "description": "Invalid query parameters" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Data source not found" }
         }
       }
     },
@@ -1015,6 +1040,16 @@
         "summary": "Transition a task state",
         "parameters": [{ "$ref": "#/components/parameters/Id" }],
         "responses": { "200": { "description": "Task transitioned" }, "404": { "description": "Task not found" } }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Readiness snapshot",
+        "security": [],
+        "responses": {
+          "200": { "description": "API, database, web assets and any explicitly required Worker are ready" },
+          "503": { "description": "A required runtime dependency is unavailable" }
+        }
       }
     },
     "/health": {
@@ -1475,7 +1510,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Organization-scoped synchronization run history"
+            "description": "Organization-scoped synchronization run history; each run exposes retryCount, stable errorCode, and human-readable errorSummary"
           },
           "400": { "description": "Invalid query parameters" },
           "401": { "description": "Authentication required" },
@@ -1509,7 +1544,8 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 1000000
-                      }
+                      },
+                      "policy": { "$ref": "#/components/schemas/DataSourceImportPolicy" }
                     }
                   },
                   {
@@ -1523,7 +1559,8 @@
                         "minLength": 1,
                         "maxLength": 7000000
                       },
-                      "fileName": { "type": "string", "maxLength": 255 }
+                      "fileName": { "type": "string", "maxLength": 255 },
+                      "policy": { "$ref": "#/components/schemas/DataSourceImportPolicy" }
                     }
                   },
                   {
@@ -1535,7 +1572,8 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 1000000
-                      }
+                      },
+                      "policy": { "$ref": "#/components/schemas/DataSourceImportPolicy" }
                     }
                   }
                 ]
@@ -5673,7 +5711,7 @@
           }
         ],
         "responses": {
-          "200": { "description": "Collector queue jobs" }
+          "200": { "description": "Collector queue jobs; pending retries expose nextAttemptAt when a Retry-After or backoff delay is active" }
         }
       }
     },
@@ -5689,7 +5727,7 @@
           }
         ],
         "responses": {
-          "200": { "description": "Collector queue job" },
+          "200": { "description": "Collector queue job; pending retries expose nextAttemptAt when a Retry-After or backoff delay is active" },
           "404": { "description": "Collector job not found" }
         }
       }

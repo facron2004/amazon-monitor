@@ -4,8 +4,7 @@ import type {
   ProductDataFreshness,
   ProductListingHealthItem,
   ProductListingSnapshot,
-  ProductSyncStatus,
-  UpsertProductListingSnapshotInput
+  ProductSyncStatus
 } from "@amazon-monitor/shared";
 import { scoreListingHealth } from "../services/listing-health-service.js";
 import { buildWhere, clampLimit, clampOffset, nowIso, whereEq, type WhereBuilder } from "./sql-utils.js";

@@ -119,4 +119,64 @@ describe("products API", () => {
   it("requires authentication for owned product data", async () => {
     await request(app).get("/api/products").expect(401);
   });
+
+  it("blocks direct manual replacement of fresh SP-API sales fields", async () => {
+    const token = await login();
+    const source = store.createDataSource({ orgId: 1, name: "Products SP-API", sourceType: "amazon_sp_api" });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "Products seller",
+      marketplace: "amazon.com",
+      sellerId: "PRODUCTS-SELLER"
+    });
+    const run = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: source.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "products-sp-api-sales"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "PRODUCTS-SP-1",
+      asin: "B0PRODUCTS01",
+      title: "Products API authority"
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: source.id,
+      syncRunId: run.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-20",
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sourceAsin: product.asin,
+      sessions: 70,
+      orders: 3,
+      unitsSold: 4,
+      salesAmount: 120,
+      currency: "USD"
+    }]);
+
+    await request(app)
+      .post(`/api/products/${product.id}/metrics`)
+      .set("Cookie", token)
+      .send({ date: "2026-07-20", salesAmount: 999, inventoryDays: 30 })
+      .expect(409);
+    await request(app)
+      .post(`/api/products/${product.id}/metrics`)
+      .set("Cookie", token)
+      .send({ date: "2026-07-20", inventoryDays: 30 })
+      .expect(201);
+
+    expect(db.prepare(
+      "SELECT sales_amount, inventory_days FROM own_product_daily_metrics WHERE product_id = ? AND metric_date = ?"
+    ).get(product.id, "2026-07-20")).toEqual({ sales_amount: null, inventory_days: 30 });
+    expect(store.listProductDailyMetrics(product.id)[0]).toMatchObject({ salesAmount: 120, inventoryDays: 30 });
+  });
 });

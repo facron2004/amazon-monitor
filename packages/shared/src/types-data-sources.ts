@@ -33,11 +33,40 @@ export const dataSourceSyncOperations = [
 export type DataSourceSyncOperation = (typeof dataSourceSyncOperations)[number];
 
 export type DataSourceImportPayload =
-  | { format: "csv"; content: string }
-  | { format: "xlsx"; contentBase64: string; fileName?: string };
+  | { format: "csv"; content: string; policy?: DataSourceImportPolicy }
+  | { format: "xlsx"; contentBase64: string; fileName?: string; policy?: DataSourceImportPolicy };
+
+export interface DataSourceImportPolicy {
+  /** Allows a product file to replace same-day SP-API sales fields after an audit. */
+  allowSpApiOverride?: boolean;
+  overrideReason?: string;
+  /** When enabled, a newer successful SP-API fact regains field authority at read time. */
+  restoreOnSpApiSuccess?: boolean;
+}
 
 export const dataSourceSyncRunStatuses = ["pending", "success", "partial", "failed"] as const;
 export type DataSourceSyncRunStatus = (typeof dataSourceSyncRunStatuses)[number];
+
+/** Stable machine-readable failure categories shared by sync runs, health, and UI. */
+export const dataSourceSyncErrorCodes = [
+  "connector_disabled",
+  "credentials_invalid",
+  "credentials_revoked",
+  "permission_missing",
+  "marketplace_mismatch",
+  "rate_limited",
+  "amazon_5xx",
+  "network_timeout",
+  "report_cancelled",
+  "report_fatal",
+  "document_download_failed",
+  "schema_invalid",
+  "mapping_blocked",
+  "lease_lost",
+  "database_failed",
+  "unknown"
+] as const;
+export type DataSourceSyncErrorCode = (typeof dataSourceSyncErrorCodes)[number];
 
 export const spApiSyncDomains = ["sales_traffic", "fba_inventory"] as const;
 export type SpApiSyncDomain = (typeof spApiSyncDomains)[number];
@@ -142,6 +171,7 @@ export interface DataSourceSyncRun {
   failedRows: number;
   createdRecords: number;
   updatedRecords: number;
+  errorCode: DataSourceSyncErrorCode | null;
   errorSummary: string | null;
   initiatedById: number | null;
   initiatedByName: string | null;
@@ -183,6 +213,7 @@ export interface FinishDataSourceSyncRunInput {
   failedRows: number;
   createdRecords: number;
   updatedRecords: number;
+  errorCode?: DataSourceSyncErrorCode | null;
   errorSummary?: string | null;
   checkpointSummary?: string | null;
   externalRequestId?: string | null;
@@ -208,6 +239,7 @@ export interface DataSourceDomainHealth {
 export interface SpApiConnectionHealth {
   dataSourceId: number;
   region: SpApiRegion | null;
+  connectorEnabled: boolean;
   credentialsConfigured: boolean;
   status: SpApiConnectionHealthStatus;
   linkedStoreIds: number[];
@@ -368,6 +400,67 @@ export interface DataSourceImportError {
   message: string;
 }
 
+export const dataSourceOverrideDomains = ["sales_traffic"] as const;
+export type DataSourceOverrideDomain = (typeof dataSourceOverrideDomains)[number];
+
+export const dataSourceOverrideFields = [
+  "sessions",
+  "pageViews",
+  "orders",
+  "unitsSold",
+  "salesAmount",
+  "buyBoxPercentage",
+  "conversionRate"
+] as const;
+export type DataSourceOverrideField = (typeof dataSourceOverrideFields)[number];
+
+export interface DataSourceOverrideAudit {
+  id: number;
+  orgId: number;
+  dataSourceId: number;
+  dataSourceName: string;
+  syncRunId: number;
+  productId: number;
+  domain: DataSourceOverrideDomain;
+  effectiveDate: string;
+  fieldName: DataSourceOverrideField;
+  previousDataSourceId: number;
+  previousDataSourceName: string;
+  previousSyncRunId: number;
+  previousValue: number | null;
+  newValue: number | null;
+  overriddenById: number;
+  overriddenByName: string;
+  reason: string;
+  restoreOnSpApiSuccess: boolean;
+  createdAt: string;
+}
+
+export interface CreateDataSourceOverrideAuditInput {
+  orgId: number;
+  dataSourceId: number;
+  syncRunId: number;
+  productId: number;
+  domain: DataSourceOverrideDomain;
+  effectiveDate: string;
+  fieldName: DataSourceOverrideField;
+  previousDataSourceId: number;
+  previousSyncRunId: number;
+  previousValue: number | null;
+  newValue: number | null;
+  overriddenById: number;
+  reason: string;
+  restoreOnSpApiSuccess?: boolean;
+}
+
+export interface DataSourceOverrideAuditListFilter {
+  orgId: number;
+  dataSourceId: number;
+  productId?: number;
+  limit?: number;
+  offset?: number;
+}
+
 export interface DataSourceProductImportResult {
   source: DataSourceConfig;
   totalRows: number;
@@ -376,6 +469,7 @@ export interface DataSourceProductImportResult {
   createdProducts: number;
   updatedProducts: number;
   errors: DataSourceImportError[];
+  warnings: DataSourceImportError[];
 }
 
 export interface DataSourceAdsImportResult {

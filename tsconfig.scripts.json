@@ -1,0 +1,39 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/benchmark-effective-metrics.ts",
+    "scripts/inspect-sqlite-storage.ts",
+    "scripts/sp-api-shadow-evidence-day.ts",
+    "scripts/sp-api-shadow-evidence-collector.ts",
+    "scripts/sp-api-shadow-evidence-collector-types.ts",
+    "scripts/sp-api-shadow-evidence-collector-utils.ts",
+    "scripts/sp-api-shadow-evidence-config.ts",
+    "scripts/collect-sp-api-shadow-evidence.ts",
+    "scripts/collect-sp-api-shadow-evidence.test.ts",
+    "scripts/sp-api-shadow-evidence-validation.ts",
+    "scripts/verify-sp-api-recovery-shadow.ts",
+    "scripts/verify-sp-api-fixture-shadow.ts",
+    "scripts/verify-sp-api-shadow-evidence.ts",
+    "scripts/verify-sp-api-shadow-evidence.test.ts",
+    "scripts/verify-sp-api-shadow-preflight.ts",
+    "scripts/verify-sp-api-shadow-preflight-cli.ts",
+    "scripts/verify-sp-api-shadow-preflight.test.ts",
+    "scripts/verify-sp-api-shadow-preflight-types.ts",
+    "scripts/verify-sp-api-shadow-preflight-utils.ts",
+    "scripts/verify-sp-api-shadow-preflight-boundaries.ts",
+    "scripts/sp-api-shadow-package-policy.ts",
+    "scripts/sp-api-shadow-package-csv.ts",
+    "scripts/assemble-sp-api-shadow-package.ts",
+    "scripts/assemble-sp-api-shadow-package-cli.ts",
+    "scripts/assemble-sp-api-shadow-package.test.ts",
+    "scripts/verify-sp-api-shadow-package.ts",
+    "scripts/verify-sp-api-shadow-package-cli.ts",
+    "scripts/verify-sp-api-shadow-package-types.ts",
+    "scripts/verify-sp-api-shadow-package.test.ts"
+  ]
+}

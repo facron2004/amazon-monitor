@@ -115,7 +115,7 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
       // Batch: for scopes without a previous date, check if any earlier history exists
       const todayGroups = groupBsrHistoryByScope(today);
       const scopesMissingPrevious = new Set<string>();
-      for (const [scopeKey, scopeItems] of todayGroups) {
+      for (const scopeKey of todayGroups.keys()) {
         if (!previousDateMap.has(scopeKey)) {
           scopesMissingPrevious.add(scopeKey);
         }

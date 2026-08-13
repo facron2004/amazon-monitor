@@ -8,6 +8,7 @@ import type {
   DataSourceProductImportResult,
   DataSourceListFilter,
   DataSourceMappingIssue,
+  DataSourceOverrideAudit,
   DataSourceSyncRun,
   DataSourceSyncRunListFilter,
   SpApiConnectionHealth,
@@ -96,6 +97,8 @@ export const dataSourceApi = {
   getSpApiHealth: (id: number) => request<SpApiConnectionHealth>(`/data-sources/${id}/health`),
 
   listSpApiMappingIssues: (id: number) => request<DataSourceMappingIssue[]>(`/data-sources/${id}/mapping-issues?status=open&limit=50`),
+
+  listOverrides: (id: number) => request<DataSourceOverrideAudit[]>(`/data-sources/${id}/overrides?limit=50`),
 
   importProductsFile: (id: number, payload: DataSourceImportPayload) =>
     request<DataSourceProductImportResult>(`/data-sources/${id}/import/products`, {

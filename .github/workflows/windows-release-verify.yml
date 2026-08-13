@@ -1,0 +1,90 @@
+name: Windows release verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      REQUIRE_CODE_SIGNATURE: "true"
+      REQUIRE_INSTALLER_SIGNATURE: "true"
+      REQUIRE_PACKAGE_RUNTIME: "true"
+      REQUIRE_PACKAGE_AGENT_RUNTIME: "true"
+      REQUIRE_PACKAGE_NOTIFICATION_RUNTIME: "true"
+      REQUIRE_PACKAGE_API_RECOVERY: "true"
+      REQUIRE_PACKAGE_AGENT_CRAWLER_RECOVERY: "true"
+      REQUIRE_PACKAGE_INSTALL: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate signing configuration
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CSC_LINK)) {
+            throw "CSC_LINK is required for the signed Windows release workflow."
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Full repository verification
+        run: npm run verify
+
+      - name: Build signed Windows package
+        run: npm --workspace @amazon-monitor/desktop run package:win
+
+      - name: Verify package, signatures, runtime, and recovery
+        run: npm run verify:release:win
+
+      - name: Install and uninstall smoke
+        run: npm run verify:package-install
+
+      - name: Installed package recovery smoke
+        run: npm run verify:package-install-recovery
+
+      - name: Upgrade and data preservation smoke
+        run: npm run verify:package-upgrade
+
+      - name: SQLite backup and restore drill
+        run: npm run verify:db-backup-drill
+
+      - name: Collect release evidence
+        if: always()
+        env:
+          REQUIRE_RELEASE_EVIDENCE: "true"
+        run: npm run collect:release-evidence -- --output release/evidence/windows-release-evidence.json
+
+      - name: Verify release evidence integrity
+        if: always()
+        env:
+          REQUIRE_RELEASE_EVIDENCE: "true"
+        run: npm run verify:release-evidence -- --input release/evidence/windows-release-evidence.json
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-monitor-windows-release-evidence-${{ github.run_id }}
+          path: |
+            release/evidence/windows-release-evidence.json
+            release/electron/builder-debug.yml
+          if-no-files-found: error
+          retention-days: 14

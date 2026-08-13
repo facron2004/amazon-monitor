@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import type { Server } from "node:http";
 import { loadEnv } from "./notifier.js";
 
 loadEnv();
@@ -9,8 +11,9 @@ import { createApiApp } from "./server.js";
 import { enqueueScheduledSpApiSyncs } from "./services/sp-api-scheduler.js";
 import { isoDate } from "./pipeline.js";
 import { attachCronDiagnostics, createExclusiveCronRunner } from "./scheduler.js";
-import { openAppStore } from "./store.js";
-import { startWorker } from "./worker.js";
+import { openAppStoreHandle } from "./store.js";
+import { SCHEMA_VERSION } from "./store/migrations.js";
+import { startWorker, stopWorker } from "./worker.js";
 import {
   configureDesktopAgentRecoveryStarter,
   configureDesktopAgentStore,
@@ -20,6 +23,8 @@ import { AgentRuntimeService } from "./services/agent-runtime-service.js";
 import { recoverInterruptedAgentRuns } from "./services/agent-runtime-recovery.js";
 
 const port = Number(process.env.PORT ?? 4000);
+const host = process.env.HOST ?? "127.0.0.1";
+export const bootId = randomUUID();
 const defaultDbPath = (() => {
   try {
     return fileURLToPath(new URL("../../../data/amazon-monitor.sqlite", import.meta.url));
@@ -38,7 +43,8 @@ if (!process.env.WEB_DIST_PATH) {
   }
 }
 
-const store = openAppStore(process.env.DB_PATH ?? defaultDbPath);
+const storeHandle = openAppStoreHandle(process.env.DB_PATH ?? defaultDbPath);
+const store = storeHandle.store;
 configureDesktopAgentStore(store);
 recoverInterruptedAgentRuns(store);
 const agentRuntime = new AgentRuntimeService(store);
@@ -46,8 +52,14 @@ configureDesktopAgentRecoveryStarter((run, freshnessInput) => {
   agentRuntime.start(run, freshnessInput);
 });
 
+let server: Server | null = null;
+let workerStarted = false;
+let cronTasks: Array<{ stop(): void }> = [];
+let storeClosed = false;
+let shutdownPromise: Promise<void> | null = null;
+
 function startCron() {
-  if (process.env.ENABLE_CRON === "false") return;
+  if (process.env.ENABLE_CRON === "false" || cronTasks.length > 0) return;
   const collectionTask = cron.schedule(
     "0 9 * * *",
     createExclusiveCronRunner("daily-collection", async () => {
@@ -98,12 +110,16 @@ function startCron() {
     { timezone: "Asia/Shanghai", name: "sp-api-fba-full-reconcile", noOverlap: true }
   );
   attachCronDiagnostics(spApiReconcileTask, "sp-api-fba-full-reconcile");
+  cronTasks = [collectionTask, notificationTask, spApiSalesTask, spApiInventoryTask, spApiReconcileTask];
 }
 
 export function startServer(silent = false) {
+  if (server) return server;
   startCron();
   if (process.env.RUN_WORKER === "true") {
+    workerStarted = true;
     startWorker(store, {
+      handleSignals: false,
       onJobCompleted: (job) => {
         startRecoveryForJob(job.id);
       },
@@ -111,9 +127,57 @@ export function startServer(silent = false) {
       console.error("[Worker] Failed to start background worker thread:", err);
     });
   }
-  return createApiApp(store, { agentRuntime }).listen(port, () => {
-    if (!silent) console.log(`Amazon monitor API listening on http://localhost:${port}`);
+  server = createApiApp(store, {
+    agentRuntime,
+    setupToken: process.env.DESKTOP_SETUP_TOKEN,
+    bootId,
+    schemaVersion: SCHEMA_VERSION,
+  }).listen(port, host, () => {
+    if (!silent) {
+      const address = server?.address();
+      const actualPort = typeof address === "object" && address ? address.port : port;
+      console.log(`Amazon monitor API listening on http://${host}:${actualPort} (bootId=${bootId})`);
+    }
   });
+  return server;
 }
 
-startServer();
+export async function stopServer(): Promise<void> {
+  cronTasks.splice(0).forEach((task) => task.stop());
+  if (workerStarted) {
+    workerStarted = false;
+    await stopWorker();
+  }
+  const activeServer = server;
+  server = null;
+  if (activeServer?.listening) {
+    await new Promise<void>((resolve) => activeServer.close(() => resolve()));
+  }
+  if (storeClosed) return;
+  try {
+    storeHandle.checkpoint();
+  } catch (error) {
+    console.error("[API] SQLite checkpoint failed during shutdown:", error);
+  } finally {
+    storeHandle.close();
+    storeClosed = true;
+  }
+}
+
+function installSignalHandlers(): void {
+  // The desktop parent owns utility-process shutdown. Standalone API runs need
+  // their own signal boundary so WAL state and cron timers close cleanly.
+  if (process.env.DESKTOP_PROCESS_ROLE === "api") return;
+  const shutdown = () => {
+    if (shutdownPromise) return;
+    shutdownPromise = stopServer().finally(() => process.exit(0));
+    void shutdownPromise;
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+}
+
+if (process.env.DESKTOP_PROCESS_ROLE !== "api") {
+  installSignalHandlers();
+  startServer();
+}

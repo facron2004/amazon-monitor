@@ -4,7 +4,6 @@ import type {
   CommerceStore,
   OwnedProductListItem,
   PromotionMonitorState,
-  PromotionPlanStatus,
   PromotionPlanView,
   PromotionTaskKind,
   UpdatePromotionPlanInput

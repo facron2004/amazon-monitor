@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSecureWebPreferences,
   isAllowedRendererUrl,
+  isTrustedRendererUrl,
   resolveExternalUrl,
 } from "./browser-security.js";
 import {
@@ -21,7 +22,14 @@ import {
   migrateLegacyDatabase,
   shouldMigrateDatabase,
 } from "./desktop-paths.js";
+import {
+  buildProcessEnvironment,
+  pinApiPort,
+  resolveProcessInitialization,
+} from "./process-environment.js";
+import { redactLogMessage } from "./log-redaction.js";
 import { BoundedRestartPolicy } from "./restart-policy.js";
+import { postMessageSafely, shouldHandleProcessExit } from "./process-supervisor.js";
 import { SecureApiKeyStore, type AsyncSafeStorage } from "./secure-key-store.js";
 import { SecureModelConnectionStore } from "./secure-model-connection-store.js";
 
@@ -35,6 +43,71 @@ afterEach(() => {
 });
 
 describe("desktop security", () => {
+  it("passes only role-scoped environment values to utility processes", () => {
+    const inherited = {
+      PATH: "C:/Windows",
+      SystemRoot: "C:/Windows",
+      OPENAI_API_KEY: "sk-inherited-secret",
+      SMTP_PASS: "smtp-secret",
+      DATA_SOURCE_CREDENTIALS_KEY: "credential-secret",
+    };
+    const configured = {
+      NODE_ENV: "production",
+      DB_PATH: "C:/data/amazon-monitor.sqlite",
+      WEB_DIST_PATH: "C:/resources/web",
+      SMTP_PASS: "smtp-configured-secret",
+    };
+
+    const apiEnvironment = buildProcessEnvironment("api", inherited, configured);
+    const agentEnvironment = buildProcessEnvironment("agent", inherited, configured);
+
+    expect(apiEnvironment).toMatchObject({
+      NODE_ENV: "production",
+      DB_PATH: "C:/data/amazon-monitor.sqlite",
+      SMTP_PASS: "smtp-configured-secret",
+    });
+    expect(apiEnvironment).not.toHaveProperty("OPENAI_API_KEY");
+    expect(agentEnvironment).toMatchObject({
+      NODE_ENV: "production",
+      PATH: "C:/Windows",
+    });
+    expect(agentEnvironment).not.toHaveProperty("SMTP_PASS");
+    expect(agentEnvironment).not.toHaveProperty("DATA_SOURCE_CREDENTIALS_KEY");
+  });
+
+  it("pins the dynamically allocated API port for utility restarts", () => {
+    const configured = { PORT: "0" };
+
+    pinApiPort(configured, 43_210);
+    expect(configured.PORT).toBe("43210");
+
+    pinApiPort(configured, 0);
+    pinApiPort(configured, 65_536);
+    expect(configured.PORT).toBe("43210");
+  });
+
+  it("reuses the setup initialization on a utility restart", () => {
+    const initial = resolveProcessInitialization(undefined, { setupToken: "one-time" });
+    const restarted = resolveProcessInitialization(initial, {});
+    const replaced = resolveProcessInitialization(initial, { setupToken: "rotated" });
+
+    expect(initial).toEqual({ setupToken: "one-time" });
+    expect(restarted).toEqual({ setupToken: "one-time" });
+    expect(replaced).toEqual({ setupToken: "rotated" });
+  });
+
+  it("redacts credential-shaped values before utility logs are persisted", () => {
+    const redacted = redactLogMessage(
+      "password=secret smtp_pass:mail-secret Authorization: Bearer token-value sk-1234567890123456",
+    );
+
+    expect(redacted).not.toContain("secret");
+    expect(redacted).not.toContain("mail-secret");
+    expect(redacted).not.toContain("token-value");
+    expect(redacted).not.toContain("sk-1234567890123456");
+    expect(redacted).toContain("[REDACTED]");
+  });
+
   it("keeps the renderer sandboxed behind an isolated preload", () => {
     expect(createSecureWebPreferences("preload.cjs")).toMatchObject({
       contextIsolation: true,
@@ -49,6 +122,17 @@ describe("desktop security", () => {
       "http://127.0.0.1:43210/",
       "http://127.0.0.1:43210",
     )).toBe(true);
+  });
+
+  it("does not trust DevTools as an IPC sender", () => {
+    expect(isTrustedRendererUrl(
+      "http://127.0.0.1:43210/",
+      "http://127.0.0.1:43210",
+    )).toBe(true);
+    expect(isTrustedRendererUrl(
+      "devtools://devtools/bundled/inspector.html",
+      "http://127.0.0.1:43210",
+    )).toBe(false);
   });
 
   it("identifies valid external HTTP/HTTPS URLs for shell opening", async () => {
@@ -317,6 +401,40 @@ describe("utility process restart policy", () => {
     expect(policy.recordFailure("api", 1).restart).toBe(true);
     expect(policy.recordFailure("api", 2).restart).toBe(false);
     expect(policy.recordFailure("agent", 2).restart).toBe(true);
+  });
+
+  it("resets the crash window after a process becomes healthy", () => {
+    const policy = new BoundedRestartPolicy(2, 60_000);
+
+    expect(policy.recordFailure("agent", 0).restart).toBe(true);
+    expect(policy.recordFailure("agent", 1).restart).toBe(true);
+    policy.reset("agent");
+    expect(policy.recordFailure("agent", 2).restart).toBe(true);
+  });
+
+  it("contains MessagePort shutdown races and reports delivery failure", () => {
+    const delivered = vi.fn();
+    const port = { postMessage: delivered };
+
+    expect(postMessageSafely(port, { type: "ping" })).toBe(true);
+    expect(delivered).toHaveBeenCalledWith({ type: "ping" });
+
+    const closedPort = {
+      postMessage: vi.fn(() => {
+        throw new Error("The port is closed");
+      }),
+    };
+    expect(postMessageSafely(closedPort, { type: "ping" })).toBe(false);
+    expect(postMessageSafely(undefined, { type: "ping" })).toBe(false);
+  });
+
+  it("ignores an exit event from an older utility child after replacement", () => {
+    const currentChild = {};
+    const oldChild = {};
+
+    expect(shouldHandleProcessExit(currentChild, oldChild)).toBe(false);
+    expect(shouldHandleProcessExit(currentChild, currentChild)).toBe(true);
+    expect(shouldHandleProcessExit(undefined, oldChild)).toBe(true);
   });
 });
 

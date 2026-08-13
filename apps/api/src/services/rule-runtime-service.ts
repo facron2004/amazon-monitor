@@ -9,8 +9,7 @@ import {
   emitRuleEvent,
   formatNumber,
   formatPercent,
-  matchesRule,
-  type RuleRunInput
+  matchesRule
 } from "./rule-runtime-utils.js";
 import {
   evaluateKeywordRule,

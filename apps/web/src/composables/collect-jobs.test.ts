@@ -15,6 +15,7 @@ function buildJob(overrides: Partial<CollectJob> = {}): CollectJob {
     completedAt: null,
     errorMessage: null,
     retryCount: 0,
+    nextAttemptAt: null,
     ...overrides
   };
 }

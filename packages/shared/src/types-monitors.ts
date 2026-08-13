@@ -1,5 +1,3 @@
-import type { NullableNumber } from "./types-common.js";
-
 export type KeywordStatus = "enabled" | "disabled";
 export const keywordPriorities = ["S", "A", "B", "C"] as const;
 export type KeywordPriority = (typeof keywordPriorities)[number];

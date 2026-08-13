@@ -1,5 +1,6 @@
 import type { DataSourceConfig, SpApiSyncDomain, SpApiSyncMode } from "@amazon-monitor/shared";
 import type { Store } from "../store.js";
+import { isSpApiConnectorEnabled } from "./sp-api-feature-flag.js";
 
 export type ScheduledSpApiSyncKind = "sales_daily" | "fba_incremental" | "fba_full";
 
@@ -9,6 +10,8 @@ export function enqueueScheduledSpApiSyncs(
   kind: ScheduledSpApiSyncKind,
   now = new Date()
 ): number {
+  if (!isSpApiConnectorEnabled()) return 0;
+
   let count = 0;
   for (const source of store.listDataSources({ sourceType: "amazon_sp_api", limit: 1_000 })) {
     if (source.status === "disabled" || source.status === "not_connected") continue;

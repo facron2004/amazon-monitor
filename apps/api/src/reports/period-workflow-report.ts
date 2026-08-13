@@ -158,7 +158,6 @@ function buildMarketplacePerformance(
   currentMetrics: OwnedProductDailyMetric[],
   previousMetrics: OwnedProductDailyMetric[]
 ): MarketplacePerformance[] {
-  const productById = new Map(products.map((product) => [product.id, product]));
   const marketplaces = [...new Set(products.map((product) => product.marketplace))].sort();
   return marketplaces.map((marketplace) => {
     const productIds = new Set(products.filter((product) => product.marketplace === marketplace).map((product) => product.id));

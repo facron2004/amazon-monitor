@@ -1,16 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
-  CreateTaskInput,
-  InsightEventTaskLink,
-  Task,
-  TaskExecutionInput,
-  TaskNote,
   TaskPriority,
   TaskSourceType,
   TaskStatus,
-  UpdateTaskInput
 } from "@amazon-monitor/shared";
-import { nowIso, withTransaction } from "./sql-utils.js";
+import { nowIso } from "./sql-utils.js";
 import type { Store } from "./types.js";
 import {
   insertTask,

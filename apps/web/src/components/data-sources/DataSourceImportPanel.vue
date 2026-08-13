@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { CircleDollarSign, FileSpreadsheet, Upload, Warehouse } from "@lucide/vue";
-import { ElButton } from "element-plus";
+import { ElButton, ElCheckbox, ElInput } from "element-plus";
 import type { DataSourceConfig, DataSourceImportPayload } from "@amazon-monitor/shared";
 import { useDataSourcesStore } from "../../stores/dataSources";
 
@@ -18,6 +18,9 @@ const adsInput = ref<HTMLInputElement | null>(null);
 const costInput = ref<HTMLInputElement | null>(null);
 const inventoryInput = ref<HTMLInputElement | null>(null);
 const fileError = ref<string | null>(null);
+const allowSpApiOverride = ref(false);
+const overrideReason = ref("");
+const restoreOnSpApiSuccess = ref(true);
 
 type ImportKind = "products" | "ads" | "costs" | "inventory";
 
@@ -29,7 +32,8 @@ const result = computed(() => {
       failedRows: importResult.value.failedRows,
       createdRows: importResult.value.createdProducts,
       updatedRows: importResult.value.updatedProducts,
-      errors: importResult.value.errors
+      errors: importResult.value.errors,
+      warnings: importResult.value.warnings
     };
   }
   if (lastImportKind.value === "ads" && adsImportResult.value?.source.id === props.source.id) {
@@ -39,7 +43,8 @@ const result = computed(() => {
       failedRows: adsImportResult.value.failedRows,
       createdRows: adsImportResult.value.createdMetrics,
       updatedRows: adsImportResult.value.updatedMetrics,
-      errors: adsImportResult.value.errors
+      errors: adsImportResult.value.errors,
+      warnings: []
     };
   }
   if (lastImportKind.value === "costs" && costImportResult.value?.source.id === props.source.id) {
@@ -49,7 +54,8 @@ const result = computed(() => {
       failedRows: costImportResult.value.failedRows,
       createdRows: costImportResult.value.createdSettings,
       updatedRows: costImportResult.value.updatedSettings,
-      errors: costImportResult.value.errors
+      errors: costImportResult.value.errors,
+      warnings: []
     };
   }
   if (lastImportKind.value === "inventory" && inventoryImportResult.value?.source.id === props.source.id) {
@@ -59,7 +65,8 @@ const result = computed(() => {
       failedRows: inventoryImportResult.value.failedRows,
       createdRows: inventoryImportResult.value.createdSettings,
       updatedRows: inventoryImportResult.value.updatedSettings,
-      errors: inventoryImportResult.value.errors
+      errors: inventoryImportResult.value.errors,
+      warnings: []
     };
   }
   return null;
@@ -76,12 +83,26 @@ async function handleFile(event: Event, kind: ImportKind): Promise<void> {
   target.value = "";
   if (!file) return;
   fileError.value = null;
+  if (kind === "products" && allowSpApiOverride.value && !overrideReason.value.trim()) {
+    fileError.value = "Enter an override reason before replacing SP-API sales fields.";
+    return;
+  }
   let payload: DataSourceImportPayload;
   try {
     payload = await filePayload(file);
   } catch (err) {
     fileError.value = (err as Error).message;
     return;
+  }
+  if (kind === "products" && allowSpApiOverride.value) {
+    payload = {
+      ...payload,
+      policy: {
+        allowSpApiOverride: true,
+        overrideReason: overrideReason.value.trim(),
+        restoreOnSpApiSuccess: restoreOnSpApiSuccess.value
+      }
+    };
   }
   const operations = {
     products: () => store.importProductsFile(props.source.id, payload),
@@ -120,6 +141,26 @@ async function filePayload(file: File): Promise<DataSourceImportPayload> {
         <strong>Product operations</strong>
         <p>Owned SKU identity, sales, traffic, inventory, and daily health metrics.</p>
         <span>CSV/XLSX required: sku, asin, title, date<span v-if="!source.marketplace">, marketplace</span></span>
+        <div class="data-source-import-policy">
+          <ElCheckbox v-model="allowSpApiOverride" :disabled="!canRun || importingKind !== null">
+            Allow SP-API sales override
+          </ElCheckbox>
+          <ElInput
+            v-if="allowSpApiOverride"
+            v-model="overrideReason"
+            size="small"
+            maxlength="500"
+            show-word-limit
+            placeholder="Required audit reason"
+            :disabled="!canRun || importingKind !== null"
+          />
+          <ElCheckbox v-if="allowSpApiOverride" v-model="restoreOnSpApiSuccess" :disabled="!canRun || importingKind !== null">
+            Restore fields after a newer SP-API fact
+          </ElCheckbox>
+          <small v-if="allowSpApiOverride" class="data-source-import-policy-help">
+            Keeps the file override until a newer successful SP-API fact is available.
+          </small>
+        </div>
       </div>
       <ElButton
         type="primary"
@@ -217,6 +258,11 @@ async function filePayload(file: File): Promise<DataSourceImportPayload> {
     </div>
     <ul v-if="result?.errors.length" class="data-source-import-errors">
       <li v-for="item in result.errors" :key="`${item.row}-${item.message}`">
+        Row {{ item.row }}: {{ item.message }}
+      </li>
+    </ul>
+    <ul v-if="result?.warnings.length" class="data-source-import-warnings">
+      <li v-for="item in result.warnings" :key="`${item.row}-${item.message}`">
         Row {{ item.row }}: {{ item.message }}
       </li>
     </ul>

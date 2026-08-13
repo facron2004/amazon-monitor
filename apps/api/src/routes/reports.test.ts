@@ -10,6 +10,7 @@ interface EventFixtureOverrides extends Omit<Partial<InsightEventInput>, "eviden
 }
 
 const reportEnvKeys = [
+  "INSIGHT_REPORT_LLM_ENABLED",
   "INSIGHT_REPORT_LLM_API_KEY",
   "OPENAI_API_KEY",
   "INSIGHT_REPORT_LLM_MODEL",
@@ -206,7 +207,28 @@ describe("report routes", () => {
     });
   });
 
+  it("does not send report data when an LLM key is configured without explicit opt-in", async () => {
+    delete process.env.INSIGHT_REPORT_LLM_ENABLED;
+    process.env.INSIGHT_REPORT_LLM_API_KEY = "test-key";
+    process.env.INSIGHT_REPORT_LLM_MODEL = "test-model";
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const { app } = createReportTestApp();
+    const api = await authenticatedAgent(app);
+
+    const response = await api
+      .get("/api/reports/insights/period?endDate=2026-06-25&period=weekly&includeAiSummary=true")
+      .expect(200);
+
+    expect(response.body.aiSummary).toMatchObject({
+      status: "disabled",
+      model: null,
+      error: expect.stringContaining("INSIGHT_REPORT_LLM_ENABLED=true")
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("generates optional AI summaries through an OpenAI-compatible Responses endpoint", async () => {
+    process.env.INSIGHT_REPORT_LLM_ENABLED = "true";
     process.env.INSIGHT_REPORT_LLM_API_KEY = "test-key";
     process.env.INSIGHT_REPORT_LLM_MODEL = "test-model";
     process.env.INSIGHT_REPORT_LLM_BASE_URL = "https://llm.example.test/v1/";
@@ -253,6 +275,7 @@ describe("report routes", () => {
   });
 
   it("keeps the evidence report available when AI summary generation fails", async () => {
+    process.env.INSIGHT_REPORT_LLM_ENABLED = "true";
     process.env.INSIGHT_REPORT_LLM_API_KEY = "test-key";
     process.env.INSIGHT_REPORT_LLM_MODEL = "test-model";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

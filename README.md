@@ -1,6 +1,6 @@
 # Amazon 关键词竞品价格与排名监控系统
 
-> **v0.6.0** · [更新日志](CHANGELOG.md) · [v0.6.0 Release Notes](https://github.com/facron2004/amazon-monitor/releases/tag/v0.6.0) · 2026-07-22
+> **v1.1.0** · [更新日志](CHANGELOG.md) · 2026-08-09
 
 基于 PRD 落地的可运行系统：关键词配置、Amazon 搜索页真实采集、Category Best Sellers 采集、类目每日竞争情报首页、自营 SKU 经营中心、规则中心、每日快照、支持手动、CSV、BSR Top100、新品黑马与 Agent 证据候选人工确认入池的竞品池、跨关键词/类目去重的 Listing 与评分变化、昨日对比、告警、任务、日报、周报、月报、采集日志和后台页面已经串成闭环。
 
@@ -8,7 +8,7 @@ v0.5.0 引入 **AI Agent 矩阵**（确定性 + 证据绑定 + approval-gated）
 
 ## AI Agent 矩阵（v0.5.0 核心）
 
-所有 Agent **当前实现都是确定性的**——不调用外部 LLM，不编造缺失字段，**永不执行自动写操作**。每次运行都持久化到 `ai_runs` 表（输入上下文 / 输出 JSON / model id / status / error），所有推荐动作均带 `needs_human_approval: true`。低置信度 brief 不会产出 P0 动作。
+所有 Agent 都先经过确定性的新鲜度、证据和权限边界；只有显式设置 `AGENT_SDK_ENABLED=true` 后才会调用 Agent 外部 LLM。报告 AI 摘要还需要单独设置 `INSIGHT_REPORT_LLM_ENABLED=true`，避免仅因配置了通用模型 Key 就把经营数据外发。无论是否调用模型，都不编造缺失字段，**永不执行自动写操作**。每次运行都持久化到 `ai_runs` 表（输入上下文 / 输出 JSON / model id / status / error），所有推荐动作均带 `needs_human_approval: true`。低置信度 brief 不会产出 P0 动作。
 
 | Agent                  | 端点                              | 数据源                                              | 核心用途                                                             |
 | ---------------------- | --------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
@@ -98,7 +98,7 @@ npm install
 ### 2. 安装 Playwright 浏览器
 
 ```bash
-npx playwright install chromium
+npm run test:browser  # 缺少 Chromium 时自动安装；已安装则跳过网络安装
 ```
 
 ### 3. 启动开发服务
@@ -130,6 +130,11 @@ npm run dev
 
 ```bash
 npm run build
+npm run build:release    # 清理旧产物后构建可发布版本
+npm run verify            # 构建、单测、浏览器测试和生产依赖门禁
+npm run test:release-gates # 发布门禁脚本的单元测试
+npm run verify:openapi-routes # 双向检查 Express 路由与 OpenAPI operation
+npm run verify:web-bundle  # 检查入口 CSS/JS 体积预算
 ```
 
 ### 启动生产服务
@@ -143,6 +148,50 @@ npm start
 访问：http://localhost:4000
 
 > 💡 **提示**：API 服务会自动检测并托管 `apps/web/dist` 目录，无需额外配置。
+
+### Windows 发布包门禁
+
+```bash
+npm run verify:package     # 检查 app.asar 未包含源码、测试、映射、数据库、环境、Cookie、日志或密钥文件
+npm run verify:signature   # 检查 win-unpacked 可执行文件；本地无证书时给出兼容性提示
+npm run verify:signatures  # 按桌面版本选择主 EXE；加 --installer 时同时检查 NSIS 安装器
+npm run verify:package-runtime # 启动隔离 win-unpacked，检查真实页面/API 就绪并清理进程树
+npm run verify:package-agent-runtime # 启动隔离 win-unpacked，验证真实 Agent bridge/模型/工具链路
+npm run verify:package-notification-runtime # 启动隔离 win-unpacked，验证 userData .env 到 SMTP 通知的真实边界
+npm run verify:package-api-recovery # 强杀 API utility，验证同端口重启、Renderer 和三进程状态恢复
+npm run verify:package-agent-crawler-recovery # 分别强杀 Agent/Crawler utility，验证 Renderer、API 和状态恢复
+npm run verify:package-install # 临时目录静默安装、运行已安装 EXE、再静默卸载
+npm run verify:package-install-recovery # 安装当前 NSIS 后，在安装目录 EXE 上执行 recovery 和通知配置矩阵
+npm run verify:package-upgrade # 临时目录覆盖安装，验证 userData 数据保留后再卸载
+npm run collect:release-evidence # 输出版本、SHA-256、大小和签名状态的无秘密证据 JSON
+npm run verify:release-evidence # 复核证据对应的当前文件、哈希和签名状态
+# 如有上一版本安装器，可执行真实跨版本覆盖验收
+npm run verify:package-upgrade -- --previous-installer="release/electron/Amazon Monitor Setup 1.0.0.exe"
+npm run verify:release     # 执行包扫描、Web 体积、签名和真实运行时门禁
+```
+
+生产发布必须在 Windows 签名环境中显式开启严格门禁：
+
+```powershell
+$env:REQUIRE_CODE_SIGNATURE = "true"
+npm run verify:release
+
+# 已生成 NSIS 安装器时，额外验证安装器签名
+$env:REQUIRE_INSTALLER_SIGNATURE = "true"
+npm run verify:release:win
+```
+
+严格模式只接受 Authenticode 状态 `Valid`；无证书的本地 `win-unpacked` 会失败，这是预期结果。通过 electron-builder 的 `CSC_LINK` / `CSC_KEY_PASSWORD` 注入证书和密码，不要把证书、密码或 `.env` 放进仓库或安装包。
+
+Windows 发布 CI 先执行根级 `npm run verify`（生产构建、全量单测、浏览器测试、备份演练、发布门禁和生产依赖审计），再使用 `npm --workspace @amazon-monitor/desktop run package:win` 生成当前版本安装器，随后执行 `npm run verify:release:win`，并额外完成安装、恢复、升级、卸载和证据校验；同时强制验证 `win-unpacked/Amazon Monitor.exe` 和 `Amazon Monitor Setup <desktop-version>.exe`。仓库中的 `.github/workflows/windows-release-verify.yml` 仅支持手动触发，证书从 GitHub Actions secrets 注入。
+
+`verify:package-runtime`、`verify:package-agent-runtime`、`verify:package-notification-runtime`、`verify:package-api-recovery` 和 `verify:package-agent-crawler-recovery` 在 Windows 上执行：前者启动隔离 `win-unpacked`，检查真实 API/渲染页面就绪；Agent smoke 在同一隔离边界内配置临时本地 OpenAI 兼容流式模型，通过真实 preload/API 创建 Agent run，验证规划、freshness、模型和工具调用，在缺失新鲜度时进入 `waiting_approval`，批准 L2 recollect 后创建 recovery run，重复批准复用同一 execution，并检查 SSE 回放、审计导出、进程状态和输出脱敏；notification smoke 在隔离 userData 写入不含真实凭据的 `.env`，通过真实 API 创建邮件计划，并由本地假 SMTP 完成认证、收件和 MIME 数据接收，同时确认 SMTP 密码不出现在进程输出；API recovery smoke 会强杀 API utility，再验证原 Renderer origin 上的 readiness、bootId、页面和三 utility 状态恢复；Agent/Crawler recovery smoke 会识别三个 NodeService utility，排除持有监听端口的 API，分别强杀剩余两个并验证同一 Renderer、API readiness、三角色状态和替换进程恢复。所有 smoke 都会清理进程树与临时 userData。非 Windows 默认输出 skipped；设置对应的 `REQUIRE_PACKAGE_RUNTIME`、`REQUIRE_PACKAGE_AGENT_RUNTIME`、`REQUIRE_PACKAGE_NOTIFICATION_RUNTIME`、`REQUIRE_PACKAGE_API_RECOVERY` 或 `REQUIRE_PACKAGE_AGENT_CRAWLER_RECOVERY` 后，非 Windows 环境会将不支持视为失败。
+
+`verify:package-install` 仅在 Windows 执行：它把当前版本 NSIS 安装器安装到随机临时目录，复用页面级运行时 smoke 检查已安装 EXE 的真实 API 和渲染页面，然后静默卸载并确认安装目录为空。测试使用独立的 `--user-data-dir`，不会清理或修改现有 AppData；临时目录会在成功或失败后清理。`verify:package-install-recovery` 在同一安装目录流程中进一步调用 Agent approval、API、Agent/Crawler recovery 和 notification runtime smoke，确认安装版资源路径、userData `.env` 发现、审批/recovery、SMTP 配置传递、端口固定和三 utility 重启边界与 `win-unpacked` 一致。
+
+`verify:package-upgrade` 在同一隔离目录先写入代表旧版的 SQLite 表结构和标记，由当前 EXE 启动完成迁移，再覆盖安装、再次启动并卸载；它会确认 `priority=C`、`org_id=1` 等迁移结果以及标记在各阶段仍存在。传入 `--previous-installer=...` 时，首轮会先安装指定旧版本，再执行当前版本覆盖安装，形成真实跨版本验收（旧版本只需完成安装，运行时验收落在当前版本）。两种模式都验证用户数据与安装目录分离，完成后仍会清理整个临时根目录。
+
+`collect:release-evidence` 只写入版本、路径、文件大小、SHA-256、Authenticode 状态、builder-debug.yml 指纹和构建提交号，不包含证书、密码或 `.env`。`verify:release-evidence` 会重新读取当前产物，核对必需文件、大小、哈希、签名状态、已知 artifact 类型和 release root 路径边界，避免上传与实际构建不一致或越界读取的证据。Windows CI 会在成功或失败后将证据 JSON 和 builder 调试元数据上传为 14 天 artifact，便于复核失败构建。
 
 ## 常用命令
 
@@ -165,10 +214,24 @@ npm run collect          # 采集全部（关键词 + 类目）
 npm run collect:keyword  # 仅采集关键词
 npm run collect:category # 仅采集类目
 npm run worker           # 启动 Worker 处理队列任务
+npm run backup:db        # 创建完整性校验后的 SQLite 快照
+npm run backup:db -- --output D:\backups\amazon-monitor.sqlite
+npm run backup:db -- --keep 7 --verify-restore
+npm run verify:db-backup -- --input D:\backups\amazon-monitor.sqlite
+npm run verify:db-backup-drill # 使用隔离 WAL fixture 演练备份、恢复和数据保留
+npm run collect:sp-api-shadow-evidence -- <collector-config.json> --output=<evidence.json>
+npm run verify:sp-api-shadow-evidence -- <evidence.json>
+npm run verify:sp-api-shadow-preflight -- <config.json> --production-db=<production-db-path> --backup=<backup-path> --user-data=<shadow-userData> --production-user-data=<production-userData> --runtime-db=<shadow-db-path> --require-wal --max-wal-mb=512 --max-total-mb=1024
+npm run assemble:sp-api-shadow-package -- --source-dir=<evidence-input-directory> --output=<new-package-directory>
+npm run verify:sp-api-shadow-package -- <evidence-package-directory> # 校验真实 Shadow 证据包、SHA-256 和脱敏边界
 ```
 
 > 💡 **提示**：CLI 命令适合服务器定时任务或快速测试采集功能。
 > Worker 崩溃时，下次启动会通过 `recoverStuckJobs` 自动回收卡在 `processing` 状态的 job，**生产环境建议用 systemd / pm2 守护以避免长时间离线**。
+
+`backup:db` 使用 SQLite 原生备份 API 从运行中的数据库生成快照，先执行完整性校验再落盘；目标文件已存在时会拒绝覆盖。默认写入数据库旁的 `backups/` 目录。`--verify-restore` 会把快照恢复到隔离临时库并重新打开校验，不触碰线上库；`--keep N` 才会按修改时间保留最新 N 个 `amazon-monitor-*.sqlite`，未显式指定时不会删除旧备份。也可以用 `verify:db-backup` 对已有快照单独执行恢复演练。
+
+`verify:db-backup-drill` 使用编译后的 API 备份模块创建隔离 WAL 数据库，验证快照完整性、标记数据保留、恢复重开和 WAL/SHM sidecar 清理；不会读取或修改真实业务数据库。
 
 ## 采集说明
 
@@ -241,6 +304,8 @@ $env:SMTP_PASS="your-smtp-password"
 $env:SMTP_FROM="sender@example.com"
 ```
 
+桌面 EXE 不会把邮箱凭据打进安装包。安装版优先读取 `%APPDATA%\Amazon Monitor\.env`，也支持将 `.env` 放在 EXE 同目录；修改后重启 EXE 生效。
+
 ### 飞书通知
 
 飞书使用群机器人 Webhook，通知计划的目标填写完整 Webhook URL：
@@ -291,7 +356,7 @@ $env:AMAZON_BESTSELLER_STABLE_PASSES="4"
 类目页会把最新 BSR 数据优先整理成每日战报，完整榜单仍保留在页面下方，适合先看异常和机会，再进入明细排查。
 
 - **战况总览**：展示 Top100/Top50 新进、跌出 Top100、最大上升、最大下滑、新增 Coupon、价格新低和品牌集中度等 KPI。
-- **AI 今日总结**：基于当前采集到的快照、排名、价格、Deal/Coupon、Review 和品牌数据生成确定性摘要，不调用外部 LLM，不编造未采集字段。
+- **AI 今日总结**：先校验当前采集到的快照、排名、价格、Deal/Coupon、Review 和品牌证据；默认不外发数据，只有完成数据共享评审并由部署配置显式设置 `INSIGHT_REPORT_LLM_ENABLED=true` 后，才会向配置的 OpenAI-compatible Responses endpoint 发送本周期摘要、Top 事件（含 ASIN/品牌/证据摘要）和 Top 品牌信号；不编造未采集字段。
 - **重点异动信息流**：按重要性展示 ASIN 卡片，包含商品图、标题、品牌、ASIN、BSR 路径、价格活动、Review 增量和建议动作。
 - **品牌矩阵**：聚合品牌在 Top10/Top50/Top100 的占位、平均排名、上升/下滑数量和主要价格带，点击品牌可打开右侧详情抽屉。
 - **新品黑马与价格活动雷达**：突出新进榜、快速上升、低评论高排名、价格新低、Coupon 和 Deal 信号，帮助定位需要跟进的商品。
@@ -508,16 +573,19 @@ amazon-monitor/
 
 ### 测试覆盖
 
-**146 个测试文件 / 785 个测试用例**：
+以 `npm run verify` 为发布前基线。最近一次验证（2026-08-12）共 **188 个测试文件 / 991 个单元测试用例**；Shadow fixture/recovery/evidence/preflight/package 另执行 32 个脚本测试，浏览器门禁另外执行 9 个用例，另有 21 个发布门禁单测；同时检查 Web 入口 CSS 不超过 160 KB、JS 不超过 300 KB：
 
 - 共享包：16 文件 / 59 用例（类型验证、业务规则、集成测试）
-- 后端 API：77 文件 / 517 用例
+- Agent：10 文件 / 23 用例
+- 后端 API：101 文件 / 660 用例
   - Store：队列状态机、SQL 工具、identity、ai_runs、stuck job 回收
   - 采集引擎：浏览器管理、上下文配置、代理池、品牌质量、abort 路径
   - 解析器：多市场价格/货币/评分格式
   - 端到端：关键词 pipeline、类目 intelligence、API 路由（含 v0.5.0 的 products/inventory/listing-health/ads/review-voc/profit/sops/tasks/auth/ai）
 - Worker：`runJobWithTimeout` 在 20ms 超时下必抛 `AbortError`，且 runner 必收到 abort 信号
-- 前端 Web：53 文件 / 209 用例
+- 前端 Web：58 文件 / 221 用例
+- 桌面端：3 文件 / 28 用例
+- 浏览器：2 文件 / 9 用例
 
 ## 故障排查
 
@@ -533,6 +601,7 @@ amazon-monitor/
 
 - 检查 `/api/collect/worker-status`：`alive: false` 时说明 Worker 进程已挂
 - 启动后会自动 `recoverStuckJobs` 回收卡住的 job，**生产环境建议用 systemd / pm2 守护**
+- `/api/ready` 默认把 Worker 标记为 `not_required`（桌面端和独立 Worker 模式）；只有设置 `RUN_WORKER=true` 时才会把 Worker 心跳作为就绪门槛，离线或 stale 会返回 503。
 
 ### 性能优化
 

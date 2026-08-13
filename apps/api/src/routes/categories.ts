@@ -1,6 +1,6 @@
 import type { Express, Request, RequestHandler } from "express";
 import type { SessionContext } from "@amazon-monitor/shared";
-import { runCategoryCollectionForAll, runCategoryCollectionForMonitor, type AmazonBestSellerCollector } from "../category-pipeline.js";
+import type { AmazonBestSellerCollector } from "../category-pipeline.js";
 import { ts } from "../log.js";
 import { isoDate } from "../pipeline.js";
 import type { Store } from "../store.js";

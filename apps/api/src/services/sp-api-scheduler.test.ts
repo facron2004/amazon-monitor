@@ -7,19 +7,31 @@ import { enqueueScheduledSpApiSyncs } from "./sp-api-scheduler.js";
 
 let db: DatabaseSync;
 let store: Store;
+const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
 
 beforeEach(() => {
   db = new DatabaseSync(":memory:");
   initSchema(db);
   store = createStore(db);
   process.env.DATA_SOURCE_CREDENTIALS_KEY = Buffer.alloc(32, 9).toString("base64");
+  process.env.SP_API_CONNECTOR_ENABLED = "true";
 });
 
 afterEach(() => {
+  restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
   db.close();
 });
 
 describe("SP-API scheduler", () => {
+  it("does not enqueue periodic runs while the connector is disabled", () => {
+    setupConnectedSource();
+    process.env.SP_API_CONNECTOR_ENABLED = "false";
+
+    expect(enqueueScheduledSpApiSyncs(store, "sales_daily", new Date("2026-07-28T12:10:00.000Z"))).toBe(0);
+    expect(store.listDataSourceSyncRuns({ orgId: 1, dataSourceId: 1 })).toEqual([]);
+    expect(queueCount()).toBe(0);
+  });
+
   it("queues one idempotent D-1 Sales run per linked marketplace", () => {
     const source = setupConnectedSource();
     const now = new Date("2026-07-28T12:10:00.000Z");
@@ -87,4 +99,9 @@ function queueCount(): number {
   return (db.prepare(
     "SELECT COUNT(*) AS count FROM amazon_collect_job_queue WHERE org_id = ? AND task_type = ?"
   ).get(1, "data_source_sync") as { count: number }).count;
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
 }

@@ -23,6 +23,7 @@ import { createDashboardStore } from "./store/dashboard-store.js";
 import { createDataSourceStore } from "./store/data-source-store.js";
 import { createDataSourceHealthStore } from "./store/data-source-health-store.js";
 import { createDataSourceMappingStore } from "./store/data-source-mapping-store.js";
+import { createDataSourceOverrideStore } from "./store/data-source-override-store.js";
 import { createDataSourceSpApiStore } from "./store/data-source-sp-api-store.js";
 import { createSpApiFactStore } from "./store/sp-api-fact-store.js";
 import { createIdentityStore } from "./store/identity-store.js";
@@ -46,7 +47,7 @@ import { createSopStore } from "./store/sop-store.js";
 import { createTaskStore } from "./store/task-store.js";
 import { createWorkerStore } from "./store/worker-store.js";
 import { nowIso, withTransaction } from "./store/sql-utils.js";
-import type { ClaimedCollectJob, KeywordInput, Store } from "./store/types.js";
+import type { Store } from "./store/types.js";
 
 export type { ClaimedCollectJob, KeywordInput, Store } from "./store/types.js";
 export { buildBsrRankChanges } from "./store/bsr-rank-changes.js";
@@ -61,9 +62,27 @@ export {
   sqliteBusyTimeoutMs,
 } from "./store/db.js";
 
+export interface AppStoreHandle {
+  store: Store;
+  checkpoint(): void;
+  close(): void;
+}
+
 export function openAppStore(dbPath = "data/amazon-monitor.sqlite"): Store {
+  return openAppStoreHandle(dbPath).store;
+}
+
+export function openAppStoreHandle(dbPath = "data/amazon-monitor.sqlite"): AppStoreHandle {
   const db = openDatabase(dbPath);
-  return createStore(db);
+  return {
+    store: createStore(db),
+    checkpoint() {
+      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    },
+    close() {
+      db.close();
+    },
+  };
 }
 
 export function createStore(db: DatabaseSync): Store {
@@ -96,6 +115,7 @@ export function createStore(db: DatabaseSync): Store {
     ...createDataSourceStore(db),
     ...createDataSourceHealthStore(db),
     ...createDataSourceMappingStore(db),
+    ...createDataSourceOverrideStore(db),
     ...createDataSourceSpApiStore(db),
     ...createSpApiFactStore(db),
     ...createReportStore(db),
@@ -124,6 +144,7 @@ export function createStore(db: DatabaseSync): Store {
           DELETE FROM sp_api_inventory_snapshots;
           DELETE FROM sp_api_sales_traffic_daily;
           DELETE FROM data_source_mapping_issues;
+          DELETE FROM data_source_override_audits;
           DELETE FROM data_source_domain_health;
           DELETE FROM sp_api_connection_stores;
           DELETE FROM sp_api_connections;
@@ -175,8 +196,12 @@ export function createStore(db: DatabaseSync): Store {
       });
     },
 
-    runInTransaction(work: () => void) {
-      withTransaction(db, work);
+    runInTransaction(work: () => void, ensureActive?: () => void) {
+      withTransaction(db, () => {
+        ensureActive?.();
+        work();
+        ensureActive?.();
+      });
     },
 
     getCategoryDetail(categoryId, date, orgId) {

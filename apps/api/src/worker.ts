@@ -14,6 +14,7 @@ import { formatDuration, ts } from "./log.js";
 import { runCollectionForKeyword } from "./pipeline.js";
 import { runSpApiSyncJob } from "./services/sp-api-sync-runner.js";
 import { openAppStore, type ClaimedCollectJob, type Store } from "./store.js";
+import type { CollectJobResult } from "./worker-types.js";
 
 const appVersion = (() => {
   try {
@@ -49,8 +50,11 @@ const reaperIntervalMs = intEnv("AMAZON_WORKER_REAPER_INTERVAL_MS", 30000, 5000,
 const leaseDurationMs = intEnv("AMAZON_WORKER_LEASE_MS", 60_000, heartbeatIntervalMs * 2, 30 * 60 * 1000);
 const drainTimeoutMs = intEnv("AMAZON_WORKER_DRAIN_TIMEOUT_MS", 30_000, 1000, 5 * 60 * 1000);
 const verboseLog = process.env.AMAZON_WORKER_VERBOSE_LOG !== "false";
+const RETRY_BACKOFF_BASE_MS = 1_000;
+const RETRY_BACKOFF_MAX_MS = 5 * 60_000;
+const RETRY_AFTER_MAX_MS = 60 * 60_000;
 
-export type CollectJobRunner = (store: Store, job: ClaimedCollectJob, options?: { signal?: AbortSignal }) => Promise<CollectTaskLog>;
+export type CollectJobRunner = (store: Store, job: ClaimedCollectJob, options?: { signal?: AbortSignal }) => Promise<CollectJobResult>;
 
 export interface WorkerStartOptions {
   workerId?: string;
@@ -208,9 +212,13 @@ export async function startWorker(storeInstance?: Store, overrides: WorkerStartO
           lastJob = { id: job.id, status: "processing" };
           console.log(`[${ts()}] [Worker:${workerId}:${laneId}] ▶ Job #${job.id} STARTED | type=${job.taskType}, targetId=${job.targetId}, date=${job.date}, lease=${leaseTokenSummary(job.leaseToken)} | queue_position=${jobsProcessed}`);
 
+          let jobMaxRetries = configuredMaxRetries;
+          let retryAfterMs: number | undefined;
           try {
             const log = await runJobWithTimeout(store, job, configuredJobTimeoutMs, runner, controller.signal);
             if (log.status === "failed") {
+              jobMaxRetries = log.retryable === false ? 1 : configuredMaxRetries;
+              retryAfterMs = log.retryAfterMs;
               throw new Error(log.errorMessage ?? "Collection failed");
             }
 
@@ -232,7 +240,7 @@ export async function startWorker(storeInstance?: Store, overrides: WorkerStartO
             const elapsed = Date.now() - jobStartTime;
             const errMsg = error instanceof Error ? error.message : String(error);
             console.error(`[${ts()}] [Worker:${workerId}:${laneId}] ✗ Job #${job.id} FAILED | type=${job.taskType}, targetId=${job.targetId} | duration=${formatDuration(elapsed)} | error=${errMsg}`);
-            if (!store.failJob(job.id, job.leaseOwner, job.leaseToken, errMsg, configuredMaxRetries)) {
+            if (!store.failJob(job.id, job.leaseOwner, job.leaseToken, errMsg, jobMaxRetries, retryDelayMsWithJitter(job.retryCount, retryAfterMs))) {
               console.warn(`[${ts()}] [Worker:${workerId}:${laneId}] Job #${job.id} failure was not recorded because its lease is no longer active.`);
             }
             lastJob = { id: job.id, status: "failed" };
@@ -278,7 +286,7 @@ export async function runJobWithTimeout(
   timeoutMs: number,
   runner: CollectJobRunner = runCollectJob,
   shutdownSignal?: AbortSignal
-): Promise<CollectTaskLog> {
+): Promise<CollectJobResult> {
   const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   const cleanup = { removeShutdownListener: undefined as (() => void) | undefined };
@@ -316,6 +324,26 @@ export async function runJobWithTimeout(
     }
     cleanup.removeShutdownListener?.();
   }
+}
+
+export function retryDelayMs(retryCount: number, retryAfterMs?: number): number {
+  if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs)) {
+    return Math.max(0, Math.min(Math.floor(retryAfterMs), RETRY_AFTER_MAX_MS));
+  }
+  const exponent = Math.min(Math.max(Math.floor(retryCount), 0), 10);
+  return Math.min(RETRY_BACKOFF_BASE_MS * (2 ** exponent), RETRY_BACKOFF_MAX_MS);
+}
+
+export function retryDelayMsWithJitter(
+  retryCount: number,
+  retryAfterMs?: number,
+  random = Math.random
+): number {
+  const baseDelayMs = retryDelayMs(retryCount, retryAfterMs);
+  if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs)) return baseDelayMs;
+  const sampled = random();
+  const randomValue = Number.isFinite(sampled) ? Math.max(0, Math.min(sampled, 0.999999)) : 0;
+  return Math.min(baseDelayMs + Math.floor(baseDelayMs * randomValue), RETRY_BACKOFF_MAX_MS);
 }
 
 async function runCollectJob(store: Store, job: ClaimedCollectJob, options?: { signal?: AbortSignal }): Promise<CollectTaskLog> {

@@ -59,6 +59,18 @@ describe("notification schedules", () => {
     expect(config.proxy).toBeUndefined();
   });
 
+  it("falls back to SMTP_USER when SMTP_FROM is blank", () => {
+    const config = resolveSmtpConfig({
+      SMTP_HOST: "smtp.qq.com",
+      SMTP_USER: " sender@qq.com ",
+      SMTP_FROM: "  ",
+      SMTP_PASS: "secret"
+    } as NodeJS.ProcessEnv);
+
+    expect(config.from).toBe("sender@qq.com");
+    expect(config.transport.auth).toEqual({ user: "sender@qq.com", pass: "secret" });
+  });
+
   it("builds a public Excel download URL for Feishu messages when PUBLIC_BASE_URL is configured", () => {
     expect(buildReportExcelDownloadUrl("2026-05-19", { PUBLIC_BASE_URL: "https://monitor.example.com/" } as NodeJS.ProcessEnv)).toBe(
       "https://monitor.example.com/api/reports/daily.xlsx?date=2026-05-19"

@@ -86,7 +86,6 @@ export const useCompetitorStore = defineStore("competitor", {
     competitorInsightSuggestion: (state): CompetitorInsightSuggestion =>
       buildCompetitorInsightSuggestion(
         state.competitors,
-        undefined,
         state.watchStates,
       ),
   },

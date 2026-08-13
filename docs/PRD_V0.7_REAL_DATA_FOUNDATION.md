@@ -30,12 +30,12 @@ v0.6.1 已具备以下可复用基础：
 - 概览、Owned SKU、库存、利润、Listing、Ads、Agent、事件、任务和报告消费面。
 - Playwright 采集、Worker、队列、freshness 与失败原因展示。
 
-当前缺口是：
+当前实现已覆盖凭据加密、连接测试、Sales & Traffic/FBA 同步、独立事实与 domain health、映射问题队列、session namespace、HttpOnly/CSP、租约 Worker 和主要自动化门禁；仍有以下缺口：
 
-1. `amazon_sp_api` 只有类型占位，没有凭据、连接测试和同步实现。
-2. 销售与库存事实缺少独立来源、运行、状态和 freshness，混合来源可能相互覆盖。
-3. 产品身份主要依赖现有 SKU/ASIN 数据，没有面向外部 API 冲突的映射问题队列。
-4. 真实凭据接入前仍有缓存租户边界、session、CSP、依赖、Worker 和测试门禁问题。
+1. 尚缺至少一个真实私有应用/店铺的 shadow run 与业务对账，当前自动化主要使用 fixture、可控响应和本地 smoke。
+2. 报告异步轮询、FBA 分页 checkpoint、401 单次 token 刷新和多 marketplace 长时间运行的代码路径已具备本地回归覆盖；仍需真实 sandbox/私有店铺验收，尤其是长分页、跨进程重启和真实限流响应下的恢复行为。
+3. 销售与库存的事实来源已分域；当前本地策略是概览、Owned SKU、组织报表、库存/利润计划统一消费有效指标，销售流量字段默认优先成功的 SP-API 事实，已有手工日行按字段级兼容策略保留，事实表本身不被 CSV/手工写入。显式 override 审计、字段来源展示和自动恢复已有本地实现，仍需真实混合数据验收。
+4. 发布仍受 Authenticode 签名证书、外部凭据授权和正式发布决策约束；不得因代码门禁通过而自动打开 `SP_API_CONNECTOR_ENABLED`。
 
 ## 4. 产品目标
 
@@ -423,6 +423,16 @@ v0.7 不自动创建 Owned Product，也不根据 ASIN 静默改写 seller SKU�
 | 库存策略参数 | 人工/ERP 设置 | 不由 SP-API 数量覆盖 |
 | 公共 Listing/竞品信号 | Playwright/公开页面采集 | 不与店铺销售或 FBA 数量混为同一来源 |
 
+概览和组织级聚合使用同一套字段级有效指标读模型，而不是直接把手工行或 SP-API 行整行覆盖到另一张表：有成功的 `STORE_DAILY` 事实时，店铺级销售额和订单以该事实为权威；缺少店铺汇总时，才按产品的有效 `SKU_DAILY` 字段聚合。SKU 有效指标仍可按字段保留审计过的 CSV/手工 override，广告、毛利和覆盖数等非销售字段继续从产品日指标合并。这样 Dashboard、Owned SKU、组织报表、库存和利润读路径共享来源选择，但原始手工行与 SP-API 事实表均保持不可变。
+
+组织级有效指标读取必须按批次加载 override 审计，禁止在产品循环中逐个产品/日期查询；批次查询需保持组织边界、参数化条件和有界分块，并通过多产品窗口回归验证来源选择与分页结果不变。`npm run benchmark:effective-metrics` 提供隔离的 1k/10k/100k SKU、7 日窗口基准：产品详情读模型受显式 100000 行上限保护，100k SKU 返回 100k/700k 行并标记截断；Dashboard 概览使用 SQLite CTE 直接按 marketplace/date 聚合，产品日期集合避免全量 UNION 去重排序，100k SKU/7 日窗口连续运行约 3042–3150ms，仍返回完整产品数和 7 个趋势点，避免把全部有效 SKU 行物化到 API 进程。真实店铺 shadow run 和大规模读性能仍属于 v0.7 发布前验收，不以本地 fixture 的单测通过替代。
+
+Dashboard 读模型依赖的销售事实和 override 审计已补充按组织、来源域、业务日期和产品日期的复合索引；索引必须通过 `EXPLAIN QUERY PLAN` 和 1k/10k/100k、7 日窗口基准验证，不能只凭索引存在宣称性能达标。当前内存 SQLite 基准约为 100k SKU：有效指标读取 2973–3035ms、Dashboard 聚合 3042–3150ms；真实店铺仍需同时观察同步写入成本和 WAL/SQLite 文件增长。
+
+`npm run benchmark:effective-metrics:storage -- 10000 100000` 额外使用临时 WAL 文件库测量写入和文件增长；最近一次 100k SKU/7 日运行约为写入 12712ms、有效指标读取 4534ms、Dashboard 3894ms，主库 369602560 bytes、WAL 374458592 bytes、SHM 753664 bytes。该命令是容量/备份窗口诊断，不是机器相关的生产 SLA；真实 shadow 仍必须观察持续同步、WAL checkpoint 和磁盘余量。
+
+真实 shadow 的运行时观测使用 `npm run inspect:db-storage -- <shadow-db-path> --require-wal --max-wal-mb=512 --max-total-mb=1024`。该命令默认只读采集主库、WAL、SHM、页数、freelist 和 checkpoint 配置；只有显式传入 `--checkpoint=passive` 或 `--checkpoint=truncate` 才会触发 checkpoint，`truncate` 必须在队列 drain 和备份后由复核人批准。阈值结果必须随每日证据保存，不能用本地基准数字替代真实容量和磁盘观察；输出的 `observerBusyTimeoutMs` 仅是观测连接参数。
+
 显式 override 必须记录：
 
 - 覆盖前来源、值和时间。
@@ -458,6 +468,7 @@ v0.7 不自动创建 Owned Product，也不根据 ASIN 静默改写 seller SKU�
 | `sp_api_inventory_snapshots` | 每次成功 run 的库存观察 | `run_id + marketplace + seller_sku` 唯一 |
 | `sp_api_inventory_latest` | 当前可消费库存 | `store + marketplace + seller_sku` 唯一 |
 | `data_source_mapping_issues` | 未知、冲突和歧义映射 | 同一 open issue 可累计 occurrence |
+| `data_source_override_audits` | CSV/手工对新鲜 SP-API 字段的显式覆盖审计 | 字段级保存前后值、来源、run、操作者和理由；可按字段在后续更新的 SP-API 事实到达后恢复权威 |
 | `data_source_sync_runs` 扩展/伴随详情表 | domain、trigger、window、checkpoint、外部 request/report id | idempotency key 唯一；组织和 source 外键 |
 
 所有新表必须含 `org_id`，即使可通过父表推导，也保留数据库级隔离和查询约束；外键、唯一索引和常用查询索引随迁移一起交付。
@@ -756,6 +767,7 @@ v0.7 复用现有 Worker 进程和运行历史，不另建微服务，但必须�
 7. 完整 run 列表、marketplace 结果、失败分类和重试入口。
 8. 映射问题队列和解析抽屉。
 9. 解除连接的二次确认。
+10. 产品导入遇到同日成功 SP-API Sales & Traffic 事实时默认阻止静默覆盖；显式 override 必须填写理由，并可查看字段级审计。override 可选择在更新的 SP-API 成功事实到达后按字段恢复，恢复只在有效指标读取时生效，不回写或破坏手工原始行。
 
 概览与 Owned SKU：
 
@@ -901,6 +913,8 @@ npm run build
 - LWA、Reports、FBA dynamic sandbox。
 - 验证 429/5xx、分页、撤销和 checkpoint。
 - 仍不写真实生产事实。
+- `npm run verify:sp-api-fixture-shadow` 在每次根级验证中使用隔离内存 SQLite 重放 Sales & Traffic/FBA fixture，证明来源/run 追溯、重放幂等、Dashboard 店铺权威和无网络旁路；该工具只作为真实 shadow 的前置证据。
+- `npm run verify:sp-api-recovery-shadow` 使用本地 HTTP stub 走真实 LWA/FBA client 与 Runner，注入 429/Retry-After 后关闭并重新打开持久化 SQLite、清空 token cache，验证队列 lease、同一 run/window、`nextToken`/`startDateTime` checkpoint、页级 promotion、LWA 重新获取和恢复成功；它不访问 Amazon，只作为真实限流、桌面 utility 重启和私有店铺 shadow 的前置证据。
 
 ### Stage 3：单店 shadow
 
@@ -908,6 +922,13 @@ npm run build
 - 同步结果进入 shadow/staging，与 Seller Central 手工抽样对账。
 - 不驱动 Agent 高置信度建议。
 - 连续观察至少 7 个业务日。
+- 使用 `docs/REAL_STORE_SHADOW_RECONCILIATION.md` 收集脱敏证据，并运行 `npm run verify:sp-api-shadow-evidence -- <evidence.json>`；校验器只能证明证据结构和安全边界，不能把合成样例当作真实店铺通过。
+- 真实 shadow 启动前运行只读 `npm run verify:sp-api-shadow-preflight -- <config.json> --production-db=<production-db-path> --backup=<backup-path> --user-data=<shadow-userData> --production-user-data=<production-userData> --runtime-db=<shadow-db-path> --require-wal --max-wal-mb=512 --max-total-mb=1024`，检查七日配置、备份完整性/hash、shadow/production 数据库与 userData 隔离、运行时 DB_PATH 绑定、连接器与 fixture 开关、SQLite WAL 及容量阈值（默认 WAL 512 MiB、总存储 1 GiB），并将实际阈值写入 preflight storage evidence；证据包 verifier 拒绝缺少阈值证据的 preflight；同时检查组织—数据源—店铺—SP-API 连接和事实行级边界；它不读取凭据、不访问 Amazon，也不能替代真实权限、限流和 Seller Central 对账验收。
+- preflight 结果同时保存脱敏 scope 元数据（证据包、组织/店铺/来源证据 ID、Marketplace、币种、业务时区和窗口），证据包门禁会将其与 evidence manifest 交叉校验，防止错店铺、错币种或错窗口的文件拼包。
+- 新增 `npm run collect:sp-api-shadow-evidence -- <config.json>`：从隔离 shadow 数据库只读聚合七日 Sales/FBA、来源/run、重放计数、金额最小单位、映射差异和 freshness，输出 v2 脱敏 manifest；FBA freshness 优先按事实 `source_time`（SP-API `lastUpdatedTime`）计算，缺失/非法时间会保留为 `delayed`，不会用本地 `synced_at` 伪造通过；同时要求成功 FBA run 的 checkpoint 已完成、无待处理 token、`rowsSeen` 与快照行数一致，并用 `asOfRows` 将历史时点与采集时的 `latestRows` 分开；默认保留 `delayed`/`failed`，只有显式 `--require-all-pass` 才将未收口日期作为失败退出。校验器继续兼容 v1 manifest。
+- 证据包收口运行 `npm run verify:sp-api-shadow-package -- <evidence-package-directory>`：要求真实七日 manifest、preflight 全部安全检查、README/run-lineage/reconciliation/signoff、全量 SHA-256 覆盖，并拒绝数据库、环境文件、密钥和凭据样式文本；该门禁不读取 Amazon 网络，也不能替代三方签名和真实业务对账。
+- 证据包组装使用 `npm run assemble:sp-api-shadow-package -- --source-dir=<input-directory> --output=<new-package-directory>`：只接受六个显式输入文件，拒绝覆盖既有输出、符号链接和凭据样式内容，自动生成校验和后再调用同一只读 verifier；verifier 还要求 `signoff.md` 明确包含产品、数据、发布三方的 `signed/approved` 签名；组装器只改善交付重复性，不改变真实店铺验收条件。
+- `run-lineage.csv` 与 `reconciliation.csv` 不再只做 hash 存在性检查：package verifier 现在要求七日日期覆盖、Sales/FBA 各至少一条成功 lineage、来源 ID 与 preflight scope 一致、正整数页码、来源/run/job/checkpoint/status 字段，以及 reconciliation 的币种、金额最小单位等式、订单/单位和 `pass` 状态；每日金额、订单和单位还必须与 evidence Sales 摘要一致，防止空 CSV、错来源或未对账金额进入发布包。
 
 ### Stage 4：受控生产
 

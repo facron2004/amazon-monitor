@@ -11,6 +11,8 @@ import {
   spApiSyncDomains,
   type DataSourceConfig,
   type DataSourceImportPayload,
+  type DataSourceImportPolicy,
+  type DataSourceOverrideAuditListFilter,
   type DataSourceMappingIssueStatus,
   type DataSourceMappingIssueType,
   type DataSourceStatus,
@@ -28,6 +30,7 @@ import { runDataSourceFileImport } from "../services/data-source-import-runner.j
 import { importDataSourceInventory } from "../services/data-source-inventory-import.js";
 import { importDataSourceProducts } from "../services/data-source-product-import.js";
 import { encryptSpApiCredentials } from "../services/sp-api-credentials.js";
+import { isSpApiConnectorEnabled } from "../services/sp-api-feature-flag.js";
 import { spApiLwaTokenCache } from "../services/sp-api-lwa-client.js";
 import { asyncHandler } from "./http-utils.js";
 import { validateBody, validateIdParam, validateQuery } from "./validation.js";
@@ -39,6 +42,9 @@ const spApiRegionSchema = z.enum(spApiRegions);
 const mappingIssueStatusSchema = z.enum(dataSourceMappingIssueStatuses);
 const mappingIssueTypeSchema = z.enum(dataSourceMappingIssueTypes);
 const spApiSyncDomainSchema = z.enum(spApiSyncDomains);
+const isoCalendarDateSchema = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "date must use YYYY-MM-DD")
+  .refine(isIsoCalendarDate, "date must be a valid calendar date");
 
 const dataSourceListQuerySchema = z.object({
   sourceType: dataSourceTypeSchema.optional(),
@@ -62,13 +68,29 @@ const dataSourceCreateSchema = z.object({
 });
 
 const dataSourceUpdateSchema = dataSourceCreateSchema.partial();
+const dataSourceImportPolicySchema = z.object({
+  allowSpApiOverride: z.boolean().optional(),
+  overrideReason: z.string().trim().min(1).max(500).optional(),
+  restoreOnSpApiSuccess: z.boolean().optional()
+}).superRefine((value, context) => {
+  if (value.allowSpApiOverride === true && !value.overrideReason) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["overrideReason"], message: "overrideReason is required when allowSpApiOverride is true" });
+  }
+  if (value.allowSpApiOverride !== true && value.overrideReason) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allowSpApiOverride"], message: "allowSpApiOverride must be true when overrideReason is provided" });
+  }
+  if (value.restoreOnSpApiSuccess === true && value.allowSpApiOverride !== true) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allowSpApiOverride"], message: "allowSpApiOverride must be true when restoreOnSpApiSuccess is enabled" });
+  }
+});
 const dataSourceImportSchema = z.union([
-  z.object({ csv: z.string().min(1).max(1_000_000) }),
-  z.object({ format: z.literal("csv"), content: z.string().min(1).max(1_000_000) }),
+  z.object({ csv: z.string().min(1).max(1_000_000), policy: dataSourceImportPolicySchema.optional() }),
+  z.object({ format: z.literal("csv"), content: z.string().min(1).max(1_000_000), policy: dataSourceImportPolicySchema.optional() }),
   z.object({
     format: z.literal("xlsx"),
     contentBase64: z.string().min(1).max(7_000_000),
-    fileName: z.string().max(255).optional()
+    fileName: z.string().max(255).optional(),
+    policy: dataSourceImportPolicySchema.optional()
   })
 ]);
 const syncRunListQuerySchema = z.object({
@@ -91,8 +113,8 @@ const spApiSyncRequestSchema = z.object({
   marketplaces: z.array(z.string().trim().min(1).max(20)).min(1).max(20)
     .refine((value) => new Set(value.map((item) => item.toUpperCase())).size === value.length, "marketplaces must not contain duplicates")
     .optional(),
-  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+  fromDate: isoCalendarDateSchema.optional(),
+  toDate: isoCalendarDateSchema.optional()
 });
 const mappingIssueListQuerySchema = z.object({
   status: mappingIssueStatusSchema.optional(),
@@ -106,6 +128,11 @@ const mappingIssueUpdateSchema = z.object({
   status: mappingIssueStatusSchema,
   productId: z.number().int().min(1).nullable().optional(),
   note: z.string().trim().min(1).max(2_000).nullable().optional()
+});
+const overrideAuditListQuerySchema = z.object({
+  productId: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  offset: z.coerce.number().int().min(0).optional()
 });
 
 type SpApiSyncRequest = z.infer<typeof spApiSyncRequestSchema>;
@@ -185,7 +212,7 @@ export function registerDataSourceRoutes(app: Express, store: Store): void {
       source,
       ctx.user.id,
       input.format === "xlsx" ? "product_excel_import" : "product_csv_import",
-      () => importDataSourceProducts(store, source, input)
+      (context) => importDataSourceProducts(store, source, input, context)
     ));
   }));
 
@@ -369,6 +396,25 @@ export function registerDataSourceRoutes(app: Express, store: Store): void {
     }));
   }));
 
+  app.get("/api/data-sources/:id/overrides", asyncHandler(async (request, response) => {
+    const ctx = requireSessionContext(request);
+    const id = validateIdParam(request.params.id);
+    const source = store.getDataSource(id);
+    if (!source || source.orgId !== ctx.organization.id) {
+      response.status(404).json({ message: "Data source not found" });
+      return;
+    }
+    const query = validateQuery(overrideAuditListQuerySchema, request.query);
+    const filter: DataSourceOverrideAuditListFilter = {
+      orgId: ctx.organization.id,
+      dataSourceId: id,
+      productId: query.productId,
+      limit: query.limit,
+      offset: query.offset
+    };
+    response.json(store.listDataSourceOverrideAudits(filter));
+  }));
+
   app.patch("/api/data-sources/:id/mapping-issues/:issueId", asyncHandler(async (request, response) => {
     const ctx = requireSessionContext(request);
     requireDataSourceManagement(ctx);
@@ -436,6 +482,7 @@ export function registerDataSourceRoutes(app: Express, store: Store): void {
     response.json(buildSpApiConnectionHealth(
       source.id,
       source.status,
+      isSpApiConnectorEnabled(),
       store.getSpApiConnection(source.id, ctx.organization.id),
       store.countOpenDataSourceMappingIssues(source.id, ctx.organization.id),
       store.listDataSourceDomainHealth(source.id, ctx.organization.id)
@@ -488,12 +535,13 @@ function getRunnableFileSource(
 function buildSpApiConnectionHealth(
   dataSourceId: number,
   sourceStatus: DataSourceStatus,
+  connectorEnabled: boolean,
   connection: { region: SpApiRegion; credentialsConfigured: boolean; linkedStoreIds: number[]; lastTestedAt: string | null } | null,
   mappingIssueCount: number,
   domains: SpApiConnectionHealth["domains"]
 ): SpApiConnectionHealth {
   const statuses = domains.map((item) => item.status);
-  const status = sourceStatus === "disabled"
+  const status = !connectorEnabled || sourceStatus === "disabled"
     ? "disabled"
     : statuses.includes("failed")
       ? "attention"
@@ -507,6 +555,7 @@ function buildSpApiConnectionHealth(
   return {
     dataSourceId,
     region: connection?.region ?? null,
+    connectorEnabled,
     credentialsConfigured: connection?.credentialsConfigured ?? false,
     status,
     linkedStoreIds: connection?.linkedStoreIds ?? [...new Set(domains.map((item) => item.commerceStoreId))],
@@ -668,8 +717,9 @@ function dateRangeDays(fromDate: string, toDate: string): number {
   return Number.isFinite(from) && Number.isFinite(to) ? Math.floor((to - from) / 86_400_000) + 1 : 0;
 }
 
-function isSpApiConnectorEnabled(): boolean {
-  return process.env.SP_API_CONNECTOR_ENABLED === "true";
+function isIsoCalendarDate(value: string): boolean {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function connectionTestIdempotencyKey(dataSourceId: number, credentialVersion: number): string {
@@ -682,9 +732,9 @@ function todayIso(): string {
 }
 
 function normalizeImportPayload(
-  input: { csv: string } | DataSourceImportPayload
+  input: { csv: string; policy?: DataSourceImportPolicy } | DataSourceImportPayload
 ): DataSourceImportPayload {
-  return "csv" in input ? { format: "csv", content: input.csv } : input;
+  return "csv" in input ? { format: "csv", content: input.csv, policy: input.policy } : input;
 }
 
 function ensureOwnerInOrg(store: Store, ownerId: number | undefined, orgId: number): void {

@@ -5,8 +5,7 @@ import type {
   ProductSyncStatus,
   ReviewSentiment,
   ReviewVocListFilter,
-  ReviewVocSummary,
-  UpsertProductReviewInput
+  ReviewVocSummary
 } from "@amazon-monitor/shared";
 import {
   buildReviewVocSummary,

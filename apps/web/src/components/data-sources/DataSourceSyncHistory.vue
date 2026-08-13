@@ -5,7 +5,7 @@ import { RefreshCw } from "@lucide/vue";
 import { ElButton, ElTag } from "element-plus";
 import type { DataSourceSyncOperation, DataSourceSyncRunStatus } from "@amazon-monitor/shared";
 import { useDataSourcesStore } from "../../stores/dataSources";
-import { dataSourceSyncType, dataSourceTimeText } from "./data-source-display";
+import { dataSourceCheckpointText, dataSourceSyncType, dataSourceTimeText } from "./data-source-display";
 
 const props = defineProps<{ sourceId: number }>();
 const store = useDataSourcesStore();
@@ -70,7 +70,12 @@ watch(() => props.sourceId, (id) => void store.fetchSyncRuns(id), { immediate: t
           <span>{{ run.updatedRecords }} updated</span>
           <span v-if="run.failedRows">{{ run.failedRows }} failed</span>
         </div>
-        <p v-if="run.errorSummary" class="data-source-run__error">{{ run.errorSummary }}</p>
+        <p v-if="dataSourceCheckpointText(run.checkpointSummary)" class="data-source-run__checkpoint">
+          {{ dataSourceCheckpointText(run.checkpointSummary) }}
+        </p>
+        <p v-if="run.errorSummary" class="data-source-run__error">
+          <span v-if="run.errorCode">[{{ run.errorCode }}] </span>{{ run.errorSummary }}
+        </p>
         <p v-if="run.status === 'failed' || run.status === 'partial'" class="data-source-run__retry">
           Use the matching import action above to retry.
         </p>

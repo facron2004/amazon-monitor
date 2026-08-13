@@ -167,6 +167,7 @@ export interface CollectJob {
   completedAt: string | null;
   errorMessage: string | null;
   retryCount: number;
+  nextAttemptAt: string | null;
 }
 
 /**

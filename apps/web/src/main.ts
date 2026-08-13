@@ -2,7 +2,6 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
 import { createSessionStoreResetPlugin } from "./stores/session-store-reset";
-import "element-plus/dist/index.css";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/components.css";

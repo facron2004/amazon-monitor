@@ -1,7 +1,5 @@
 import { spawn } from "node:child_process";
 import { kill } from "node:process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Express, Request, RequestHandler } from "express";
 import type { CollectJob, SessionContext } from "@amazon-monitor/shared";
 import { ts } from "../log.js";

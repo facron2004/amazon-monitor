@@ -67,6 +67,107 @@ describe("SP-API HTTP client", () => {
     expect(second.searchParams.get("startDateTime")).toBe("2026-07-28T00:00:00.000Z");
   });
 
+  it("resumes FBA pagination from a token and reports page numbers to the promoter", async () => {
+    const request = vi.fn().mockResolvedValueOnce(jsonResponse({
+      payload: {
+        inventorySummaries: [{ sellerSku: "RESUMED-SKU" }]
+      }
+    }));
+    const onPage = vi.fn();
+    const client = new SpApiClient({ region: "NA", accessToken: "access-token", request });
+
+    await expect(client.listFbaInventorySummaries({
+      marketplace: "US",
+      startDateTime: "2026-07-28T00:00:00.000Z",
+      nextToken: "resume-token",
+      pageNumberOffset: 3,
+      onPage
+    })).resolves.toEqual({ payload: { inventorySummaries: [] } });
+
+    const url = new URL(request.mock.calls[0][0] as URL);
+    expect(url.searchParams.get("nextToken")).toBe("resume-token");
+    expect(onPage).toHaveBeenCalledWith({
+      inventorySummaries: [{ sellerSku: "RESUMED-SKU" }],
+      nextToken: null,
+      pageNumber: 4
+    });
+  });
+
+  it("refreshes an access token once after a 401 and retries the same request", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(jsonResponse({ processingStatus: "DONE", reportDocumentId: "document-1" }));
+    const onUnauthorized = vi.fn().mockResolvedValue("refreshed-access-token");
+    const client = new SpApiClient({
+      region: "NA",
+      accessToken: "expired-access-token",
+      request,
+      onUnauthorized
+    });
+
+    await expect(client.getReportStatus("report-1")).resolves.toEqual({
+      processingStatus: "DONE",
+      reportDocumentId: "document-1"
+    });
+
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect((request.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      "x-amz-access-token": "expired-access-token"
+    });
+    expect((request.mock.calls[1][1] as RequestInit).headers).toMatchObject({
+      "x-amz-access-token": "refreshed-access-token"
+    });
+  });
+
+  it("does not refresh more than once when the replacement token is rejected", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 401 }));
+    const onUnauthorized = vi.fn().mockResolvedValue("replacement-token");
+    const client = new SpApiClient({
+      region: "NA",
+      accessToken: "expired-access-token",
+      request,
+      onUnauthorized
+    });
+
+    await expect(client.getReportStatus("report-1")).rejects.toMatchObject<Partial<SpApiConnectorError>>({
+      category: "credentials_invalid",
+      retryable: false
+    });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares one refresh promise across concurrent 401 responses", async () => {
+    const request = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      return headers?.["x-amz-access-token"] === "expired-access-token"
+        ? new Response(null, { status: 401 })
+        : jsonResponse({ processingStatus: "DONE" });
+    });
+    const onUnauthorized = vi.fn().mockImplementation(async () => {
+      await Promise.resolve();
+      return "refreshed-access-token";
+    });
+    const client = new SpApiClient({
+      region: "NA",
+      accessToken: "expired-access-token",
+      request,
+      onUnauthorized
+    });
+
+    await expect(Promise.all([
+      client.getReportStatus("report-1"),
+      client.getReportStatus("report-2")
+    ])).resolves.toEqual([
+      { processingStatus: "DONE", reportDocumentId: null },
+      { processingStatus: "DONE", reportDocumentId: null }
+    ]);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
   it("classifies permission and rate-limit responses without exposing response bodies", async () => {
     const permissionClient = new SpApiClient({
       region: "NA",
@@ -81,17 +182,57 @@ describe("SP-API HTTP client", () => {
     const rateLimitedClient = new SpApiClient({
       region: "NA",
       accessToken: "access-token",
-      request: vi.fn().mockResolvedValue(new Response(null, { status: 429 }))
+      request: vi.fn().mockResolvedValue(new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "12" }
+      }))
     });
     await expect(rateLimitedClient.getReportStatus("report-1")).rejects.toMatchObject<Partial<SpApiConnectorError>>({
       category: "rate_limited",
-      retryable: true
+      retryable: true,
+      retryAfterMs: 12_000
+    });
+
+    const serverErrorClient = new SpApiClient({
+      region: "NA",
+      accessToken: "access-token",
+      now: () => new Date("2026-07-28T08:00:00.000Z"),
+      request: vi.fn().mockResolvedValue(new Response(null, {
+        status: 503,
+        headers: { "Retry-After": "Tue, 28 Jul 2026 08:00:12 GMT" }
+      }))
+    });
+    await expect(serverErrorClient.getReportStatus("report-1")).rejects.toMatchObject<Partial<SpApiConnectorError>>({
+      category: "amazon_5xx",
+      retryable: true,
+      retryAfterMs: 12_000
     });
   });
 
   it("converts local marketplace dates across time zones", () => {
     expect(marketplaceDayBoundary("2026-07-27", "DE", false)).toBe("2026-07-26T22:00:00.000Z");
     expect(marketplaceDayBoundary("2026-07-27", "JP", true)).toBe("2026-07-27T14:59:59.999Z");
+    expect(marketplaceDayBoundary("2026-01-15", "UK", false)).toBe("2026-01-15T00:00:00.000Z");
+    expect(marketplaceDayBoundary("2026-07-15", "UK", false)).toBe("2026-07-14T23:00:00.000Z");
+  });
+
+  it("rejects invalid calendar dates instead of normalizing them", async () => {
+    const client = new SpApiClient({
+      region: "EU",
+      accessToken: "access-token",
+      request: vi.fn()
+    });
+
+    for (const date of ["2026-02-31", "2026-04-31", "2025-02-29"]) {
+      await expect(client.createSalesTrafficReport({
+        marketplace: "UK",
+        fromDate: date,
+        toDate: date
+      })).rejects.toMatchObject<Partial<SpApiConnectorError>>({
+        category: "schema_invalid",
+        retryable: false
+      });
+    }
   });
 });
 

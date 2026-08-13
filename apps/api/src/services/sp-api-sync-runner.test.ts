@@ -10,6 +10,7 @@ import { runSpApiSyncJob } from "./sp-api-sync-runner.js";
 
 const originalCredentialsKey = process.env.DATA_SOURCE_CREDENTIALS_KEY;
 const originalFixtureDirectory = process.env.SP_API_SYNC_FIXTURE_DIR;
+const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
 const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 let db: DatabaseSync;
 let store: Store;
@@ -19,6 +20,7 @@ beforeEach(() => {
   initSchema(db);
   store = createStore(db);
   process.env.DATA_SOURCE_CREDENTIALS_KEY = Buffer.alloc(32, 5).toString("base64");
+  process.env.SP_API_CONNECTOR_ENABLED = "true";
   spApiLwaTokenCache.clearAll();
 });
 
@@ -27,10 +29,34 @@ afterEach(() => {
   spApiLwaTokenCache.clearAll();
   restoreEnv("DATA_SOURCE_CREDENTIALS_KEY", originalCredentialsKey);
   restoreEnv("SP_API_SYNC_FIXTURE_DIR", originalFixtureDirectory);
+  restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
   db.close();
 });
 
 describe("SP-API sync worker", () => {
+  it("fails a queued run without making an API request when the connector is disabled", async () => {
+    const { source, run, job } = setupConnectionTest();
+    store.updateDataSource(source.id, { status: "connected", syncStatus: "pending" });
+    process.env.SP_API_CONNECTOR_ENABLED = "false";
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const log = await runSpApiSyncJob(store, job);
+
+    expect(log).toMatchObject({ status: "failed", errorMessage: "SP-API connector is disabled", retryable: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({
+      status: "failed",
+      errorCode: "connector_disabled",
+      retryCount: 1,
+      errorSummary: "SP-API connector is disabled"
+    });
+    expect(store.getDataSource(source.id)).toMatchObject({
+      status: "connected",
+      syncStatus: "manual",
+      syncError: null
+    });
+  });
+
   it("runs an LWA connection test under the queue lease and records only non-sensitive status", async () => {
     const { source, run, job } = setupConnectionTest();
     vi.spyOn(globalThis, "fetch")
@@ -44,7 +70,7 @@ describe("SP-API sync worker", () => {
     const log = await runSpApiSyncJob(store, job);
 
     expect(log).toMatchObject({ taskType: "sp_api_connection_test", status: "success" });
-    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({ status: "success" });
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({ status: "success", errorCode: null, retryCount: 0 });
     expect(store.getSpApiConnection(source.id, 1)).toMatchObject({
       credentialVersion: 1,
       lastTestedAt: expect.any(String)
@@ -79,7 +105,32 @@ describe("SP-API sync worker", () => {
 
     expect(log).toMatchObject({ status: "failed", errorMessage: "SP-API credentials changed before this run started" });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({ status: "failed" });
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({ status: "failed", errorCode: "credentials_invalid", retryCount: 1 });
+  });
+
+  it("marks rate-limited SP-API runs as retryable", async () => {
+    const { run, job } = setupLiveFbaSync();
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ access_token: "rate-limited-access-token", expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errors: [{ code: "QuotaExceeded" }] }), {
+        status: 429,
+        headers: { "Content-Type": "application/json", "Retry-After": "2" }
+      }));
+
+    const log = await runSpApiSyncJob(store, job);
+
+    expect(log).toMatchObject({
+      status: "failed",
+      retryable: true,
+      retryAfterMs: 2_000,
+      errorMessage: "SP-API is rate limited"
+    });
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({
+      status: "failed",
+      errorCode: "rate_limited",
+      retryCount: 1,
+      errorSummary: "SP-API is rate limited"
+    });
   });
 
   it("promotes a queued fixture Sales sync through the active worker lease", async () => {
@@ -99,6 +150,8 @@ describe("SP-API sync worker", () => {
     expect(log).toMatchObject({ taskType: "sp_api_sales_traffic_daily_sync", status: "success" });
     expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({
       status: "success",
+      errorCode: null,
+      retryCount: 0,
       totalRows: 2,
       importedRows: 2,
       createdRecords: 2
@@ -108,6 +161,25 @@ describe("SP-API sync worker", () => {
       expect.objectContaining({ domain: "sales_traffic", status: "success" })
     ]);
     expect(db.prepare("SELECT COUNT(*) AS count FROM sp_api_sales_traffic_daily").get()).toEqual({ count: 2 });
+  });
+
+  it("records a partial run with a mapping error code without discarding imported facts", async () => {
+    const { source, run, job } = setupFixtureSync();
+    process.env.SP_API_SYNC_FIXTURE_DIR = fixtureDirectory;
+
+    const log = await runSpApiSyncJob(store, job);
+
+    expect(log).toMatchObject({ status: "success" });
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({
+      status: "partial",
+      errorCode: "mapping_blocked",
+      retryCount: 0,
+      totalRows: 2,
+      importedRows: 1,
+      failedRows: 1
+    });
+    expect(store.getDataSource(source.id)).toMatchObject({ status: "attention", syncStatus: "partial" });
+    expect(store.listDataSourceMappingIssues({ orgId: 1, dataSourceId: source.id })).toHaveLength(1);
   });
 
   it("uses the Reports lifecycle once and checkpoints the report ID for a live Sales sync", async () => {
@@ -132,6 +204,8 @@ describe("SP-API sync worker", () => {
     expect(log).toMatchObject({ taskType: "sp_api_sales_traffic_daily_sync", status: "success" });
     expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({
       status: "success",
+      errorCode: null,
+      retryCount: 0,
       externalRequestId: "report-live-1",
       importedRows: 2
     });
@@ -178,7 +252,7 @@ describe("SP-API sync worker", () => {
     const log = await runSpApiSyncJob(store, job);
 
     expect(log).toMatchObject({ taskType: "sp_api_fba_inventory_incremental_sync", status: "success" });
-    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({ status: "success", importedRows: 1 });
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({ status: "success", errorCode: null, retryCount: 0, importedRows: 1 });
     const inventoryUrl = new URL(String(fetchMock.mock.calls[1][0]));
     expect(inventoryUrl.pathname).toBe("/fba/inventory/v1/summaries");
     expect(inventoryUrl.searchParams.get("details")).toBe("true");
@@ -188,6 +262,169 @@ describe("SP-API sync worker", () => {
       total_quantity: 15
     });
     expect(store.getDataSource(source.id)).toMatchObject({ status: "connected", syncStatus: "success" });
+  });
+
+  it("refreshes an expired SP-API access token once without restarting the FBA page stream", async () => {
+    const { run, storeAccount, job } = setupLiveFbaSync();
+    store.createProduct({
+      orgId: 1,
+      storeId: storeAccount.id,
+      marketplace: "US",
+      sku: "REFRESH-FBA-SKU-1",
+      asin: "B0REFRESH01",
+      title: "Refreshed FBA product"
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ access_token: "expired-access-token", expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(jsonResponse({ access_token: "refreshed-access-token", expires_in: 3600 }))
+      .mockResolvedValueOnce(jsonResponse({
+        payload: {
+          inventorySummaries: [inventorySummary("REFRESH-FBA-SKU-1", "B0REFRESH01", 6)]
+        }
+      }));
+
+    const log = await runSpApiSyncJob(store, job);
+
+    expect(log).toMatchObject({ status: "success" });
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({
+      status: "success",
+      importedRows: 1,
+      errorCode: null
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({
+      "x-amz-access-token": "expired-access-token"
+    });
+    expect((fetchMock.mock.calls[3][1] as RequestInit).headers).toMatchObject({
+      "x-amz-access-token": "refreshed-access-token"
+    });
+  });
+
+  it("resumes a failed FBA page from its persisted token and preserves the original window", async () => {
+    const { run, storeAccount, job } = setupLiveFbaSync();
+    store.createProduct({
+      orgId: 1,
+      storeId: storeAccount.id,
+      marketplace: "US",
+      sku: "RESUME-FBA-SKU-1",
+      asin: "B0RESUME001",
+      title: "Resumed FBA product 1"
+    });
+    store.createProduct({
+      orgId: 1,
+      storeId: storeAccount.id,
+      marketplace: "US",
+      sku: "RESUME-FBA-SKU-2",
+      asin: "B0RESUME002",
+      title: "Resumed FBA product 2"
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ access_token: "resume-access-token", expires_in: 3600 }))
+      .mockResolvedValueOnce(jsonResponse({
+        payload: {
+          inventorySummaries: [inventorySummary("RESUME-FBA-SKU-1", "B0RESUME001", 10)],
+          nextToken: "page-2"
+        }
+      }))
+      .mockResolvedValueOnce(new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "2" }
+      }));
+
+    const firstLog = await runSpApiSyncJob(store, job);
+
+    expect(firstLog).toMatchObject({ status: "failed", retryable: true, retryAfterMs: 2_000 });
+    const firstRun = store.getDataSourceSyncRun(run.id, 1);
+    expect(firstRun).toMatchObject({ status: "failed", errorCode: "rate_limited" });
+    const checkpoint = JSON.parse(firstRun?.checkpointSummary ?? "null") as Record<string, unknown>;
+    expect(checkpoint).toMatchObject({
+      version: 1,
+      nextToken: "page-2",
+      pagesCompleted: 1,
+      rowsSeen: 1,
+      importedRows: 1,
+      completed: false,
+      startDateTime: expect.any(String)
+    });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM sp_api_inventory_latest").get()).toEqual({ count: 1 });
+
+    expect(store.failJob(job.id, job.leaseOwner, job.leaseToken, "retry now", 5, 0)).toBe(true);
+    const retryJob = store.claimNextJob("sp-api-resume-worker", 60_000);
+    expect(retryJob).not.toBeNull();
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      payload: {
+        inventorySummaries: [inventorySummary("RESUME-FBA-SKU-2", "B0RESUME002", 7)]
+      }
+    }));
+
+    const secondLog = await runSpApiSyncJob(store, retryJob!);
+
+    expect(secondLog).toMatchObject({ status: "success" });
+    expect(store.getDataSourceSyncRun(run.id, 1)).toMatchObject({
+      status: "success",
+      totalRows: 2,
+      importedRows: 2,
+      createdRecords: 2,
+      errorCode: null
+    });
+    const finalCheckpoint = JSON.parse(store.getDataSourceSyncRun(run.id, 1)?.checkpointSummary ?? "null") as Record<string, unknown>;
+    expect(finalCheckpoint).toMatchObject({
+      nextToken: null,
+      pagesCompleted: 2,
+      rowsSeen: 2,
+      importedRows: 2,
+      completed: true,
+      startDateTime: checkpoint.startDateTime
+    });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM sp_api_inventory_latest").get()).toEqual({ count: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const resumedUrl = new URL(String(fetchMock.mock.calls[3][0]));
+    expect(resumedUrl.searchParams.get("nextToken")).toBe("page-2");
+    expect(resumedUrl.searchParams.get("startDateTime")).toBe(checkpoint.startDateTime);
+  });
+
+  it("rolls back a page promotion when its checkpoint cannot be persisted", async () => {
+    const { run, storeAccount, job } = setupLiveFbaSync();
+    store.createProduct({
+      orgId: 1,
+      storeId: storeAccount.id,
+      marketplace: "US",
+      sku: "ATOMIC-FBA-SKU-1",
+      asin: "B0ATOMIC001",
+      title: "Atomic FBA product"
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ access_token: "atomic-access-token", expires_in: 3600 }))
+      .mockResolvedValueOnce(jsonResponse({
+        payload: {
+          inventorySummaries: [inventorySummary("ATOMIC-FBA-SKU-1", "B0ATOMIC001", 8)]
+        }
+      }));
+    const persistCheckpoint = store.setDataSourceSyncRunCheckpoint.bind(store);
+    let checkpointCalls = 0;
+    vi.spyOn(store, "setDataSourceSyncRunCheckpoint").mockImplementation((id, orgId, summary) => {
+      checkpointCalls += 1;
+      return checkpointCalls === 2 ? null : persistCheckpoint(id, orgId, summary);
+    });
+
+    const log = await runSpApiSyncJob(store, job);
+
+    expect(log).toMatchObject({
+      status: "failed",
+      retryable: true,
+      errorMessage: "FBA page checkpoint could not be persisted"
+    });
+    expect(checkpointCalls).toBe(2);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM sp_api_inventory_latest").get()).toEqual({ count: 0 });
+    const checkpoint = JSON.parse(store.getDataSourceSyncRun(run.id, 1)?.checkpointSummary ?? "null") as Record<string, unknown>;
+    expect(checkpoint).toMatchObject({
+      nextToken: null,
+      pagesCompleted: 0,
+      rowsSeen: 0,
+      importedRows: 0,
+      completed: false
+    });
   });
 });
 
@@ -373,6 +610,23 @@ function salesDocument(asin: string): unknown {
       },
       trafficByAsin: { sessions: 70, pageViews: 90, buyBoxPercentage: 98.5, unitSessionPercentage: 5.7 }
     }]
+  };
+}
+
+function inventorySummary(sellerSku: string, asin: string, totalQuantity: number): unknown {
+  return {
+    sellerSku,
+    asin,
+    totalQuantity,
+    lastUpdatedTime: "2026-07-28T07:30:00.000Z",
+    inventoryDetails: {
+      fulfillableQuantity: totalQuantity - 3,
+      reservedQuantity: 2,
+      inboundWorkingQuantity: 1,
+      inboundShippedQuantity: 0,
+      inboundReceivingQuantity: 0,
+      unfulfillableQuantity: 0
+    }
   };
 }
 

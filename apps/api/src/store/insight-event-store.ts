@@ -3,12 +3,10 @@ import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type {
   AsinWatchState,
   InsightEvent,
-  InsightEventInput,
   InsightEvidence,
   InsightEventNote,
   InsightEventSortKey,
   InsightScoreBreakdown,
-  TopInsightFilterOptions,
   TopInsightFilters
 } from "@amazon-monitor/shared";
 import { parseJsonArray } from "./json-utils.js";

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 2,
+  "evidenceMode": "example",
+  "evidenceBundleId": "shadow-example-2026-08-03-us-001",
+  "organizationId": "org-redacted",
+  "commerceStoreId": "store-redacted",
+  "marketplace": "US",
+  "currency": "USD",
+  "businessTimezone": "America/Los_Angeles",
+  "windowStart": "2026-08-03",
+  "windowEnd": "2026-08-09",
+  "days": [
+    {
+      "businessDate": "2026-08-03",
+      "status": "pass",
+      "externalReference": { "reportId": "seller-report-example-2026-08-03", "downloadedAt": "2026-08-04T08:00:00Z", "sha256": "redacted" },
+      "sales": { "sourceId": "source-example", "syncRunId": "run-example-2026-08-03", "storeDailyAmountMinor": 10000, "skuAmountMinor": 10000, "unmappedAmountMinor": 0, "orders": 10, "units": 20, "factRows": 2, "replayCreatedRecords": 0, "replayUpdatedRecords": 2 },
+      "fba": { "sourceId": "source-example", "syncRunId": "run-fba-example-2026-08-03", "snapshotRows": 2, "latestRows": 2, "asOfRows": 2, "freshnessMinutes": 30 },
+      "mappingIssues": []
+    },
+    {
+      "businessDate": "2026-08-04",
+      "status": "pass",
+      "externalReference": { "reportId": "seller-report-example-2026-08-04", "downloadedAt": "2026-08-05T08:00:00Z", "sha256": "redacted" },
+      "sales": { "sourceId": "source-example", "syncRunId": "run-example-2026-08-04", "storeDailyAmountMinor": 10000, "skuAmountMinor": 10000, "unmappedAmountMinor": 0, "orders": 10, "units": 20, "factRows": 2, "replayCreatedRecords": 0, "replayUpdatedRecords": 2 },
+      "fba": { "sourceId": "source-example", "syncRunId": "run-fba-example-2026-08-04", "snapshotRows": 2, "latestRows": 2, "asOfRows": 2, "freshnessMinutes": 30 },
+      "mappingIssues": []
+    },
+    {
+      "businessDate": "2026-08-05",
+      "status": "pass",
+      "externalReference": { "reportId": "seller-report-example-2026-08-05", "downloadedAt": "2026-08-06T08:00:00Z", "sha256": "redacted" },
+      "sales": { "sourceId": "source-example", "syncRunId": "run-example-2026-08-05", "storeDailyAmountMinor": 10000, "skuAmountMinor": 10000, "unmappedAmountMinor": 0, "orders": 10, "units": 20, "factRows": 2, "replayCreatedRecords": 0, "replayUpdatedRecords": 2 },
+      "fba": { "sourceId": "source-example", "syncRunId": "run-fba-example-2026-08-05", "snapshotRows": 2, "latestRows": 2, "asOfRows": 2, "freshnessMinutes": 30 },
+      "mappingIssues": []
+    },
+    {
+      "businessDate": "2026-08-06",
+      "status": "pass",
+      "externalReference": { "reportId": "seller-report-example-2026-08-06", "downloadedAt": "2026-08-07T08:00:00Z", "sha256": "redacted" },
+      "sales": { "sourceId": "source-example", "syncRunId": "run-example-2026-08-06", "storeDailyAmountMinor": 10000, "skuAmountMinor": 10000, "unmappedAmountMinor": 0, "orders": 10, "units": 20, "factRows": 2, "replayCreatedRecords": 0, "replayUpdatedRecords": 2 },
+      "fba": { "sourceId": "source-example", "syncRunId": "run-fba-example-2026-08-06", "snapshotRows": 2, "latestRows": 2, "asOfRows": 2, "freshnessMinutes": 30 },
+      "mappingIssues": []
+    },
+    {
+      "businessDate": "2026-08-07",
+      "status": "pass",
+      "externalReference": { "reportId": "seller-report-example-2026-08-07", "downloadedAt": "2026-08-08T08:00:00Z", "sha256": "redacted" },
+      "sales": { "sourceId": "source-example", "syncRunId": "run-example-2026-08-07", "storeDailyAmountMinor": 10000, "skuAmountMinor": 10000, "unmappedAmountMinor": 0, "orders": 10, "units": 20, "factRows": 2, "replayCreatedRecords": 0, "replayUpdatedRecords": 2 },
+      "fba": { "sourceId": "source-example", "syncRunId": "run-fba-example-2026-08-07", "snapshotRows": 2, "latestRows": 2, "asOfRows": 2, "freshnessMinutes": 30 },
+      "mappingIssues": []
+    },
+    {
+      "businessDate": "2026-08-08",
+      "status": "pass",
+      "externalReference": { "reportId": "seller-report-example-2026-08-08", "downloadedAt": "2026-08-09T08:00:00Z", "sha256": "redacted" },
+      "sales": { "sourceId": "source-example", "syncRunId": "run-example-2026-08-08", "storeDailyAmountMinor": 10000, "skuAmountMinor": 10000, "unmappedAmountMinor": 0, "orders": 10, "units": 20, "factRows": 2, "replayCreatedRecords": 0, "replayUpdatedRecords": 2 },
+      "fba": { "sourceId": "source-example", "syncRunId": "run-fba-example-2026-08-08", "snapshotRows": 2, "latestRows": 2, "asOfRows": 2, "freshnessMinutes": 30 },
+      "mappingIssues": []
+    },
+    {
+      "businessDate": "2026-08-09",
+      "status": "pass",
+      "externalReference": { "reportId": "seller-report-example-2026-08-09", "downloadedAt": "2026-08-10T08:00:00Z", "sha256": "redacted" },
+      "sales": { "sourceId": "source-example", "syncRunId": "run-example-2026-08-09", "storeDailyAmountMinor": 10000, "skuAmountMinor": 10000, "unmappedAmountMinor": 0, "orders": 10, "units": 20, "factRows": 2, "replayCreatedRecords": 0, "replayUpdatedRecords": 2 },
+      "fba": { "sourceId": "source-example", "syncRunId": "run-fba-example-2026-08-09", "snapshotRows": 2, "latestRows": 2, "asOfRows": 2, "freshnessMinutes": 30 },
+      "mappingIssues": []
+    }
+  ]
+}

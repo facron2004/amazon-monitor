@@ -2,8 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   alertRuleDefinitions,
   type AlertRule,
-  type AlertRuleListFilter,
-  type UpsertAlertRuleConfigInput
+  type AlertRuleListFilter
 } from "@amazon-monitor/shared";
 import {
   getAlertRuleDefinition,

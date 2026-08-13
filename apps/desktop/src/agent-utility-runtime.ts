@@ -19,6 +19,7 @@ import type {
 } from "@amazon-monitor/shared";
 import type { AgentOAuthCommand } from "./desktop-agent-control.js";
 import { CodexAppServerClient } from "./codex-app-server-client.js";
+import { redactLogMessage } from "./log-redaction.js";
 import { executeOAuthAgentRun } from "./oauth-agent-runner.js";
 
 type MessageSender = (message: DesktopAgentBridgeMessage) => void;
@@ -34,10 +35,12 @@ export class AgentUtilityRuntime {
   private codexClient: CodexAppServerClient | null = null;
   private readonly controllers = new Map<number, AbortController>();
   private readonly pending = new Map<string, PendingRpc>();
+  private closed = false;
 
   constructor(private readonly send: MessageSender) {}
 
   setConnection(connection: AgentModelRuntimeConnection | null): void {
+    if (this.closed) return;
     this.connection = connection;
     if (connection?.provider !== "chatgpt-oauth") {
       this.codexClient?.close();
@@ -46,6 +49,7 @@ export class AgentUtilityRuntime {
   }
 
   async handleOAuthCommand(command: AgentOAuthCommand) {
+    if (this.closed) throw new Error("Agent utility runtime is closed");
     const client = this.getCodexClient();
     if (command === "start") return client.startOAuth();
     if (command === "logout") {
@@ -56,6 +60,7 @@ export class AgentUtilityRuntime {
   }
 
   handle(message: DesktopAgentBridgeMessage): void {
+    if (this.closed) return;
     if (message.type === "agent.run.start") {
       void this.start(message);
     } else if (message.type === "agent.run.cancel") {
@@ -66,6 +71,7 @@ export class AgentUtilityRuntime {
   }
 
   private async start(message: DesktopAgentRunStart): Promise<void> {
+    if (this.closed) return;
     if (this.controllers.has(message.run.id)) return;
     if (!this.connection) {
       this.send({
@@ -89,6 +95,7 @@ export class AgentUtilityRuntime {
     let terminalSent = false;
     const persistence: AgentRuntimePersistence = {
       appendEvent: (runId, eventType, payload = {}) => {
+        if (this.closed) return {} as AgentRunEvent;
         this.send({
           type: "agent.run.event",
           runId,
@@ -98,12 +105,18 @@ export class AgentUtilityRuntime {
         return {} as AgentRunEvent;
       },
       complete: (runId, output) => {
+        if (this.closed) return;
         terminalSent = true;
         this.send({ type: "agent.run.complete", runId, output });
       },
       fail: (runId, errorMessage) => {
+        if (this.closed) return;
         terminalSent = true;
-        this.send({ type: "agent.run.fail", runId, errorMessage });
+        this.send({
+          type: "agent.run.fail",
+          runId,
+          errorMessage: safeAgentErrorMessage(errorMessage),
+        });
       },
     };
     try {
@@ -157,11 +170,11 @@ export class AgentUtilityRuntime {
         );
       }
     } catch (error) {
-      if (!terminalSent) {
+      if (!terminalSent && !this.closed) {
         this.send({
           type: "agent.run.fail",
           runId: message.run.id,
-          errorMessage: safeErrorMessage(error),
+          errorMessage: safeAgentErrorMessage(error),
         });
       }
     } finally {
@@ -170,6 +183,16 @@ export class AgentUtilityRuntime {
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.connection = null;
+    for (const controller of this.controllers.values()) controller.abort();
+    this.controllers.clear();
+    for (const [requestId, pending] of this.pending) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("Agent utility runtime is closed"));
+      this.pending.delete(requestId);
+    }
     this.codexClient?.close();
     this.codexClient = null;
   }
@@ -186,6 +209,7 @@ export class AgentUtilityRuntime {
     method: DesktopAgentRpcMethod,
     payload: Record<string, unknown>,
   ): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error("Agent utility runtime is closed"));
     const requestId = randomUUID();
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -271,9 +295,10 @@ class RemoteAgentSession implements AgentSdkSession {
   }
 }
 
-function safeErrorMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : "Desktop Agent run failed")
-    .slice(0, 500);
+export function safeAgentErrorMessage(error: unknown): string {
+  return redactLogMessage(
+    error instanceof Error ? error.message : "Desktop Agent run failed",
+  ).slice(0, 500);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -359,6 +359,27 @@ describe("filterAndSortEvents", () => {
   });
 });
 
+describe("useInsightEventsStore projections", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it("groups only events that remain visible after filters", () => {
+    const store = useInsightEventsStore();
+    store.$patch({
+      events: [
+        buildEvent({ id: "visible", asin: "B001", status: "WATCHING" }),
+        buildEvent({ id: "hidden", asin: "B002", status: "TODO" })
+      ],
+      filters: defaultFilters({ status: "WATCHING" })
+    });
+
+    expect(store.visibleEvents.map((event) => event.id)).toEqual(["visible"]);
+    expect(store.visibleAsinGroups.map((group) => group.asin)).toEqual(["B001"]);
+    expect(store.visibleAsinGroups[0]?.events.map((event) => event.id)).toEqual(["visible"]);
+  });
+});
+
 describe("useInsightEventsStore actions", () => {
   beforeEach(() => {
     setActivePinia(createPinia());

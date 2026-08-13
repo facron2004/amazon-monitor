@@ -1,4 +1,5 @@
-import type { Express, NextFunction, Request, Response } from "express";
+import { timingSafeEqual } from "node:crypto";
+import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import type { SessionContext, UserRole } from "@amazon-monitor/shared";
 import { login, logout, resolveContext, isRole } from "../services/auth-service.js";
 import type { Store } from "../store.js";
@@ -23,14 +24,25 @@ function getBootstrapAdmin(store: Store) {
 export interface AuthRouteOptions {
   /** When true, the session fallback is also accepted. Default true. */
   sessionEnabled?: boolean;
+  /** One-time desktop setup token. Required for packaged production bootstrap. */
+  setupToken?: string;
+  /** Optional route-level limiter for credential attempts. */
+  loginLimiter?: RequestHandler;
+  /** Optional route-level limiter for the one-time bootstrap endpoint. */
+  bootstrapLimiter?: RequestHandler;
 }
 
 export const SESSION_COOKIE = "amazon_monitor_session";
+export const SETUP_COOKIE = "amazon_monitor_setup";
 export const LEGACY_TOKEN_HEADER = "authorization";
 
-function sessionCookie(token: string, maxAgeSeconds: number): string {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+function sessionCookie(token: string, maxAgeSeconds: number, request: Request): string {
+  const secure = shouldUseSecureCookie(request) ? "; Secure" : "";
   return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;
+}
+
+function setupCookie(token: string, maxAgeSeconds: number): string {
+  return `${SETUP_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}`;
 }
 
 /**
@@ -53,15 +65,17 @@ export function sessionLoader(store: Store) {
 }
 
 export function extractSessionToken(req: Request): string | null {
+  return extractCookie(req, SESSION_COOKIE);
+}
+
+function extractCookie(req: Request, name: string): string | null {
   const cookieHeader = req.headers.cookie ?? "";
   const match = cookieHeader
     .split(";")
     .map((s) => s.trim())
-    .find((s) => s.startsWith(`${SESSION_COOKIE}=`));
-  if (match) {
-    return decodeURIComponent(match.slice(SESSION_COOKIE.length + 1));
-  }
-  return null;
+    .find((s) => s.startsWith(`${name}=`));
+  if (!match) return null;
+  return decodeURIComponent(match.slice(name.length + 1));
 }
 
 export function requireAuth() {
@@ -91,14 +105,27 @@ export function requireRole(roles: UserRole | UserRole[]) {
 }
 
 export function registerAuthRoutes(app: Express, store: Store, options: AuthRouteOptions = {}): void {
-  const { sessionEnabled = true } = options;
+  const {
+    sessionEnabled = true,
+    loginLimiter,
+    bootstrapLimiter,
+  } = options;
+  const setupToken = options.setupToken?.trim() || null;
 
-  app.post("/api/auth/register-first-user", asyncHandler(async (request, response) => {
+  app.post("/api/auth/register-first-user", ...(bootstrapLimiter ? [bootstrapLimiter] : []), asyncHandler(async (request, response) => {
     const data = validateBody(bootstrapRegistrationSchema, request.body);
     const users = store.listUsers();
     const bootstrapAdmin = getBootstrapAdmin(store);
     if (users.length > 0 && !bootstrapAdmin) {
       response.status(409).json({ message: "Registration is only available during initial setup. Log in as an admin to create more users." });
+      return;
+    }
+    if (!canBootstrap(request, setupToken)) {
+      response.status(setupToken ? 403 : 503).json({
+        message: setupToken
+          ? "Initial setup token is missing or invalid"
+          : "Initial setup is not configured",
+      });
       return;
     }
     const org = bootstrapAdmin
@@ -130,12 +157,15 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
       return;
     }
     if (sessionEnabled) {
-      response.setHeader("Set-Cookie", sessionCookie(result.token, 14 * 24 * 3600));
+      response.setHeader("Set-Cookie", [
+        sessionCookie(result.token, 14 * 24 * 3600, request),
+        setupCookie("", 0),
+      ]);
     }
     response.status(201).json({ expiresAt: result.expiresAt, context: result.context, user, organization: org });
   }));
 
-  app.post("/api/auth/login", asyncHandler(async (request, response) => {
+  app.post("/api/auth/login", ...(loginLimiter ? [loginLimiter] : []), asyncHandler(async (request, response) => {
     const data = validateBody(loginSchema, request.body);
     const ip = request.ip ?? null;
     const userAgent = (request.headers["user-agent"] as string | undefined) ?? null;
@@ -147,7 +177,7 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
     if (sessionEnabled) {
       response.setHeader(
         "Set-Cookie",
-        sessionCookie(result.token, 14 * 24 * 3600)
+        sessionCookie(result.token, 14 * 24 * 3600, request)
       );
     }
     response.json({ expiresAt: result.expiresAt, context: result.context });
@@ -160,7 +190,7 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
     }
     response.setHeader(
       "Set-Cookie",
-      sessionCookie("", 0)
+      sessionCookie("", 0, request)
     );
     response.status(204).end();
   }));
@@ -201,4 +231,30 @@ export function registerAuthRoutes(app: Express, store: Store, options: AuthRout
     });
     response.status(201).json(user);
   }));
+}
+
+function canBootstrap(request: Request, expectedToken: string | null): boolean {
+  if (!isLoopbackRequest(request)) return false;
+  if (!expectedToken) return process.env.NODE_ENV !== "production";
+  const provided = extractCookie(request, SETUP_COOKIE)
+    ?? request.header("x-amazon-monitor-setup-token")
+    ?? "";
+  const expected = Buffer.from(expectedToken);
+  const actual = Buffer.from(provided);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function isLoopbackRequest(request: Request): boolean {
+  const address = request.socket.remoteAddress ?? request.ip ?? "";
+  return address === "127.0.0.1"
+    || address === "::1"
+    || address === "::ffff:127.0.0.1";
+}
+
+function shouldUseSecureCookie(request: Request): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  if (request.secure || request.header("x-forwarded-proto") === "https") return true;
+  // Packaged Electron serves the UI from an HTTP loopback origin. Keep that
+  // local session usable while retaining Secure for non-loopback production.
+  return !isLoopbackRequest(request);
 }

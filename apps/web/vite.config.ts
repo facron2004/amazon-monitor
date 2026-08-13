@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type ProxyOptions } from "vite";
 import vue from "@vitejs/plugin-vue";
-import { resolveApiProxyTarget } from "./src/utils/viteProxyTarget";
+import ElementPlus from "unplugin-element-plus/vite";
+import { resolveApiProxyTarget } from "./src/utils/viteProxyTarget.js";
 
 const repoEnvDir = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -24,7 +25,7 @@ export default defineConfig(({ mode }) => {
   const apiProxyTarget = resolveApiProxyTarget(env);
 
   return {
-    plugins: [vue()],
+    plugins: [vue(), ElementPlus()],
     build: {
       chunkSizeWarningLimit: 700,
       rollupOptions: {
@@ -36,7 +37,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     server: {
-      host: "0.0.0.0",
+      host: "127.0.0.1",
       port: 5188,
       strictPort: true,
       proxy: {
@@ -44,7 +45,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     preview: {
-      host: "0.0.0.0",
+      host: "127.0.0.1",
       port: 4173,
       proxy: {
         "/api": createApiProxy(apiProxyTarget)

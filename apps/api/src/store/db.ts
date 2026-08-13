@@ -27,7 +27,6 @@ import {
   ensureKeywordSerpSnapshotUniqueIndex,
   ensureCompetitorDailyChangeUniqueIndex,
   SCHEMA_VERSION,
-  getSchemaVersion,
   setSchemaVersion
 } from "./migrations.js";
 import { createIdentityStore } from "./identity-store.js";
@@ -42,15 +41,9 @@ function resolveInitialAdminPassword(): string {
   if (process.env.NODE_ENV === "test") {
     return "admin123";
   }
-  if (process.env.NODE_ENV !== "production") {
-    return "Admin123!";
-  }
-  const generated = randomBytes(18).toString("base64url");
-  console.warn(
-    `[Identity] Generated initial admin password for this database: ${generated}. ` +
-    "Set ADMIN_INITIAL_PASSWORD to choose it explicitly."
-  );
-  return generated;
+  // The bootstrap route replaces this inaccessible account after proving the
+  // one-time setup token. Never print the generated secret to logs.
+  return randomBytes(18).toString("base64url");
 }
 
 function ensureDefaultIdentity(db: DatabaseSync): void {
@@ -102,6 +95,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_collect_job_queue", "lease_owner", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_token", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_expires_at", "TEXT");
+  ensureColumn(db, "amazon_collect_job_queue", "next_attempt_at", "TEXT");
   ensureColumn(db, "amazon_collect_task_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_competitor_pool", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_competitor_daily_change", "org_id", "INTEGER NOT NULL DEFAULT 1");
@@ -120,6 +114,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "data_source_sync_runs", "checkpoint_summary", "TEXT");
   ensureColumn(db, "data_source_sync_runs", "external_request_id", "TEXT");
   ensureColumn(db, "data_source_sync_runs", "retry_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "data_source_sync_runs", "error_code", "TEXT");
   ensureColumn(db, "sp_api_sales_traffic_daily", "source_document_id", "TEXT");
   ensureColumn(db, "sp_api_sales_traffic_daily", "content_hash", "TEXT");
   ensureColumn(db, "sp_api_inventory_snapshots", "inbound_quantity", "INTEGER");
@@ -151,6 +146,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_collect_job_queue", "lease_owner", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_token", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_expires_at", "TEXT");
+  ensureColumn(db, "amazon_collect_job_queue", "next_attempt_at", "TEXT");
   ensureColumn(db, "amazon_collect_task_log", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "data_source_sync_runs", "domain", "TEXT");
   ensureColumn(db, "data_source_sync_runs", "trigger", "TEXT");
@@ -163,6 +159,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "data_source_sync_runs", "checkpoint_summary", "TEXT");
   ensureColumn(db, "data_source_sync_runs", "external_request_id", "TEXT");
   ensureColumn(db, "data_source_sync_runs", "retry_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "data_source_sync_runs", "error_code", "TEXT");
   ensureColumn(db, "sp_api_sales_traffic_daily", "source_document_id", "TEXT");
   ensureColumn(db, "sp_api_sales_traffic_daily", "content_hash", "TEXT");
   ensureColumn(db, "sp_api_inventory_snapshots", "inbound_quantity", "INTEGER");

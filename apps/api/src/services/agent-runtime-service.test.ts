@@ -121,6 +121,51 @@ describe("AgentRuntimeService terminal events", () => {
     database.close();
   });
 
+  it("fails a run when the desktop Agent bridge closes during dispatch", () => {
+    const database = new DatabaseSync(":memory:");
+    initSchema(database);
+    const store = createStore(database);
+    const user = store.listUsers()[0]!;
+    const session = store.createAgentSession({
+      orgId: user.orgId,
+      userId: user.id,
+      title: "Dispatch failure",
+    });
+    const run = store.createAgentRun({
+      sessionId: session.id,
+      orgId: user.orgId,
+      userId: user.id,
+      taskType: "investigation",
+      input: "Investigate dispatch failure",
+      model: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+    });
+    configureDesktopAgentStore(store);
+    configureDesktopAgentTransport(() => {
+      throw new Error("Agent bridge is closed");
+    });
+    const runtime = new AgentRuntimeService(store, {
+      enabled: true,
+      primaryModel: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      maxTurns: 10,
+      tracingDisabled: true,
+    });
+
+    runtime.start(run, { datasets: ["category"], categoryId: 1 });
+
+    expect(store.getAgentRun(run.id, user.orgId)).toMatchObject({
+      status: "failed",
+      errorMessage: "Agent bridge is closed",
+    });
+    expect(store.listAgentRunEvents(run.id).at(-1)).toMatchObject({
+      type: "run.failed",
+      payload: { errorMessage: "Agent bridge is closed" },
+    });
+    database.close();
+  });
+
   it("keeps a cancelled run terminal when a late desktop event arrives", async () => {
     const database = new DatabaseSync(":memory:");
     initSchema(database);

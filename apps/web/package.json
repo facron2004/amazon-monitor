@@ -7,7 +7,7 @@
     "dev": "vite",
     "test": "vitest run src",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173"
+    "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
     "@amazon-monitor/shared": "1.1.0",
@@ -21,6 +21,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.2",
     "http-proxy": "^1.18.1",
+    "unplugin-element-plus": "^0.11.2",
     "vite": "^7.2.4",
     "vue-tsc": "^3.1.8"
   }

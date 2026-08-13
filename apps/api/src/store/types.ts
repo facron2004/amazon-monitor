@@ -71,9 +71,13 @@ import type {
   DataSourceListFilter,
   DataSourceMappingIssue,
   DataSourceMappingIssueListFilter,
+  DataSourceOverrideAudit,
+  DataSourceOverrideAuditListFilter,
+  CreateDataSourceOverrideAuditInput,
   SpApiConnectionConfig,
   SpApiFactPromotionResult,
   SpApiInventoryFactInput,
+  SpApiProductSalesEvidence,
   SpApiSalesTrafficFactInput,
   DataSourceSyncRun,
   DataSourceSyncRunListFilter,
@@ -571,7 +575,14 @@ export interface QueueStore {
   renewJobLease(id: number, leaseOwner: string, leaseToken: string, leaseDurationMs: number): boolean;
   isJobLeaseActive(id: number, leaseOwner: string, leaseToken: string): boolean;
   completeJob(id: number, leaseOwner: string, leaseToken: string): boolean;
-  failJob(id: number, leaseOwner: string, leaseToken: string, errorMessage: string, maxRetries: number): boolean;
+  failJob(
+    id: number,
+    leaseOwner: string,
+    leaseToken: string,
+    errorMessage: string,
+    maxRetries: number,
+    retryAfterMs?: number,
+  ): boolean;
   listJobs(limit?: number, offset?: number, orgId?: number): CollectJob[];
   getJobStatus(id: number, orgId?: number): CollectJob | null;
   getCollectionFreshness(orgId?: number): CollectionFreshness[];
@@ -652,6 +663,8 @@ export interface ProductStore {
       endDate?: string;
       limit?: number;
       offset?: number;
+      /** Internal import/merge path: return the persisted manual row without source promotion. */
+      effective?: boolean;
     },
   ): OwnedProductDailyMetric[];
   listOrganizationProductDailyMetrics(
@@ -959,6 +972,11 @@ export interface DataSourceStore {
     orgId: number,
     externalRequestId: string,
   ): DataSourceSyncRun | null;
+  setDataSourceSyncRunCheckpoint(
+    id: number,
+    orgId: number,
+    checkpointSummary: string,
+  ): DataSourceSyncRun | null;
   finishDataSourceSyncRun(
     id: number,
     input: FinishDataSourceSyncRunInput,
@@ -987,6 +1005,8 @@ export interface DataSourceStore {
     input: UpdateDataSourceMappingIssueInput,
   ): DataSourceMappingIssue | null;
   countOpenDataSourceMappingIssues(dataSourceId: number, orgId: number): number;
+  createDataSourceOverrideAudit(input: CreateDataSourceOverrideAuditInput): DataSourceOverrideAudit;
+  listDataSourceOverrideAudits(filter: DataSourceOverrideAuditListFilter): DataSourceOverrideAudit[];
   getSpApiConnection(dataSourceId: number, orgId: number): SpApiConnectionConfig | null;
   getSpApiConnectionCredentials(
     dataSourceId: number,
@@ -1002,6 +1022,11 @@ export interface DataSourceStore {
     facts: SpApiInventoryFactInput[],
     options?: { ensureActive?: () => void },
   ): SpApiFactPromotionResult;
+  getSpApiSalesTrafficFactForProductDate(
+    orgId: number,
+    productId: number,
+    businessDate: string,
+  ): SpApiProductSalesEvidence | null;
 }
 
 export interface ReportStore {
@@ -1206,7 +1231,13 @@ export interface Store
     SopStore,
     IdentityStore {
   reset(): void;
-  runInTransaction(work: () => void): void;
+  /**
+   * Run work inside a SAVEPOINT and optionally verify an ownership guard both
+   * before the work starts and immediately before the SAVEPOINT is released.
+   * The latter keeps a worker lease loss from committing partially-written
+   * business facts.
+   */
+  runInTransaction(work: () => void, ensureActive?: () => void): void;
   getCategoryDetail(
     categoryId: number,
     date: string,

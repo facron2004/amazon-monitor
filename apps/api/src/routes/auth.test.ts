@@ -69,6 +69,32 @@ describe("auth API (Stage 0)", () => {
     expect(response.body.message).toContain("initial setup");
   });
 
+  it("requires and consumes the production setup token", async () => {
+    const tokenApp = createApiApp(store, { setupToken: "setup-secret" });
+
+    await request(tokenApp)
+      .post("/api/auth/register-first-user")
+      .send({ username: "owner", password: "password-1234" })
+      .expect(403);
+
+    const registered = await request(tokenApp)
+      .post("/api/auth/register-first-user")
+      .set("x-amazon-monitor-setup-token", "setup-secret")
+      .send({ username: "owner", password: "password-1234" })
+      .expect(201);
+
+    expect(registered.headers["set-cookie"]).toEqual(expect.arrayContaining([
+      expect.stringMatching(/amazon_monitor_session=/),
+      expect.stringMatching(/amazon_monitor_setup=;/),
+    ]));
+
+    await request(tokenApp)
+      .post("/api/auth/register-first-user")
+      .set("x-amazon-monitor-setup-token", "setup-secret")
+      .send({ username: "second-owner", password: "password-1234" })
+      .expect(409);
+  });
+
   it("sets Secure on session cookies in production", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
@@ -80,10 +106,17 @@ describe("auth API (Stage 0)", () => {
       const prodApp = createApiApp(createStore(prodDb));
       const login = await request(prodApp)
         .post("/api/auth/login")
+        .set("x-forwarded-proto", "https")
         .send({ username: "admin", password: "admin123" })
         .expect(200);
 
       expect(login.headers["set-cookie"][0]).toContain("Secure");
+
+      const loopbackLogin = await request(prodApp)
+        .post("/api/auth/login")
+        .send({ username: "admin", password: "admin123" })
+        .expect(200);
+      expect(loopbackLogin.headers["set-cookie"][0]).not.toContain("Secure");
     } finally {
       prodDb.close();
       if (originalNodeEnv) {

@@ -115,7 +115,6 @@ describe("competitor pool watch-state integration", () => {
 
     const suggestion = buildCompetitorInsightSuggestion(
       [watchedCoreWithCoupon, unmarkedPromo],
-      new Date("2026-07-05T00:00:00.000Z"),
       watchStates
     );
 

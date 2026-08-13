@@ -1,0 +1,33 @@
+{
+  "databasePath": "../../tmp/shadow.sqlite",
+  "orgId": 1,
+  "dataSourceId": 1,
+  "commerceStoreId": 1,
+  "marketplace": "US",
+  "currency": "USD",
+  "businessTimezone": "America/Los_Angeles",
+  "evidenceBundleId": "shadow-2026-08-03-us-001",
+  "organizationEvidenceId": "org-redacted",
+  "commerceStoreEvidenceId": "store-redacted",
+  "sourceEvidenceId": "source-redacted",
+  "windowStart": "2026-08-03",
+  "windowEnd": "2026-08-09",
+  "externalReferences": {
+    "2026-08-03": { "reportId": "seller-report-redacted-2026-08-03", "downloadedAt": "2026-08-04T08:00:00Z", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "2026-08-04": { "reportId": "seller-report-redacted-2026-08-04", "downloadedAt": "2026-08-05T08:00:00Z", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "2026-08-05": { "reportId": "seller-report-redacted-2026-08-05", "downloadedAt": "2026-08-06T08:00:00Z", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "2026-08-06": { "reportId": "seller-report-redacted-2026-08-06", "downloadedAt": "2026-08-07T08:00:00Z", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "2026-08-07": { "reportId": "seller-report-redacted-2026-08-07", "downloadedAt": "2026-08-08T08:00:00Z", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "2026-08-08": { "reportId": "seller-report-redacted-2026-08-08", "downloadedAt": "2026-08-09T08:00:00Z", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "2026-08-09": { "reportId": "seller-report-redacted-2026-08-09", "downloadedAt": "2026-08-10T08:00:00Z", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+  },
+  "observedAtByDate": {
+    "2026-08-03": "2026-08-04T08:30:00Z",
+    "2026-08-04": "2026-08-05T08:30:00Z",
+    "2026-08-05": "2026-08-06T08:30:00Z",
+    "2026-08-06": "2026-08-07T08:30:00Z",
+    "2026-08-07": "2026-08-08T08:30:00Z",
+    "2026-08-08": "2026-08-09T08:30:00Z",
+    "2026-08-09": "2026-08-10T08:30:00Z"
+  }
+}

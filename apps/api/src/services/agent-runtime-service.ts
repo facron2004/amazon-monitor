@@ -49,12 +49,16 @@ export class AgentRuntimeService {
     this.store.updateAgentRun(run.id, run.orgId, { status: "planning" });
     const persistence = this.persistenceFor(run);
     if (hasDesktopAgentTransport()) {
-      startDesktopAgentRun(
-        run,
-        freshnessInput,
-        config,
-        persistence,
-      );
+      try {
+        startDesktopAgentRun(
+          run,
+          freshnessInput,
+          config,
+          persistence,
+        );
+      } catch (error) {
+        persistence.fail(run.id, safeErrorMessage(error));
+      }
       return;
     }
 
@@ -110,7 +114,7 @@ export class AgentRuntimeService {
         this.persistAuditEvent(runId, type, payload ?? {});
         return this.store.appendAgentRunEvent({ runId, type, payload });
       },
-      complete: (runId, output) => this.complete(run, output),
+      complete: (_runId, output) => this.complete(run, output),
       fail: (runId, errorMessage) => {
         const current = this.store.getAgentRun(runId, run.orgId);
         if (current?.status === "cancelled") return;
@@ -295,4 +299,9 @@ function isToolEnvelope(
     && isRecord(value.freshness)
     && Array.isArray(value.dataGaps)
     && Array.isArray(value.warnings);
+}
+
+function safeErrorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : "Desktop Agent transport failed")
+    .slice(0, 500);
 }

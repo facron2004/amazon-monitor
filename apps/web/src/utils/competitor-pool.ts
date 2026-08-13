@@ -5,7 +5,7 @@ import type {
   CompetitorDailyKpiDelta,
   CompetitorPoolItem,
 } from "@amazon-monitor/shared";
-import { validCouponText, validDealBadge } from "./formatters-promotions";
+import { validCouponText } from "./formatters-promotions";
 import type {
   CompetitorSourceFilter,
   CompetitorTierFilter,
@@ -174,7 +174,6 @@ export function buildCompetitorKpis(
 
 export function buildCompetitorInsightSuggestion(
   competitors: CompetitorPoolItem[],
-  today: Date = new Date(),
   watchStates: AsinWatchState[] = [],
 ): CompetitorInsightSuggestion {
   const watchByAsin = watchStateByAsin(watchStates);

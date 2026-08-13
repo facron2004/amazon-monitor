@@ -10,6 +10,7 @@ import {
   nestedString,
   resolveCodexExecutable,
 } from "./codex-app-server-utils.js";
+import { buildProcessEnvironment } from "./process-environment.js";
 
 interface PendingRequest {
   reject(error: Error): void;
@@ -188,8 +189,9 @@ export class CodexAppServerClient {
     mkdirSync(this.codexHome, { recursive: true });
     const child = spawn(this.executable, ["app-server", "--listen", "stdio://"], {
       env: {
-        ...process.env,
-        CODEX_HOME: this.codexHome,
+        ...buildProcessEnvironment("agent", process.env, {
+          CODEX_HOME: this.codexHome,
+        }),
       },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,

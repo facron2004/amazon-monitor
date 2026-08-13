@@ -29,7 +29,7 @@ const emit = defineEmits<Emits>();
       <div>
         <h3>邮件发送与排期设置</h3>
         <p>
-          在这里配置周期发送。邮箱通道会直接使用 API 服务环境中的 SMTP 设置，请先确认服务器已经在 <code>.env</code> 中补齐以下字段。
+          在这里配置周期发送。邮箱通道会直接使用 API 服务环境中的 SMTP 设置。EXE 推荐将配置文件放在 <code>%APPDATA%\Amazon Monitor\.env</code>，也支持放在 EXE 同目录；开发环境继续读取项目根目录的 <code>.env</code>。
         </p>
         <div class="smtp-vars">
           <div>SMTP_HOST：SMTP 服务器地址，例如 smtp.qq.com</div>

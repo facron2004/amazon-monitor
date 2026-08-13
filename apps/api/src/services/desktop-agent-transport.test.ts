@@ -298,4 +298,68 @@ describe("Desktop Agent transport", () => {
     expect(complete).not.toHaveBeenCalled();
     database.close();
   });
+
+  it("removes the active run when bridge dispatch fails", async () => {
+    const database = new DatabaseSync(":memory:");
+    initSchema(database);
+    const store = createStore(database);
+    const user = store.listUsers()[0]!;
+    const session = store.createAgentSession({
+      orgId: user.orgId,
+      userId: user.id,
+      title: "Bridge dispatch failure",
+    });
+    const run = store.createAgentRun({
+      sessionId: session.id,
+      orgId: user.orgId,
+      userId: user.id,
+      taskType: "query",
+      input: "Dispatch failure",
+      model: "gpt-5.6-sol",
+      fallbackModel: "gpt-5.6-terra",
+    });
+    const complete = vi.fn();
+    configureDesktopAgentStore(store);
+    configureDesktopAgentTransport(() => {
+      throw new Error("MessagePort is closed");
+    });
+
+    expect(() => startDesktopAgentRun(
+      run,
+      { datasets: ["category"] },
+      {
+        enabled: true,
+        primaryModel: "gpt-5.6-sol",
+        fallbackModel: "gpt-5.6-terra",
+        reasoningEffort: "medium",
+        maxTurns: 10,
+        tracingDisabled: true,
+      },
+      { appendEvent: vi.fn(), complete, fail: vi.fn() },
+    )).toThrow("MessagePort is closed");
+
+    configureDesktopAgentTransport(vi.fn());
+    await receiveDesktopAgentMessage({
+      type: "agent.run.complete",
+      runId: run.id,
+      output: {
+        summary: "Late result",
+        conclusions: [],
+        freshness: {
+          status: "fresh",
+          checkedAt: "2026-07-30T00:00:00.000Z",
+          maxAgeHours: 24,
+          oldestEvidenceAt: null,
+          staleSources: [],
+          dataGaps: [],
+          warnings: [],
+        },
+        riskNotes: [],
+        recommendedActions: [],
+      },
+    });
+
+    expect(complete).not.toHaveBeenCalled();
+    database.close();
+  });
 });

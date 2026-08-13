@@ -117,9 +117,9 @@ export function resolveSmtpConfig(env: NodeJS.ProcessEnv = process.env): Resolve
   const port = numberEnv(env.SMTP_PORT, 587);
   const secure = booleanEnv(env.SMTP_SECURE) ?? port === 465;
   const requireTLS = booleanEnv(env.SMTP_REQUIRE_TLS) ?? (!secure && port === 587);
-  const user = env.SMTP_USER;
+  const user = cleanEnvValue(env.SMTP_USER);
   const pass = env.SMTP_PASS;
-  const from = env.SMTP_FROM ?? user;
+  const from = cleanEnvValue(env.SMTP_FROM) ?? user;
   const proxy = resolveSmtpProxy(host, env);
   const timeout = numberEnv(env.SMTP_TIMEOUT_MS, 30000);
 

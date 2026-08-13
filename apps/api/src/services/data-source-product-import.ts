@@ -2,6 +2,7 @@ import type {
   DataSourceConfig,
   DataSourceImportPayload,
   DataSourceImportError,
+  DataSourceOverrideField,
   DataSourceProductImportResult,
   UpsertOwnedProductDailyMetricInput
 } from "@amazon-monitor/shared";
@@ -23,6 +24,16 @@ const NUMBER_FIELDS = [
   "inventoryDays", "adSpend", "adSales", "acos", "tacos", "grossMargin"
 ] as const;
 
+const SP_API_AUTHORITY_FIELDS = [
+  "sessions",
+  "pageViews",
+  "orders",
+  "unitsSold",
+  "salesAmount",
+  "buyBoxPercentage",
+  "conversionRate"
+] as const satisfies readonly DataSourceOverrideField[];
+
 type MetricField = (typeof NUMBER_FIELDS)[number];
 
 interface ParsedProductRow {
@@ -40,12 +51,14 @@ interface ParsedProductRow {
 export async function importDataSourceProducts(
   store: Store,
   source: DataSourceConfig,
-  input: DataSourceImportPayload
+  input: DataSourceImportPayload,
+  context: { syncRunId: number; initiatedById: number }
 ): Promise<DataSourceProductImportResult> {
   const requiredHeaders = source.marketplace ? REQUIRED_HEADERS : [...REQUIRED_HEADERS, "marketplace"];
   const rows = await parseDataSourceImportRows(input, requiredHeaders);
   const validRows: ParsedProductRow[] = [];
   const errors: DataSourceImportError[] = [];
+  const warnings: DataSourceImportError[] = [];
 
   for (const row of rows) {
     const parsed = validateRow(row.row, row.values, source.marketplace);
@@ -86,10 +99,50 @@ export async function importDataSourceProducts(
         });
         createdProducts += 1;
       }
+      const spApiFact = store.getSpApiSalesTrafficFactForProductDate(source.orgId, product.id, row.date);
+      const conflictingFields = spApiFact
+        ? SP_API_AUTHORITY_FIELDS.filter((field) => Object.hasOwn(row.metrics, field))
+        : [];
+      const allowOverride = input.policy?.allowSpApiOverride === true;
+      if (conflictingFields.length > 0 && !allowOverride) {
+        warnings.push({
+          row: row.row,
+          message: `Skipped daily metric row for ${row.date}: fresh SP-API fields ${conflictingFields.join(", ")} are authoritative; use an explicit override reason to replace them`
+        });
+        continue;
+      }
+      if (conflictingFields.length > 0 && allowOverride) {
+        if (!spApiFact) throw new Error("SP-API fact disappeared while processing the import row");
+        const reason = input.policy?.overrideReason?.trim();
+        if (!reason) throw new Error("overrideReason is required when allowSpApiOverride is true");
+        for (const field of conflictingFields) {
+          store.createDataSourceOverrideAudit({
+            orgId: source.orgId,
+            dataSourceId: source.id,
+            syncRunId: context.syncRunId,
+            productId: product.id,
+            domain: "sales_traffic",
+            effectiveDate: row.date,
+            fieldName: field,
+            previousDataSourceId: spApiFact.dataSourceId,
+            previousSyncRunId: spApiFact.syncRunId,
+            previousValue: spApiFact[field],
+            newValue: row.metrics[field] ?? null,
+            overriddenById: context.initiatedById,
+            reason,
+            restoreOnSpApiSuccess: input.policy?.restoreOnSpApiSuccess === true
+          });
+        }
+        warnings.push({
+          row: row.row,
+          message: `Explicitly overrode SP-API fields ${conflictingFields.join(", ")} for ${row.date}; field-level audit recorded`
+        });
+      }
       const existingMetric = store.listProductDailyMetrics(product.id, {
         startDate: row.date,
         endDate: row.date,
-        limit: 1
+        limit: 1,
+        effective: false
       })[0];
       store.upsertProductDailyMetric({
         productId: product.id,
@@ -114,7 +167,8 @@ export async function importDataSourceProducts(
     failedRows: errors.length,
     createdProducts,
     updatedProducts,
-    errors: errors.slice(0, 20)
+    errors: errors.slice(0, 20),
+    warnings: warnings.slice(0, 20)
   };
 }
 

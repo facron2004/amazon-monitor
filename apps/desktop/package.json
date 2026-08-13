@@ -8,8 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run src",
     "prepare:browser": "cross-env PLAYWRIGHT_BROWSERS_PATH=browser-bundle playwright install chromium",
-    "package:dir": "npm run build && npm run prepare:browser && electron-builder --dir",
-    "package:win": "npm run build && npm run prepare:browser && electron-builder --win nsis"
+    "package:dir": "npm --prefix ../.. run build:release && npm run prepare:browser && electron-builder --dir",
+    "package:win": "npm --prefix ../.. run build:release && npm run prepare:browser && electron-builder --win nsis"
   },
   "dependencies": {
     "@amazon-monitor/agent": "1.1.0",
@@ -42,7 +42,11 @@
       "!node_modules/@amazon-monitor/api/src{,/**/*}",
       "!node_modules/@amazon-monitor/api/data{,/**/*}",
       "!node_modules/@amazon-monitor/agent/src{,/**/*}",
-      "!node_modules/@amazon-monitor/shared/src{,/**/*}"
+      "!node_modules/@amazon-monitor/shared/src{,/**/*}",
+      "!node_modules/@amazon-monitor/api/dist/**/*.map",
+      "!node_modules/@amazon-monitor/agent/dist/**/*.map",
+      "!node_modules/@amazon-monitor/shared/dist/**/*.map",
+      "!dist/**/*.map"
     ],
     "extraResources": [
       {

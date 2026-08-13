@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@amazon-monitor/shared": "1.1.0",
-    "@openai/agents": "0.14.0",
-    "@openai/agents-openai": "0.14.0",
+    "@openai/agents": "0.14.3",
+    "@openai/agents-openai": "0.14.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

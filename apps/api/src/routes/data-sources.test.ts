@@ -144,51 +144,99 @@ describe("data source routes", () => {
   });
 
   it("returns independent sales and inventory health for an SP-API source", async () => {
-    const source = store.createDataSource({
-      orgId: 1,
-      name: "EU SP-API health",
-      sourceType: "amazon_sp_api"
-    });
-    const commerceStore = store.createCommerceStore({
-      orgId: 1,
-      name: "EU health seller",
-      marketplace: "amazon.co.uk",
-      sellerId: "EU-HEALTH-SELLER"
-    });
-    store.upsertDataSourceDomainHealth({
-      orgId: 1,
-      dataSourceId: source.id,
-      commerceStoreId: commerceStore.id,
-      marketplace: "UK",
-      domain: "sales_traffic",
-      status: "success",
-      lastSuccessAt: "2026-07-28T01:00:00.000Z"
-    });
-    store.upsertDataSourceDomainHealth({
-      orgId: 1,
-      dataSourceId: source.id,
-      commerceStoreId: commerceStore.id,
-      marketplace: "UK",
-      domain: "fba_inventory",
-      status: "failed",
-      errorCode: "QuotaExceeded"
-    });
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "true";
+      const source = store.createDataSource({
+        orgId: 1,
+        name: "EU SP-API health",
+        sourceType: "amazon_sp_api"
+      });
+      const commerceStore = store.createCommerceStore({
+        orgId: 1,
+        name: "EU health seller",
+        marketplace: "amazon.co.uk",
+        sellerId: "EU-HEALTH-SELLER"
+      });
+      store.upsertDataSourceDomainHealth({
+        orgId: 1,
+        dataSourceId: source.id,
+        commerceStoreId: commerceStore.id,
+        marketplace: "UK",
+        domain: "sales_traffic",
+        status: "success",
+        lastSuccessAt: "2026-07-28T01:00:00.000Z"
+      });
+      store.upsertDataSourceDomainHealth({
+        orgId: 1,
+        dataSourceId: source.id,
+        commerceStoreId: commerceStore.id,
+        marketplace: "UK",
+        domain: "fba_inventory",
+        status: "failed",
+        errorCode: "QuotaExceeded"
+      });
 
-    const health = await request(app)
-      .get(`/api/data-sources/${source.id}/health`)
-      .set("Cookie", token)
-      .expect(200);
+      const health = await request(app)
+        .get(`/api/data-sources/${source.id}/health`)
+        .set("Cookie", token)
+        .expect(200);
 
-    expect(health.body).toMatchObject({
-      dataSourceId: source.id,
-      credentialsConfigured: false,
-      status: "attention",
-      linkedStoreIds: [commerceStore.id],
-      domains: expect.arrayContaining([
-        expect.objectContaining({ domain: "sales_traffic", status: "success" }),
-        expect.objectContaining({ domain: "fba_inventory", status: "failed", errorCode: "QuotaExceeded" })
-      ])
-    });
+      expect(health.body).toMatchObject({
+        dataSourceId: source.id,
+        connectorEnabled: true,
+        credentialsConfigured: false,
+        status: "attention",
+        linkedStoreIds: [commerceStore.id],
+        domains: expect.arrayContaining([
+          expect.objectContaining({ domain: "sales_traffic", status: "success" }),
+          expect.objectContaining({ domain: "fba_inventory", status: "failed", errorCode: "QuotaExceeded" })
+        ])
+      });
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+    }
+  });
+
+  it("surfaces a disabled connector even when a domain has stale success evidence", async () => {
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "false";
+      const source = store.createDataSource({
+        orgId: 1,
+        name: "Disabled SP-API health",
+        sourceType: "amazon_sp_api",
+        status: "connected"
+      });
+      const commerceStore = store.createCommerceStore({
+        orgId: 1,
+        name: "Disabled health seller",
+        marketplace: "amazon.com",
+        sellerId: "DISABLED-HEALTH-SELLER"
+      });
+      store.upsertDataSourceDomainHealth({
+        orgId: 1,
+        dataSourceId: source.id,
+        commerceStoreId: commerceStore.id,
+        marketplace: "US",
+        domain: "sales_traffic",
+        status: "success",
+        lastSuccessAt: "2026-08-10T01:00:00.000Z"
+      });
+
+      const health = await request(app)
+        .get(`/api/data-sources/${source.id}/health`)
+        .set("Cookie", token)
+        .expect(200);
+
+      expect(health.body).toMatchObject({
+        connectorEnabled: false,
+        status: "disabled",
+        credentialsConfigured: false
+      });
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+    }
   });
 
   it("stores SP-API credentials encrypted and exposes only connection metadata", async () => {
@@ -236,6 +284,7 @@ describe("data source routes", () => {
         .expect(200);
       expect(health.body).toMatchObject({
         dataSourceId: source.id,
+        connectorEnabled: true,
         region: "EU",
         credentialsConfigured: true,
         linkedStoreIds: [commerceStore.id],
@@ -399,6 +448,50 @@ describe("data source routes", () => {
           toDate: "2026-04-01"
         })
         .expect(400);
+    } finally {
+      restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
+      restoreEnv("DATA_SOURCE_CREDENTIALS_KEY", originalCredentialsKey);
+    }
+  });
+
+  it("rejects invalid calendar dates in SP-API sync windows", async () => {
+    const originalConnectorEnabled = process.env.SP_API_CONNECTOR_ENABLED;
+    const originalCredentialsKey = process.env.DATA_SOURCE_CREDENTIALS_KEY;
+    try {
+      process.env.SP_API_CONNECTOR_ENABLED = "true";
+      process.env.DATA_SOURCE_CREDENTIALS_KEY = Buffer.alloc(32, 9).toString("base64");
+      const source = store.createDataSource({ orgId: 1, name: "Invalid calendar range", sourceType: "amazon_sp_api" });
+      const commerceStore = store.createCommerceStore({
+        orgId: 1,
+        name: "Invalid calendar seller",
+        marketplace: "amazon.com",
+        sellerId: "INVALID-CALENDAR-SELLER"
+      });
+      await request(app)
+        .post(`/api/data-sources/${source.id}/sp-api/credentials`)
+        .set("Cookie", token)
+        .send({
+          region: "NA",
+          commerceStoreIds: [commerceStore.id],
+          lwaClientId: "amzn1.application-oa2-client.test",
+          lwaClientSecret: "client-secret-not-to-return",
+          lwaRefreshToken: "Atzr|refresh-token-not-to-return"
+        })
+        .expect(204);
+
+      for (const date of ["2026-02-29", "2026-04-31"]) {
+        await request(app)
+          .post(`/api/data-sources/${source.id}/sync`)
+          .set("Cookie", token)
+          .send({
+            domains: ["sales_traffic"],
+            mode: "backfill",
+            marketplaces: ["US"],
+            fromDate: date,
+            toDate: date
+          })
+          .expect(400);
+      }
     } finally {
       restoreEnv("SP_API_CONNECTOR_ENABLED", originalConnectorEnabled);
       restoreEnv("DATA_SOURCE_CREDENTIALS_KEY", originalCredentialsKey);
@@ -615,6 +708,136 @@ describe("data source routes", () => {
     ]);
   });
 
+  it("protects fresh SP-API sales facts and records explicit file overrides", async () => {
+    const apiSource = store.createDataSource({
+      orgId: 1,
+      name: "US authoritative SP-API",
+      sourceType: "amazon_sp_api",
+      marketplace: "US"
+    });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "US authoritative store",
+      marketplace: "amazon.com",
+      sellerId: "AUDIT-SELLER"
+    });
+    const salesRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "audit-sales-run"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "AUDIT-SKU-1",
+      asin: "B0AUDIT0001",
+      title: "Audit product"
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      syncRunId: salesRun.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-21",
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sessions: 80,
+      orders: 4,
+      unitsSold: 5,
+      salesAmount: 120,
+      currency: "USD"
+    }]);
+    const fileSource = await request(app)
+      .post("/api/data-sources")
+      .set("Cookie", token)
+      .send({ name: "US audit CSV", sourceType: "csv_import", marketplace: "US" })
+      .expect(201);
+
+    const protectedImport = await request(app)
+      .post(`/api/data-sources/${fileSource.body.id}/import/products`)
+      .set("Cookie", token)
+      .send({
+        format: "csv",
+        content: "sku,asin,title,date,sessions,salesAmount,rating\nAUDIT-SKU-1,B0AUDIT0001,Audit product,2026-07-21,99,999,4.5"
+      })
+      .expect(200);
+    expect(protectedImport.body).toMatchObject({ importedRows: 1, failedRows: 0, warnings: [{ row: 2 }] });
+    expect(protectedImport.body.warnings[0].message).toContain("fresh SP-API fields sessions, salesAmount");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM own_product_daily_metrics WHERE product_id = ?").get(product.id)).toEqual({ count: 0 });
+    expect(store.listProductDailyMetrics(product.id)[0]).toMatchObject({ dataSource: "sp_api", sessions: 80, salesAmount: 120 });
+
+    const overridden = await request(app)
+      .post(`/api/data-sources/${fileSource.body.id}/import/products`)
+      .set("Cookie", token)
+      .send({
+        format: "csv",
+        policy: { allowSpApiOverride: true, overrideReason: "Finance reconciliation ticket FIN-42", restoreOnSpApiSuccess: true },
+        content: "sku,asin,title,date,sessions,salesAmount\nAUDIT-SKU-1,B0AUDIT0001,Audit product,2026-07-21,99,999"
+      })
+      .expect(200);
+    expect(overridden.body).toMatchObject({ importedRows: 1, warnings: [{ row: 2 }] });
+    expect(store.listProductDailyMetrics(product.id)[0]).toMatchObject({ sessions: 99, salesAmount: 999 });
+
+    const audits = await request(app)
+      .get(`/api/data-sources/${fileSource.body.id}/overrides`)
+      .set("Cookie", token)
+      .expect(200);
+    expect(audits.body).toEqual([
+      expect.objectContaining({
+        dataSourceId: fileSource.body.id,
+        previousDataSourceId: apiSource.id,
+        previousSyncRunId: salesRun.id,
+        productId: product.id,
+        effectiveDate: "2026-07-21",
+        fieldName: "salesAmount",
+        previousValue: 120,
+        newValue: 999,
+        overriddenByName: "Administrator",
+        reason: "Finance reconciliation ticket FIN-42",
+        restoreOnSpApiSuccess: true
+      }),
+      expect.objectContaining({ fieldName: "sessions", previousValue: 80, newValue: 99 })
+    ]);
+
+    const restoredRun = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "audit-sales-run-restored"
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      syncRunId: restoredRun.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-21",
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sessions: 70,
+      orders: 6,
+      unitsSold: 7,
+      salesAmount: 140,
+      currency: "USD"
+    }]);
+    expect(store.listProductDailyMetrics(product.id)[0]).toMatchObject({
+      dataSource: "sp_api",
+      sessions: 70,
+      orders: 6,
+      unitsSold: 7,
+      salesAmount: 140
+    });
+  });
+
   it("imports product and Ads rows from Excel and records format-specific sync runs", async () => {
     const source = await request(app)
       .post("/api/data-sources")
@@ -669,6 +892,70 @@ describe("data source routes", () => {
       expect.objectContaining({ operation: "ads_excel_import", status: "success" }),
       expect.objectContaining({ operation: "product_excel_import", status: "partial", failedRows: 1 })
     ]);
+  });
+
+  it("does not materialize SP-API fields into a manual row when an import only adds planning data", async () => {
+    const apiSource = store.createDataSource({ orgId: 1, name: "SP-API import merge", sourceType: "amazon_sp_api" });
+    const commerceStore = store.createCommerceStore({
+      orgId: 1,
+      name: "SP-API merge store",
+      marketplace: "amazon.com",
+      sellerId: "MERGE-SELLER"
+    });
+    const run = store.createDataSourceSyncRun({
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      operation: "sp_api_sales_traffic_daily_sync",
+      domain: "sales_traffic",
+      credentialVersion: 1,
+      idempotencyKey: "sp-api-import-merge"
+    });
+    const product = store.createProduct({
+      orgId: 1,
+      storeId: commerceStore.id,
+      marketplace: "US",
+      sku: "MERGE-SKU-1",
+      asin: "B0MERGE0001",
+      title: "Merge product"
+    });
+    store.promoteSpApiSalesTrafficFacts([{
+      orgId: 1,
+      dataSourceId: apiSource.id,
+      syncRunId: run.id,
+      commerceStoreId: commerceStore.id,
+      marketplace: "US",
+      businessDate: "2026-07-20",
+      scope: "sku_daily",
+      sellerSku: product.sku,
+      productId: product.id,
+      sourceAsin: product.asin,
+      sessions: 70,
+      orders: 3,
+      unitsSold: 4,
+      salesAmount: 120,
+      currency: "USD"
+    }]);
+    const fileSource = await request(app)
+      .post("/api/data-sources")
+      .set("Cookie", token)
+      .send({ name: "Merge planning CSV", sourceType: "csv_import", marketplace: "US" })
+      .expect(201);
+
+    await request(app)
+      .post(`/api/data-sources/${fileSource.body.id}/import/products`)
+      .set("Cookie", token)
+      .send({ csv: "sku,asin,title,date,rating\nMERGE-SKU-1,B0MERGE0001,Merge product,2026-07-20,4.5" })
+      .expect(200);
+
+    expect(db.prepare(
+      "SELECT sessions, sales_amount, rating FROM own_product_daily_metrics WHERE product_id = ? AND metric_date = ?"
+    ).get(product.id, "2026-07-20")).toEqual({ sessions: null, sales_amount: null, rating: 4.5 });
+    expect(store.listProductDailyMetrics(product.id)[0]).toMatchObject({
+      dataSource: "mixed",
+      sessions: 70,
+      salesAmount: 120,
+      rating: 4.5
+    });
   });
 
   it("imports cost settings from Excel and preserves omitted values on CSV updates", async () => {
@@ -852,6 +1139,7 @@ describe("data source routes", () => {
         errorSummary: expect.stringContaining("Inventory import requires at least one planning header")
       })
     ]);
+
   });
 
   it("rejects cost files without cost columns and records the failed run", async () => {

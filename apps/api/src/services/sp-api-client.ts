@@ -1,6 +1,6 @@
 import { gunzipSync } from "node:zlib";
 import type { SpApiRegion } from "@amazon-monitor/shared";
-import { SpApiConnectorError } from "./sp-api-errors.js";
+import { retryAfterMsFromHeader, SpApiConnectorError } from "./sp-api-errors.js";
 import type { SpApiFetch } from "./sp-api-lwa-client.js";
 
 const REPORTS_PATH = "/reports/2021-06-30/reports";
@@ -28,6 +28,7 @@ export interface SpApiClientOptions {
   request?: SpApiFetch;
   now?: () => Date;
   userAgent?: string;
+  onUnauthorized?: () => Promise<string>;
 }
 
 export interface CreateSalesTrafficReportInput {
@@ -42,10 +43,19 @@ export interface SpApiReportStatus {
   reportDocumentId: string | null;
 }
 
+export interface SpApiFbaInventoryPage {
+  inventorySummaries: unknown[];
+  nextToken: string | null;
+  pageNumber: number;
+}
+
 export interface ListFbaInventoryInput {
   marketplace: SupportedMarketplaceCode;
   startDateTime?: string | null;
   fullReconcile?: boolean;
+  nextToken?: string | null;
+  pageNumberOffset?: number;
+  onPage?: (page: SpApiFbaInventoryPage) => Promise<void> | void;
   signal?: AbortSignal;
 }
 
@@ -58,16 +68,19 @@ export class SpApiClient {
   private readonly request: SpApiFetch;
   private readonly now: () => Date;
   private readonly userAgent: string;
+  private readonly onUnauthorized?: () => Promise<string>;
+  private unauthorizedRefresh: Promise<string> | null = null;
 
   constructor(options: SpApiClientOptions) {
     this.endpoint = endpoints[options.region];
     this.request = options.request ?? ((input, init) => globalThis.fetch(input, init));
     this.now = options.now ?? (() => new Date());
     this.userAgent = options.userAgent ?? "AmazonMonitor/0.7 (Language=Node.js)";
+    this.onUnauthorized = options.onUnauthorized;
     this.accessToken = options.accessToken;
   }
 
-  private readonly accessToken: string;
+  private accessToken: string;
 
   async createSalesTrafficReport(input: CreateSalesTrafficReportInput): Promise<string> {
     assertDate(input.fromDate, "fromDate");
@@ -125,7 +138,12 @@ export class SpApiClient {
       throw requestError(error, "document_download_failed", "SP-API report document could not be downloaded");
     }
     if (!response.ok) {
-      throw new SpApiConnectorError("document_download_failed", "SP-API report document download failed", response.status >= 500 || response.status === 429);
+      throw new SpApiConnectorError(
+        "document_download_failed",
+        "SP-API report document download failed",
+        response.status >= 500 || response.status === 429,
+        retryAfterMsFromHeader(response.headers.get("retry-after"), this.now().getTime())
+      );
     }
     let bytes: Uint8Array;
     try {
@@ -145,8 +163,12 @@ export class SpApiClient {
     const market = marketplaces[input.marketplace];
     if (!market) throw new SpApiConnectorError("marketplace_mismatch", "Unsupported SP-API marketplace", false);
     const summaries: unknown[] = [];
-    let nextToken: string | null = null;
+    let nextToken = text(input.nextToken);
     let pages = 0;
+    const requestedPageNumberOffset = input.pageNumberOffset ?? 0;
+    const pageNumberOffset = Number.isFinite(requestedPageNumberOffset)
+      ? Math.max(0, Math.floor(requestedPageNumberOffset))
+      : 0;
     do {
       if (pages >= MAX_FBA_PAGES) {
         throw new SpApiConnectorError("schema_invalid", "SP-API inventory pagination exceeded the safety limit", false);
@@ -164,36 +186,73 @@ export class SpApiClient {
       if (!Array.isArray(payload.inventorySummaries)) {
         throw new SpApiConnectorError("schema_invalid", "SP-API inventory response has no inventorySummaries", false);
       }
-      summaries.push(...payload.inventorySummaries);
+      const pageSummaries = payload.inventorySummaries;
       nextToken = text(payload.nextToken);
       pages += 1;
+      if (input.onPage) {
+        await input.onPage({
+          inventorySummaries: pageSummaries,
+          nextToken,
+          pageNumber: pageNumberOffset + pages
+        });
+      } else {
+        summaries.push(...pageSummaries);
+      }
     } while (nextToken);
     return { payload: { inventorySummaries: summaries } };
   }
 
   private async apiJson(path: string, init: { method?: "GET" | "POST"; body?: string; signal?: AbortSignal }): Promise<Record<string, unknown>> {
-    let response: Response;
-    try {
-      response = await this.request(new URL(path, this.endpoint), {
-        method: init.method ?? "GET",
-        signal: init.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": this.userAgent,
-          "x-amz-access-token": this.accessToken,
-          "x-amz-date": amzDate(this.now())
-        },
-        body: init.body
-      });
-    } catch (error) {
-      throw requestError(error, "network_timeout", "SP-API request could not be completed");
+    let refreshedAfterUnauthorized = false;
+    while (true) {
+      let response: Response;
+      try {
+        response = await this.request(new URL(path, this.endpoint), {
+          method: init.method ?? "GET",
+          signal: init.signal,
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": this.userAgent,
+            "x-amz-access-token": this.accessToken,
+            "x-amz-date": amzDate(this.now())
+          },
+          body: init.body
+        });
+      } catch (error) {
+        throw requestError(error, "network_timeout", "SP-API request could not be completed");
+      }
+      if (response.status === 401 && this.onUnauthorized && !refreshedAfterUnauthorized) {
+        refreshedAfterUnauthorized = true;
+        this.accessToken = await this.refreshAccessToken();
+        continue;
+      }
+      if (!response.ok) throw responseError(response, this.now().getTime());
+      try {
+        return record(await response.json(), "SP-API response");
+      } catch {
+        throw new SpApiConnectorError("schema_invalid", "SP-API response is not valid JSON", false);
+      }
     }
-    if (!response.ok) throw responseError(response.status);
-    try {
-      return record(await response.json(), "SP-API response");
-    } catch {
-      throw new SpApiConnectorError("schema_invalid", "SP-API response is not valid JSON", false);
+  }
+
+  private async refreshAccessToken(): Promise<string> {
+    if (!this.onUnauthorized) {
+      throw new SpApiConnectorError("credentials_invalid", "SP-API access token was rejected", false);
     }
+    if (!this.unauthorizedRefresh) {
+      this.unauthorizedRefresh = this.onUnauthorized()
+        .then((accessToken) => {
+          const normalized = accessToken.trim();
+          if (!normalized) {
+            throw new SpApiConnectorError("credentials_invalid", "SP-API token refresh returned an empty token", false);
+          }
+          return normalized;
+        })
+        .finally(() => {
+          this.unauthorizedRefresh = null;
+        });
+    }
+    return this.unauthorizedRefresh;
   }
 }
 
@@ -209,12 +268,16 @@ export function marketplaceDayBoundary(date: string, marketplace: SupportedMarke
   return new Date(utcGuess.getTime() - offset).toISOString();
 }
 
-function responseError(status: number): SpApiConnectorError {
+function responseError(response: Response, nowMs: number): SpApiConnectorError {
+  const status = response.status;
+  const retryAfterMs = status === 429 || status >= 500
+    ? retryAfterMsFromHeader(response.headers.get("retry-after"), nowMs)
+    : undefined;
   if (status === 401) return new SpApiConnectorError("credentials_invalid", "SP-API access token was rejected", false);
   if (status === 403) return new SpApiConnectorError("permission_missing", "SP-API permission is missing", false);
   if (status === 404) return new SpApiConnectorError("marketplace_mismatch", "SP-API resource was not found", false);
-  if (status === 429) return new SpApiConnectorError("rate_limited", "SP-API is rate limited", true);
-  if (status >= 500) return new SpApiConnectorError("amazon_5xx", "SP-API is temporarily unavailable", true);
+  if (status === 429) return new SpApiConnectorError("rate_limited", "SP-API is rate limited", true, retryAfterMs);
+  if (status >= 500) return new SpApiConnectorError("amazon_5xx", "SP-API is temporarily unavailable", true, retryAfterMs);
   return new SpApiConnectorError("unknown", "SP-API request was rejected", false);
 }
 
@@ -235,6 +298,7 @@ function timeZoneOffsetMs(date: Date, timeZone: string): number {
     timeZoneName: "longOffset"
   }).formatToParts(date);
   const offset = formatted.find((part) => part.type === "timeZoneName")?.value;
+  if (offset === "GMT") return 0;
   const match = offset?.match(/^GMT([+-])(\d{2}):(\d{2})$/);
   if (!match) throw new SpApiConnectorError("marketplace_mismatch", "SP-API marketplace time zone is invalid", false);
   const minutes = Number(match[2]) * 60 + Number(match[3]);
@@ -242,9 +306,15 @@ function timeZoneOffsetMs(date: Date, timeZone: string): number {
 }
 
 function assertDate(value: string, label: string): void {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))) {
+  if (!isIsoCalendarDate(value)) {
     throw new SpApiConnectorError("schema_invalid", `SP-API ${label} must be YYYY-MM-DD`, false);
   }
+}
+
+function isIsoCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
