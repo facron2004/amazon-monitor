@@ -9,6 +9,7 @@ function buildJob(overrides: Partial<CollectJob> = {}): CollectJob {
     taskType: "category",
     targetId: 1,
     date: "2026-06-13",
+    forceRefresh: false,
     status: "pending",
     createdAt: "2026-06-13T09:27:05.219Z",
     startedAt: null,

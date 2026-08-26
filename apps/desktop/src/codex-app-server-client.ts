@@ -199,7 +199,10 @@ export class CodexAppServerClient {
     this.child = child;
     const lines = createInterface({ input: child.stdout });
     lines.on("line", (line) => this.handleLine(line));
-    child.stderr.on("data", () => undefined);
+    child.stderr.on("data", (chunk: Buffer) => {
+      const text = chunk.toString("utf8").trim();
+      if (text) console.warn("[Codex app-server stderr]", text);
+    });
     child.on("error", (cause) => {
       if (this.child === child) this.child = null;
       const error = new Error("Codex app-server could not start", { cause });

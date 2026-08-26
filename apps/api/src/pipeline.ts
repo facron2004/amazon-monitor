@@ -22,6 +22,7 @@ import type { Store } from "./store.js";
 export interface CollectionOptions {
   collector?: AmazonSearchCollector;
   signal?: AbortSignal;
+  forceRefresh?: boolean;
   dataSource?: string;
   ensureActive?: () => void;
 }
@@ -59,7 +60,10 @@ export async function runCollectionForKeyword(
   try {
     ensureCollectionActive(options);
     console.log(`[${ts()}] [Pipeline] Collecting keyword="${keyword.keyword}" marketplace=${keyword.marketplace} pages=${keyword.crawlPages}...`);
-    const pages = await collector.collect(keyword, date, { signal: options.signal });
+    const pages = await collector.collect(keyword, date, {
+      signal: options.signal,
+      forceRefresh: options.forceRefresh
+    });
     ensureCollectionActive(options);
     const t1 = Date.now();
     console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing snapshots...`);

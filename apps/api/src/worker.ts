@@ -355,11 +355,16 @@ async function runCollectJob(store: Store, job: ClaimedCollectJob, options?: { s
   ensureLeaseActive();
 
   if (job.taskType === "keyword") {
-    return runCollectionForKeyword(store, job.targetId, job.date, { signal: options?.signal, ensureActive: ensureLeaseActive });
+    return runCollectionForKeyword(store, job.targetId, job.date, {
+      signal: options?.signal,
+      forceRefresh: job.forceRefresh,
+      ensureActive: ensureLeaseActive
+    });
   }
   if (job.taskType === "category") {
     return runCategoryCollectionForMonitor(store, job.targetId, job.date, {
       signal: options?.signal,
+      forceRefresh: job.forceRefresh,
       organizationId: job.orgId,
       ensureActive: ensureLeaseActive
     });

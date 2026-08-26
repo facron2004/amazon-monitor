@@ -5,7 +5,7 @@ import type {
   AlertRuleRunResult,
   AlertRuleSeverity
 } from "@amazon-monitor/shared";
-import { request } from "./api-base";
+import { request, setOptional } from "./api-base";
 
 export interface RuleListQuery {
   category?: AlertRuleCategory;
@@ -46,10 +46,4 @@ function buildQuery(query: RuleListQuery): URLSearchParams {
   if (query.enabled !== undefined) params.set("enabled", String(query.enabled));
   setOptional(params, "q", query.q?.trim());
   return params;
-}
-
-function setOptional(params: URLSearchParams, key: string, value: string | undefined | null): void {
-  if (value !== undefined && value !== null && value !== "") {
-    params.set(key, value);
-  }
 }

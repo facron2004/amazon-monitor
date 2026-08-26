@@ -9,9 +9,105 @@ vi.mock("./browser.js", async () => {
   };
 });
 import { setDeliveryZipCode } from "./browser.js";
-import { collectMissingBestSellerDetails, collectPageProductDetailRanks } from "./detail-collector.js";
+import { collectMissingBestSellerDetails, collectPageProductDetailRanks, type BestSellerDetailCacheValue, type DetailRankCacheValue } from "./detail-collector.js";
+import { detailCacheKey } from "./detail-collector-cache.js";
 
 describe("detail collector brand enrichment", () => {
+  it("bypasses same-day bestseller detail cache for a forced refresh", async () => {
+    const page = createMockDetailPage(
+      createDetailPayload({
+        title: "Fresh Antarctic Star Ice Maker",
+        brand: "Antarctic Star",
+        rating: 4.9,
+        reviewCount: 4000
+      })
+    );
+    const context = createMockContext([page]);
+    const product = createBestSellerProduct({
+      asin: "B0FORCE001",
+      title: "Cached Ice Maker",
+      brand: "Cached",
+      productUrl: "https://www.amazon.com/dp/B0FORCE001"
+    });
+    const cache = new Map<string, BestSellerDetailCacheValue>([
+      [detailCacheKey("2026-06-11", "amazon.com", product.asin), {
+        title: "Cached Ice Maker",
+        brand: "Cached",
+        couponText: "old coupon",
+        dealBadge: "old deal",
+        rating: 3.1,
+        reviewCount: 10,
+        iceType: null,
+        currentPrice: 10,
+        originalPrice: 20,
+        currency: "$",
+        bsrRank: 99,
+        bsrCategory: "Old"
+      }]
+    ]);
+
+    const result = await collectMissingBestSellerDetails(
+      context,
+      createCategoryMonitor(),
+      [product],
+      1,
+      "2026-06-11",
+      cache,
+      { forceRefresh: true }
+    );
+
+    expect(context.newPage).toHaveBeenCalledTimes(1);
+    expect(result[0]).toMatchObject({ title: "Fresh Antarctic Star Ice Maker", rating: 4.9, reviewCount: 4000 });
+  });
+
+  it("does not apply an old search detail cache entry during a forced refresh", async () => {
+    const page = createMockDetailPage(
+      createDetailPayload({
+        title: "Fresh Search Detail",
+        brand: "FreshBrand",
+        rating: 4.8,
+        reviewCount: 321,
+        bsrRank: 7,
+        bsrCategory: "Ice Makers"
+      })
+    );
+    const context = createMockContext([page]);
+    const product = createSerpProduct({ asin: "B0FORCE002", title: "Cached Search Detail" });
+    const cache = new Map<string, DetailRankCacheValue>([
+      [detailCacheKey("2026-06-11", "amazon.com", product.asin), {
+        title: "Cached Search Detail",
+        brand: "CachedBrand",
+        couponText: "old coupon",
+        dealBadge: "old deal",
+        rating: 3.2,
+        reviewCount: 12,
+        iceType: null,
+        currentPrice: 10,
+        originalPrice: 20,
+        currency: "$",
+        bsrRank: 99,
+        bsrCategory: "Old",
+        bsrText: "old",
+        bestsellerRanks: [],
+        detailCollectedAt: "2026-06-10T00:00:00.000Z"
+      }]
+    ]);
+
+    const result = await collectPageProductDetailRanks(
+      context,
+      createKeywordMonitor(),
+      [product],
+      1,
+      "2026-06-11",
+      1,
+      cache,
+      { forceRefresh: true }
+    );
+
+    expect(context.newPage).toHaveBeenCalledTimes(1);
+    expect(result.products[0]).toMatchObject({ title: "Fresh Search Detail", rating: 4.8, bsrRank: 7 });
+  });
+
   it("re-checks weak detail brands on the store page before saving", async () => {
     const page = createMockDetailPage(
       createDetailPayload({

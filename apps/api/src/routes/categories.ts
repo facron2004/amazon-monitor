@@ -4,7 +4,7 @@ import type { AmazonBestSellerCollector } from "../category-pipeline.js";
 import { ts } from "../log.js";
 import { isoDate } from "../pipeline.js";
 import type { Store } from "../store.js";
-import { asyncHandler, getDate, optionalString } from "./http-utils.js";
+import { asyncHandler, getDate, optionalBoolean, optionalString } from "./http-utils.js";
 import {
   categoryDiffQuerySchema,
   categoryInputSchema,
@@ -41,8 +41,9 @@ export function registerCategoryRoutes(app: Express, store: Store, options: { ca
   app.post("/api/categories/collect/run", ...collectGuard, asyncHandler(async (request, response) => {
     const organizationId = sessionOrganizationId(request);
     const date = optionalString(request.body?.date) ?? isoDate();
+    const forceRefresh = optionalBoolean(request.body?.forceRefresh) ?? false;
     const categories = store.listCategoryMonitors({ orgId: organizationId, status: "enabled" });
-    const jobs = categories.map((c) => store.pushJob("category", c.id, date, organizationId));
+    const jobs = categories.map((c) => store.pushJob("category", c.id, date, organizationId, { forceRefresh }));
     console.log(`[${ts()}] [API] Category collect all requested: ${jobs.length} category jobs queued, date=${date}`);
     response.status(202).json(jobs);
   }));
@@ -86,7 +87,8 @@ export function registerCategoryRoutes(app: Express, store: Store, options: { ca
       return;
     }
     const date = optionalString(request.body?.date) ?? isoDate();
-    const job = store.pushJob("category", id, date, organizationId);
+    const forceRefresh = optionalBoolean(request.body?.forceRefresh) ?? false;
+    const job = store.pushJob("category", id, date, organizationId, { forceRefresh });
     console.log(`[${ts()}] [API] Category collect requested: category_id=${id}, date=${date}, job_id=${job.id}`);
     response.status(202).json(job);
   }));

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS amazon_collect_job_queue (
   task_type TEXT NOT NULL,
   target_id INTEGER,
   date TEXT NOT NULL,
+  force_refresh INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL,
   started_at TEXT,
@@ -26,7 +27,7 @@ DELETE FROM amazon_collect_job_queue
 WHERE id NOT IN (
   SELECT MIN(id) FROM amazon_collect_job_queue
   WHERE status IN ('pending', 'processing')
-  GROUP BY org_id, task_type, target_id, date
+  GROUP BY org_id, task_type, target_id, date, force_refresh
 ) AND status IN ('pending', 'processing');
-CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_dedup_active ON amazon_collect_job_queue(org_id, task_type, target_id, date) WHERE status IN ('pending', 'processing');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_dedup_active ON amazon_collect_job_queue(org_id, task_type, target_id, date, force_refresh) WHERE status IN ('pending', 'processing');
 `;

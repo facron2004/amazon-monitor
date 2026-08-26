@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { decorateBestsellerSnapshots, type InsightEventInput, type NotificationSchedule } from "@amazon-monitor/shared";
 import { createApiApp } from "./server.js";
 import { createStore, initSchema } from "./store.js";
-import { buildReportExcelDownloadUrl, resolveSmtpConfig, sendDueNotificationSchedules, sendNotificationSchedule, type NotificationSender } from "./notifier.js";
+import { buildNotificationContent, buildNotificationDashboardUrl, buildNotificationSummaryHtmlContent, buildReportExcelDownloadUrl, resolveSmtpConfig, sendDueNotificationSchedules, sendNotificationSchedule, type NotificationSender } from "./notifier.js";
 import { DAILY_REPORT_SHEET_NAMES, getWorkbookSheetNames, readZipText } from "./test-support/xlsx.js";
 
 interface RecordedAttachment {
@@ -78,6 +78,72 @@ describe("notification schedules", () => {
     expect(buildReportExcelDownloadUrl("2026-05-19", {} as NodeJS.ProcessEnv)).toBeNull();
   });
 
+  it("builds an email-tracked dashboard URL for the intelligence brief", () => {
+    expect(buildNotificationDashboardUrl("2026-05-19", { PUBLIC_BASE_URL: "https://monitor.example.com/" } as NodeJS.ProcessEnv)).toBe(
+      "https://monitor.example.com/?source=email&date=2026-05-19"
+    );
+    expect(buildNotificationDashboardUrl("2026-05-19", {} as NodeJS.ProcessEnv)).toBeNull();
+  });
+
+  it("keeps BSR and keyword movement in the same event-flow brief", () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const category = store.createCategoryMonitor({
+      name: "Ice Makers",
+      marketplace: "amazon.com",
+      categoryUrl: "https://www.amazon.com/cat",
+      crawlTopN: 100,
+      status: "enabled"
+    });
+    const bsrBase = {
+      sourceType: "category_bestseller" as const,
+      sourceId: category.id,
+      sourceName: "Ice Makers",
+      marketplace: "amazon.com",
+      asin: "B0FLOW1234",
+      title: "Acme Nugget Ice Maker",
+      brand: "Acme",
+      category: "Ice Makers",
+      rankUrl: null,
+      productUrl: "https://www.amazon.com/dp/B0FLOW1234",
+      currentPrice: 79.99,
+      parentRank: null,
+      isSpecificRank: true
+    };
+    store.replaceBsrRankHistoryForDate({ date: "2026-05-18", sourceType: "category_bestseller", sourceId: category.id, items: [{ ...bsrBase, snapshotDate: "2026-05-18", rank: 40 }] });
+    store.replaceBsrRankHistoryForDate({ date: "2026-05-19", sourceType: "category_bestseller", sourceId: category.id, items: [{ ...bsrBase, snapshotDate: "2026-05-19", rank: 12 }] });
+    store.recordBsrSnapshotQuality({ snapshotDate: "2026-05-18", sourceType: "category_bestseller", sourceId: category.id, sourceName: "Ice Makers", marketplace: "amazon.com", category: "Ice Makers", expectedCount: 1, actualCount: 1, uniqueAsinCount: 1, uniqueRankCount: 1, minRank: 40, maxRank: 40, qualityStatus: "ok", issue: null });
+    store.recordBsrSnapshotQuality({ snapshotDate: "2026-05-19", sourceType: "category_bestseller", sourceId: category.id, sourceName: "Ice Makers", marketplace: "amazon.com", category: "Ice Makers", expectedCount: 1, actualCount: 1, uniqueAsinCount: 1, uniqueRankCount: 1, minRank: 12, maxRank: 12, qualityStatus: "ok", issue: null });
+    store.insertDailyChanges([{
+      asin: "B0FLOW1234",
+      keyword: "ice maker",
+      marketplace: "amazon.com",
+      snapshotDate: "2026-05-19",
+      yesterdayRank: 37,
+      todayRank: 14,
+      rankChange: 23,
+      yesterdayPrice: 99.99,
+      todayPrice: 79.99,
+      priceChange: -20,
+      priceChangeRate: -0.2,
+      yesterdaySponsored: false,
+      todaySponsored: true,
+      changeType: "rank_up",
+      title: "Acme Nugget Ice Maker",
+      brand: "Acme"
+    }]);
+
+    const html = buildNotificationSummaryHtmlContent(store, "2026-05-19");
+    const text = buildNotificationContent(store, "2026-05-19");
+    expect(html).toContain("LEADERBOARD MOVERS");
+    expect(html).toContain("#40");
+    expect(html).toContain("#12");
+    expect(html).toContain("KEYWORD MOVEMENT");
+    expect(html).toContain("ice maker");
+    expect(text).toContain("↑23");
+  });
+
   it("creates a daily notification schedule, sends it manually, and stores send logs", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);
@@ -145,6 +211,10 @@ describe("notification schedules", () => {
     expect(send.body.status).toBe("success");
     expect(sender.sent).toHaveLength(1);
     expect(sender.sent[0].content).toContain("BSR Coupon / Deal");
+    expect(sender.sent[0].content).toContain("Today in 30 seconds");
+    expect(sender.sent[0].content).toContain("Market Movement");
+    expect(sender.sent[0].content).toContain("Price & Promotion Watch");
+    expect(sender.sent[0].content).toContain("Keyword Movement");
     expect(sender.sent[0].content).toContain("Action Center 概览");
     expect(sender.sent[0].content).toContain("今日必须看");
     expect(sender.sent[0].content).toContain("负责人 Alice");
@@ -155,6 +225,10 @@ describe("notification schedules", () => {
     expect(sender.sent[0].content).toContain("B0IMGTEST1");
     expect(sender.sent[0].content).toContain("Save $5 with coupon / Limited Time Deal");
     expect(sender.sent[0].htmlContent).toContain("Excel");
+    expect(sender.sent[0].htmlContent).toContain("TODAY IN 30 SECONDS");
+    expect(sender.sent[0].htmlContent).toContain("CRITICAL ALERTS");
+    expect(sender.sent[0].htmlContent).toContain("MARKET MOVEMENT");
+    expect(sender.sent[0].htmlContent).toContain("KEYWORD MOVEMENT");
     expect(sender.sent[0].htmlContent).toContain("Action Center 概览");
     expect(sender.sent[0].htmlContent).toContain("今日必须看");
     expect(sender.sent[0].htmlContent).toContain("负责人 Alice");

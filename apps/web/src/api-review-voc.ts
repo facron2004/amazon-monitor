@@ -4,7 +4,7 @@ import type {
   ReviewVocSummary,
   UpsertProductReviewInput
 } from "@amazon-monitor/shared";
-import { request } from "./api-base";
+import { request, setOptional } from "./api-base";
 
 export type ProductReviewPayload = Omit<UpsertProductReviewInput, "productId">;
 
@@ -38,10 +38,4 @@ function buildQuery(query: ReviewVocQuery): URLSearchParams {
   setOptional(params, "limit", query.limit);
   setOptional(params, "offset", query.offset);
   return params;
-}
-
-function setOptional(params: URLSearchParams, key: string, value: string | number | undefined | null): void {
-  if (value !== undefined && value !== null && value !== "") {
-    params.set(key, String(value));
-  }
 }

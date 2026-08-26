@@ -1,6 +1,6 @@
 {
   "name": "@amazon-monitor/desktop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
@@ -9,12 +9,13 @@
     "test": "vitest run src",
     "prepare:browser": "cross-env PLAYWRIGHT_BROWSERS_PATH=browser-bundle playwright install chromium",
     "package:dir": "npm --prefix ../.. run build:release && npm run prepare:browser && electron-builder --dir",
-    "package:win": "npm --prefix ../.. run build:release && npm run prepare:browser && electron-builder --win nsis"
+    "package:win": "npm --prefix ../.. run build:release && npm run prepare:browser && electron-builder --win nsis",
+    "package:mac:arm64": "npm --prefix ../.. run build:release && npm run prepare:browser && electron-builder --mac dmg --arm64"
   },
   "dependencies": {
-    "@amazon-monitor/agent": "1.1.0",
-    "@amazon-monitor/api": "1.1.0",
-    "@amazon-monitor/shared": "1.1.0",
+    "@amazon-monitor/agent": "1.2.0",
+    "@amazon-monitor/api": "1.2.0",
+    "@amazon-monitor/shared": "1.2.0",
     "@openai/codex": "0.146.0"
   },
   "devDependencies": {
@@ -31,7 +32,8 @@
     "productName": "Amazon Monitor",
     "asar": true,
     "asarUnpack": [
-      "node_modules/@openai/codex-win32-x64/**/*"
+      "node_modules/@openai/codex-win32-*/**/*",
+      "node_modules/@openai/codex-darwin-*/**/*"
     ],
     "directories": {
       "output": "../../release/electron"
@@ -69,6 +71,16 @@
           "target": "nsis",
           "arch": [
             "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
           ]
         }
       ]

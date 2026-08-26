@@ -5,7 +5,7 @@ import type {
   InventoryReplenishmentSetting,
   UpsertInventoryReplenishmentSettingInput
 } from "@amazon-monitor/shared";
-import { request } from "./api-base";
+import { request, setOptional } from "./api-base";
 
 export type InventorySettingPayload = Omit<UpsertInventoryReplenishmentSettingInput, "productId">;
 
@@ -44,8 +44,4 @@ function buildQuery(query: InventoryPlanQuery): URLSearchParams {
   return params;
 }
 
-function setOptional(params: URLSearchParams, key: string, value: string | number | undefined | null): void {
-  if (value !== undefined && value !== null && value !== "") {
-    params.set(key, String(value));
-  }
-}
+

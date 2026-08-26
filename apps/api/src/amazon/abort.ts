@@ -1,5 +1,7 @@
 export interface AbortableCollectOptions {
   signal?: AbortSignal;
+  /** Revisit product detail pages even when this worker already cached them for the date. */
+  forceRefresh?: boolean;
 }
 
 export function throwIfAborted(signal?: AbortSignal): void {

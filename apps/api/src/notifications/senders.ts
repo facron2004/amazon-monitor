@@ -76,7 +76,7 @@ async function sendEmailWithConfig(
     const info = await transporter.sendMail({
       from: config.from,
       to: schedule.target,
-      subject: `Amazon Monitor Daily Report ${date}`,
+      subject: `Amazon Intelligence Brief ${date}`,
       text: content,
       html: htmlContent ?? `<pre style="font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap;">${escapeHtml(content)}</pre>`,
       attachments: attachments?.map((attachment) => ({

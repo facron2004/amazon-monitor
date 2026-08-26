@@ -3607,7 +3607,12 @@
                     "type": "integer",
                     "description": "If provided, only collects this keyword; otherwise, collects all."
                   },
-                  "date": { "type": "string", "format": "date" }
+                  "date": { "type": "string", "format": "date" },
+                  "forceRefresh": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, bypasses the worker's same-day product-detail cache."
+                  }
                 }
               }
             }
@@ -3635,7 +3640,12 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "date": { "type": "string", "format": "date" }
+                  "date": { "type": "string", "format": "date" },
+                  "forceRefresh": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, bypasses the worker's same-day product-detail cache."
+                  }
                 }
               }
             }
@@ -3656,7 +3666,12 @@
                 "type": "object",
                 "required": ["date"],
                 "properties": {
-                  "date": { "type": "string", "format": "date" }
+                  "date": { "type": "string", "format": "date" },
+                  "forceRefresh": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, bypasses the worker's same-day product-detail cache."
+                  }
                 }
               }
             }
@@ -5681,7 +5696,12 @@
                     "default": "all"
                   },
                   "targetId": { "type": "integer", "minimum": 1 },
-                  "date": { "type": "string", "format": "date" }
+                  "date": { "type": "string", "format": "date" },
+                  "forceRefresh": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, bypasses the worker's same-day product-detail cache."
+                  }
                 }
               }
             }
@@ -6109,6 +6129,307 @@
           "404": { "description": "Task not found in current organization" },
           "409": { "description": "Task is not in progress" }
         }
+      }
+    },
+    "/agent-os/supervisor/plan": {
+      "post": {
+        "summary": "Build a deterministic Agent OS Supervisor plan behind the evidence gate",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["request", "checkedAt", "dataChecks"] } } } },
+        "responses": { "200": { "description": "Supervisor plan" }, "400": { "description": "Invalid supervisor input" } }
+      }
+    },
+    "/agent-os/signals": {
+      "get": {
+        "summary": "List organization-scoped Agent OS ranking signals backed by Insight Events",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": { "200": { "description": "Ranking signal feed" }, "401": { "description": "Authentication required" } }
+      }
+    },
+    "/agent-os/signals/{id}": {
+      "get": {
+        "summary": "Get an organization-scoped Agent OS ranking signal",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Ranking signal" }, "404": { "description": "Agent signal not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS ranking signal status",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "enum": ["NEW", "INVESTIGATING", "ACTIONED", "IGNORED"] } } } } } },
+        "responses": { "200": { "description": "Updated ranking signal" }, "400": { "description": "Invalid signal status" }, "403": { "description": "Workflow write capability required" }, "404": { "description": "Agent signal not found" } }
+      }
+    },
+    "/agent-os/signals/{id}/investigate": {
+      "post": {
+        "summary": "Start the idempotent Ranking Jump Workflow for an Agent OS signal",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 240 } } } } } },
+        "responses": { "201": { "description": "Signal and workflow execution snapshot" }, "403": { "description": "Workflow write capability required" }, "404": { "description": "Agent signal not found" } }
+      }
+    },
+    "/agent-os/goals": {
+      "get": {
+        "summary": "List organization-scoped Agent OS goals",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } },
+          { "name": "type", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Goal list" } }
+      },
+      "post": {
+        "summary": "Create an idempotent Agent OS goal",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["type", "metric", "targetValue"] } } } },
+        "responses": { "201": { "description": "Created goal" }, "400": { "description": "Invalid goal" } }
+      }
+    },
+    "/agent-os/goals/{id}": {
+      "get": {
+        "summary": "Get an Agent OS goal",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Goal" }, "404": { "description": "Goal not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS goal with optimistic concurrency",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Updated goal" }, "409": { "description": "Version conflict" } }
+      }
+    },
+    "/agent-os/memory": {
+      "get": {
+        "summary": "List organization-scoped Agent OS memory entries",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } },
+          { "name": "memoryType", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Memory entry list" } }
+      },
+      "post": {
+        "summary": "Create an idempotent Agent OS memory entry",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["memoryType", "content"] } } } },
+        "responses": { "201": { "description": "Created memory entry" }, "400": { "description": "Invalid memory entry" } }
+      }
+    },
+    "/agent-os/memory/{id}": {
+      "get": {
+        "summary": "Get an Agent OS memory entry",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Memory entry" }, "404": { "description": "Memory entry not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS memory entry with optimistic concurrency",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Updated memory entry" }, "409": { "description": "Version conflict" } }
+      }
+    },
+    "/agent-os/workflows/runs": {
+      "get": {
+        "summary": "List organization-scoped Agent OS workflow runs",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } },
+          { "name": "workflowId", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Workflow run list" } }
+      },
+      "post": {
+        "summary": "Create an idempotent Agent OS workflow run",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["workflowId", "triggerType"] } } } },
+        "responses": { "201": { "description": "Created workflow run" }, "400": { "description": "Invalid workflow run" } }
+      }
+    },
+    "/agent-os/workflows/runs/{id}": {
+      "get": {
+        "summary": "Get an Agent OS workflow run",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Workflow run" }, "404": { "description": "Workflow run not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS workflow run with optimistic concurrency",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Updated workflow run" }, "409": { "description": "Version conflict" } }
+      }
+    },
+    "/agent-os/actions": {
+      "get": {
+        "summary": "List organization-scoped Agent OS action proposals",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "riskLevel", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Action proposal list" } }
+      },
+      "post": {
+        "summary": "Create an idempotent Agent OS action proposal",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["type", "targetType", "proposedValue", "reason", "evidence", "riskLevel"] } } } },
+        "responses": { "201": { "description": "Created action proposal" }, "400": { "description": "Invalid action proposal" } }
+      }
+    },
+    "/agent-os/actions/{id}": {
+      "get": {
+        "summary": "Get an Agent OS action proposal",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Action proposal" }, "404": { "description": "Action proposal not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS action proposal with optimistic concurrency",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Updated action proposal" }, "409": { "description": "Version conflict" } }
+      }
+    },
+    "/agent-os/actions/{id}/execute": {
+      "post": {
+        "summary": "Execute an organization-scoped low-risk Agent OS action",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Action execution result and audit record" },
+          "404": { "description": "Action proposal not found" },
+          "409": { "description": "Action is not executable or has a state conflict" },
+          "422": { "description": "Action is unsupported or violates the gateway policy" }
+        }
+      }
+    },
+    "/agent-os/actions/{id}/verify": {
+      "post": {
+        "summary": "Verify the real effect of an Agent OS action",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Action verification result and audit record" },
+          "404": { "description": "Action proposal or execution not found" },
+          "409": { "description": "Action execution is not ready for verification" }
+        }
+      }
+    },
+    "/agent-os/actions/{id}/execution": {
+      "get": {
+        "summary": "Read the organization-scoped execution audit for an Agent OS action",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Action execution audit" }, "404": { "description": "Action execution not found" } }
+      }
+    },
+    "/agent-os/opportunities": {
+      "get": {
+        "summary": "List organization-scoped Agent OS opportunities",
+        "responses": { "200": { "description": "Opportunity radar records" }, "401": { "description": "Authentication required" } }
+      },
+      "post": {
+        "summary": "Create an Agent OS opportunity",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "201": { "description": "Opportunity created" }, "400": { "description": "Invalid opportunity" } }
+      }
+    },
+    "/agent-os/opportunities/{id}": {
+      "get": {
+        "summary": "Get an Agent OS opportunity",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Opportunity" }, "404": { "description": "Opportunity not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS opportunity with optimistic concurrency",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Updated opportunity" }, "409": { "description": "Version conflict" } }
+      },
+      "delete": {
+        "summary": "Archive an Agent OS opportunity",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "204": { "description": "Opportunity deleted" }, "404": { "description": "Opportunity not found" } }
+      }
+    },
+    "/agent-os/decisions": {
+      "get": {
+        "summary": "List organization-scoped Agent OS decisions",
+        "responses": { "200": { "description": "Decision records" }, "401": { "description": "Authentication required" } }
+      },
+      "post": {
+        "summary": "Create an Agent OS decision",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "201": { "description": "Decision created" }, "400": { "description": "Invalid decision" } }
+      }
+    },
+    "/agent-os/decisions/{id}": {
+      "get": {
+        "summary": "Get an Agent OS decision",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Decision" }, "404": { "description": "Decision not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS decision with optimistic concurrency",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Updated decision" }, "409": { "description": "Version conflict" } }
+      },
+      "delete": {
+        "summary": "Delete an Agent OS decision",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "204": { "description": "Decision deleted" }, "404": { "description": "Decision not found" } }
+      }
+    },
+    "/agent-os/experiments": {
+      "get": {
+        "summary": "List organization-scoped Agent OS experiments",
+        "responses": { "200": { "description": "Experiment records" }, "401": { "description": "Authentication required" } }
+      },
+      "post": {
+        "summary": "Create an Agent OS experiment",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "201": { "description": "Experiment created" }, "400": { "description": "Invalid experiment" } }
+      }
+    },
+    "/agent-os/experiments/{id}": {
+      "get": {
+        "summary": "Get an Agent OS experiment",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "description": "Experiment" }, "404": { "description": "Experiment not found" } }
+      },
+      "patch": {
+        "summary": "Update an Agent OS experiment with optimistic concurrency",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Updated experiment" }, "409": { "description": "Version conflict" } }
+      },
+      "delete": {
+        "summary": "Delete an Agent OS experiment",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "204": { "description": "Experiment deleted" }, "404": { "description": "Experiment not found" } }
+      }
+    },
+    "/agent-os/data-quality": {
+      "get": {
+        "summary": "Evaluate organization-scoped Agent OS data quality from real collection and data-source state",
+        "responses": { "200": { "description": "Data quality evidence and gate" }, "401": { "description": "Authentication required" } }
+      }
+    },
+    "/agent-os/workflows/templates": {
+      "get": {
+        "summary": "List the seven roadmap workflow templates",
+        "responses": { "200": { "description": "Workflow template summaries" }, "401": { "description": "Authentication required" } }
+      }
+    },
+    "/agent-os/workflows/execute": {
+      "post": {
+        "summary": "Start and persist a roadmap Agent OS workflow run",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["workflowId"] } } } },
+        "responses": { "201": { "description": "Workflow execution snapshot" }, "404": { "description": "Unknown workflow template" }, "409": { "description": "Version conflict" } }
+      }
+    },
+    "/agent-os/workflows/runs/{id}/resume": {
+      "post": {
+        "summary": "Resume a persisted Agent OS workflow after wait or approval",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Resumed workflow execution snapshot" }, "404": { "description": "Workflow run not found" }, "409": { "description": "No resumable snapshot or version conflict" } }
       }
     },
     "/agent/sessions": {

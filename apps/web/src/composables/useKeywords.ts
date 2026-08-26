@@ -1,7 +1,9 @@
 import type { Ref } from "vue";
 import { storeToRefs } from "pinia";
 import type { CollectJob, KeywordMonitor } from "@amazon-monitor/shared";
+import { clearRequestCache } from "../api-base";
 import { collectApi } from "../api-collect";
+import { clearViewCache } from "./app-view-loader";
 import { keywordApi } from "../api-keywords";
 import type { KeywordDetail } from "../api-types";
 import { toErrorMessage } from "../utils/error-message";
@@ -15,7 +17,7 @@ interface UseKeywordsOptions {
   setAction(message: string): void;
   setError(message: string): void;
   renderKeywordChart(snapshots: KeywordDetail["snapshots"]): Promise<void>;
-  loadCurrentView(): Promise<void>;
+  loadCurrentView(force?: boolean): Promise<void>;
   collectAllCategories(): Promise<CollectJob[]>;
   refreshCollectionStatus(): Promise<void>;
 }
@@ -46,7 +48,7 @@ export function useKeywords(options: UseKeywordsOptions) {
 
     try {
       if (keywordId) {
-        const job = await keywordApi.collect({ keywordId, date: options.date.value });
+        const job = await keywordApi.collect({ keywordId, date: options.date.value, forceRefresh: true });
         const queuedJob = Array.isArray(job) ? job[0] : job;
         await options.refreshCollectionStatus();
 
@@ -59,7 +61,7 @@ export function useKeywords(options: UseKeywordsOptions) {
         options.setAction(`单关键词采集已完成 (耗时 ${elapsed}s)`);
       } else {
         await Promise.all([
-          keywordApi.collect({ date: options.date.value }),
+          keywordApi.collect({ date: options.date.value, forceRefresh: true }),
           options.collectAllCategories()
         ]);
         await options.refreshCollectionStatus();
@@ -68,7 +70,9 @@ export function useKeywords(options: UseKeywordsOptions) {
         options.setAction(`全量采集已进入队列 (${elapsed}s)`);
       }
 
-      await options.loadCurrentView();
+      clearRequestCache();
+      clearViewCache();
+      await options.loadCurrentView(true);
     } catch (error) {
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       options.setError(`${toErrorMessage(error)} (耗时 ${elapsed}s)`);

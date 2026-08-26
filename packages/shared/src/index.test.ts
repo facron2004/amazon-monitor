@@ -186,6 +186,55 @@ describe("Amazon category intelligence business rules", () => {
     expect(events.find((event) => event.eventType === "review_growth")).toBeUndefined();
   });
 
+  it("merges brand matrix rows that differ only by case", () => {
+    const category: CategoryMonitor = {
+      id: 11,
+      name: "Action Cameras",
+      marketplace: "amazon.com",
+      categoryUrl: "https://amazon.com/bestsellers/action-cameras",
+      categoryPath: null,
+      crawlTopN: 100,
+      status: "enabled",
+      createdAt: "2026-05-18T00:00:00.000Z",
+      updatedAt: "2026-05-18T00:00:00.000Z",
+      lastCollectedAt: null,
+      todayStatus: "pending"
+    };
+    const product = (brand: string, rank: number, asin: string): BestSellerProductInput => ({
+      rank,
+      asin,
+      title: `${brand} Action Camera`,
+      brand,
+      imageUrl: `https://example.com/${asin}.jpg`,
+      productUrl: `https://amazon.com/dp/${asin}`,
+      currentPrice: 199.99,
+      originalPrice: null,
+      couponText: null,
+      currency: "$",
+      rating: 4.5,
+      reviewCount: 1000,
+      isPrime: true,
+      dealBadge: null
+    });
+    const today = decorateBestsellerSnapshots({
+      categoryId: category.id,
+      categoryName: category.name,
+      marketplace: category.marketplace,
+      snapshotDate: "2026-05-23",
+      products: [product("insta360", 89, "B0LOWERCASE"), product("Insta360", 2, "B0UPPERCASE")]
+    });
+
+    const matrix = buildBrandMatrixSnapshots({ category, date: "2026-05-23", today, yesterday: [] });
+
+    expect(matrix).toHaveLength(1);
+    expect(matrix[0]).toMatchObject({
+      brand: "Insta360",
+      productCountTop100: 2,
+      bestRank: 2,
+      topAsins: ["B0UPPERCASE", "B0LOWERCASE"]
+    });
+  });
+
   it("keeps small review-count changes out of activity events", () => {
     const category: CategoryMonitor = {
       id: 10,

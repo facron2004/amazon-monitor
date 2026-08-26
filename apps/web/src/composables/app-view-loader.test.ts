@@ -16,6 +16,7 @@ function createLoaders(loader: () => Promise<void>): AppViewLoaders {
     ads: loader,
     "review-voc": loader,
     "action-center": loader,
+    "agent-os": loader,
     "ai-agents": loader,
     tasks: loader,
     promotions: loader,
@@ -46,6 +47,17 @@ describe("loadAppView", () => {
 
     beginSessionBoundary({ organizationId: 2, userId: 20 });
     await expect(loadAppView("overview", loaders, "2026-07-28")).resolves.toEqual({ cached: false });
+
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it("bypasses the view cache when a collection has completed", async () => {
+    const loader = vi.fn(async () => undefined);
+    const loaders = createLoaders(loader);
+
+    beginSessionBoundary({ organizationId: 1, userId: 10 });
+    await expect(loadAppView("keywords", loaders, "2026-07-28")).resolves.toEqual({ cached: false });
+    await expect(loadAppView("keywords", loaders, "2026-07-28", true)).resolves.toEqual({ cached: false });
 
     expect(loader).toHaveBeenCalledTimes(2);
   });

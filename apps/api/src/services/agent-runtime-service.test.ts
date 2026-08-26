@@ -208,6 +208,16 @@ describe("AgentRuntimeService terminal events", () => {
     expect(store.getAgentRun(run.id, user.orgId)).toMatchObject({
       status: "cancelled",
     });
+    await receiveDesktopAgentMessage({
+      type: "agent.run.fail",
+      runId: run.id,
+      errorMessage: "late bridge failure",
+    });
+
+    expect(store.getAgentRun(run.id, user.orgId)).toMatchObject({
+      status: "cancelled",
+    });
+    expect(store.listAgentRunEvents(run.id).some((event) => event.type === "run.failed")).toBe(false);
     database.close();
   });
 

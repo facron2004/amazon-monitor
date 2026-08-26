@@ -135,6 +135,11 @@ export interface DatedBsrScopeQuery extends Omit<BsrScopeQuery, "date"> {
 
 export interface KeywordCollectPayload extends DatePayload {
   keywordId?: number;
+  forceRefresh?: boolean;
+}
+
+export interface CategoryCollectPayload extends DatePayload {
+  forceRefresh?: boolean;
 }
 
 export interface CompetitorListQuery {

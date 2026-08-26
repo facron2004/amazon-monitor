@@ -1,20 +1,56 @@
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
+
+export interface CodexExecutableTarget {
+  executableName: "codex" | "codex.exe";
+  packageName: string;
+  targetTriple: string;
+}
+
+const codexTargets: Readonly<Record<string, CodexExecutableTarget>> = {
+  "win32-x64": {
+    executableName: "codex.exe",
+    packageName: "@openai/codex-win32-x64",
+    targetTriple: "x86_64-pc-windows-msvc",
+  },
+  "darwin-arm64": {
+    executableName: "codex",
+    packageName: "@openai/codex-darwin-arm64",
+    targetTriple: "aarch64-apple-darwin",
+  },
+  "darwin-x64": {
+    executableName: "codex",
+    packageName: "@openai/codex-darwin-x64",
+    targetTriple: "x86_64-apple-darwin",
+  },
+};
+
+export function resolveCodexTarget(
+  platform: NodeJS.Platform,
+  arch: string,
+): CodexExecutableTarget {
+  const target = codexTargets[`${platform}-${arch}`];
+  if (!target) {
+    throw new Error(
+      `Bundled Codex OAuth currently supports Windows x64 and macOS x64/arm64; received ${platform} ${arch}`,
+    );
+  }
+  return target;
+}
 
 export function resolveCodexExecutable(): string {
-  if (process.platform !== "win32" || process.arch !== "x64") {
-    throw new Error("Bundled Codex OAuth currently supports Windows x64");
-  }
+  const target = resolveCodexTarget(process.platform, process.arch);
   const require = createRequire(import.meta.url);
-  const packageJson = require.resolve("@openai/codex-win32-x64/package.json");
+  const packageJson = require.resolve(`${target.packageName}/package.json`);
   const executable = join(
     dirname(packageJson),
     "vendor",
-    "x86_64-pc-windows-msvc",
+    target.targetTriple,
     "bin",
-    "codex.exe",
+    target.executableName,
   );
-  return executable.replace("app.asar\\", "app.asar.unpacked\\");
+  const asarMarker = `${sep}app.asar${sep}`;
+  return executable.replace(asarMarker, `${sep}app.asar.unpacked${sep}`);
 }
 
 export function nestedString(

@@ -92,6 +92,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_keyword_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_bestseller_category_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_collect_job_queue", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_job_queue", "force_refresh", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "amazon_collect_job_queue", "lease_owner", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_token", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_expires_at", "TEXT");
@@ -143,6 +144,7 @@ export function initSchema(db: DatabaseSync): void {
   ensureColumn(db, "amazon_keyword_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_bestseller_category_monitor", "org_id", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "amazon_collect_job_queue", "org_id", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "amazon_collect_job_queue", "force_refresh", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "amazon_collect_job_queue", "lease_owner", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_token", "TEXT");
   ensureColumn(db, "amazon_collect_job_queue", "lease_expires_at", "TEXT");

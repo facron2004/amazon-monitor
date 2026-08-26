@@ -24,6 +24,7 @@ afterEach(() => {
 });
 
 describe("backupSqliteDatabaseFile", () => {
+  // Windows can spend longer closing a live-WAL handle than Vitest's 5s default.
   it("creates an integrity-checked snapshot from a live WAL database", async () => {
     const root = mkdtempSync(join(tmpdir(), "amazon-monitor-db-backup-"));
     temporaryRoots.push(root);
@@ -49,7 +50,7 @@ describe("backupSqliteDatabaseFile", () => {
     expect(result.targetPath).toBe(targetPath);
     expect(result.bytes).toBeGreaterThan(0);
     expect(marker.value).toBe("live-wal");
-  });
+  }, 15_000);
 
   it("does not overwrite an existing target", async () => {
     const root = mkdtempSync(join(tmpdir(), "amazon-monitor-db-backup-"));

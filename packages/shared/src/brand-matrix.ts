@@ -9,9 +9,11 @@ export function buildBrandMatrixSnapshots(input: BrandMatrixInput): BrandMatrixS
   const yesterdayByBrand = groupByNormalizedBrand(input.yesterday);
 
   return Array.from(new Set([...todayByBrand.keys(), ...yesterdayByBrand.keys()]))
-    .map((brand) => {
-      const today = (todayByBrand.get(brand) ?? []).sort((a, b) => a.rank - b.rank);
-      const yesterday = yesterdayByBrand.get(brand) ?? [];
+    .map((brandKey) => {
+      const todayGroup = todayByBrand.get(brandKey);
+      const yesterdayGroup = yesterdayByBrand.get(brandKey);
+      const today = (todayGroup?.items ?? []).sort((a, b) => a.rank - b.rank);
+      const yesterday = yesterdayGroup?.items ?? [];
       const ranked = today.map((item) => item.rank);
       const averageRank = ranked.length ? roundCurrency(ranked.reduce((sum, rank) => sum + rank, 0) / ranked.length) : null;
 
@@ -32,7 +34,7 @@ export function buildBrandMatrixSnapshots(input: BrandMatrixInput): BrandMatrixS
         categoryName: input.category.name,
         marketplace: input.category.marketplace,
         snapshotDate: input.date,
-        brand,
+        brand: todayGroup?.displayName ?? yesterdayGroup?.displayName ?? "Unknown",
         productCountTop100: countBy(today, (item) => item.rank <= 100),
         productCountTop50: countBy(today, (item) => item.rank <= 50),
         productCountTop20: countBy(today, (item) => item.rank <= 20),
@@ -57,15 +59,26 @@ export function buildBrandMatrixSnapshots(input: BrandMatrixInput): BrandMatrixS
     });
 }
 
-function groupByNormalizedBrand(items: BestsellerRankSnapshot[]): Map<string, BestsellerRankSnapshot[]> {
-  const map = new Map<string, BestsellerRankSnapshot[]>();
+interface BrandGroup {
+  displayName: string;
+  displayRank: number;
+  items: BestsellerRankSnapshot[];
+}
+
+function groupByNormalizedBrand(items: BestsellerRankSnapshot[]): Map<string, BrandGroup> {
+  const map = new Map<string, BrandGroup>();
   for (const item of items) {
-    const brand = normalizeBrand(item.brand);
-    const group = map.get(brand);
+    const displayName = displayBrand(item.brand);
+    const brandKey = normalizeBrandKey(displayName);
+    const group = map.get(brandKey);
     if (group) {
-      group.push(item);
+      group.items.push(item);
+      if (item.rank < group.displayRank) {
+        group.displayName = displayName;
+        group.displayRank = item.rank;
+      }
     } else {
-      map.set(brand, [item]);
+      map.set(brandKey, { displayName, displayRank: item.rank, items: [item] });
     }
   }
   return map;
@@ -79,6 +92,10 @@ function countBy<T>(items: T[], predicate: (item: T) => boolean): number {
   return count;
 }
 
-function normalizeBrand(brand: string | null): string {
+function displayBrand(brand: string | null): string {
   return brand?.trim() || "Unknown";
+}
+
+function normalizeBrandKey(brand: string): string {
+  return brand.toLocaleLowerCase();
 }

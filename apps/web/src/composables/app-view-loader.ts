@@ -13,6 +13,7 @@ export interface AppViewLoaders {
   ads(signal?: AbortSignal): Promise<void>;
   "review-voc"(signal?: AbortSignal): Promise<void>;
   "action-center"(signal?: AbortSignal): Promise<void>;
+  "agent-os"(signal?: AbortSignal): Promise<void>;
   "ai-agents"(signal?: AbortSignal): Promise<void>;
   tasks(signal?: AbortSignal): Promise<void>;
   promotions(signal?: AbortSignal): Promise<void>;

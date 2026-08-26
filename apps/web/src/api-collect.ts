@@ -14,6 +14,7 @@ export interface CollectorRunPayload {
   taskType?: CollectorRunTaskType;
   targetId?: number;
   date?: string;
+  forceRefresh?: boolean;
 }
 
 export const collectApi = {

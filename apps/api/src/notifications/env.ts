@@ -74,8 +74,8 @@ export function loadEnv() {
         break;
       }
     }
-  } catch {
-    // ignore
+  } catch (error) {
+    console.warn("[Env] Failed to load .env file:", error);
   }
 }
 

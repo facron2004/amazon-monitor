@@ -25,6 +25,12 @@ export interface RequestOptions extends RequestInit {
   timeoutMs?: number;
 }
 
+export function setOptional(params: URLSearchParams, key: string, value: string | number | undefined | null): void {
+  if (value !== undefined && value !== null && value !== "") {
+    params.set(key, String(value));
+  }
+}
+
 function normalizeBaseUrl(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }

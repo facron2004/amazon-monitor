@@ -5,7 +5,7 @@ import type {
   ProductProfitSetting,
   UpsertProductProfitSettingInput
 } from "@amazon-monitor/shared";
-import { request } from "./api-base";
+import { request, setOptional } from "./api-base";
 
 export type ProfitSettingPayload = Omit<UpsertProductProfitSettingInput, "productId">;
 
@@ -42,10 +42,4 @@ function buildQuery(query: ProfitPlanQuery): URLSearchParams {
   setOptional(params, "limit", query.limit);
   setOptional(params, "offset", query.offset);
   return params;
-}
-
-function setOptional(params: URLSearchParams, key: string, value: string | number | undefined | null): void {
-  if (value !== undefined && value !== null && value !== "") {
-    params.set(key, String(value));
-  }
 }

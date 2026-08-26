@@ -81,7 +81,16 @@ export class AgentRuntimeService {
         session: new SqliteAgentSession(this.store, run.sessionId),
       },
     )
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        // executeAmazonAgentRun 应在内部调用 persistence.fail，但作为安全兜底：
+        // 若它意外抛出且未标记 run 为 failed，这里补一次失败标记，避免 run 永久卡在 planning/running_tools。
+        console.error(`[AgentRuntime] Run ${run.id} threw unhandled error:`, error);
+        try {
+          persistence.fail(run.id, safeErrorMessage(error));
+        } catch (updateError) {
+          console.error(`[AgentRuntime] Failed to mark run ${run.id} as failed:`, updateError);
+        }
+      })
       .finally(() => {
         this.controllers.delete(run.id);
       });
@@ -117,12 +126,13 @@ export class AgentRuntimeService {
       complete: (_runId, output) => this.complete(run, output),
       fail: (runId, errorMessage) => {
         const current = this.store.getAgentRun(runId, run.orgId);
-        if (current?.status === "cancelled") return;
-        this.store.updateAgentRun(runId, run.orgId, {
+        if (!current || isTerminalStatus(current.status)) return;
+        const failed = this.store.updateAgentRun(runId, run.orgId, {
           status: "failed",
           errorMessage,
           completedAt: new Date().toISOString(),
         });
+        if (!failed) return;
         this.finishRunAudit(runId, "failed", errorMessage);
         this.store.appendAgentRunEvent({
           runId,

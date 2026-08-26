@@ -125,7 +125,9 @@ export function buildAiQuality(
 
   for (const runId of convertedRuns) {
     const run = runsById.get(runId);
-    if (run) metricsByAgent.get(run.agentType)!.convertedRunCount += 1;
+    if (!run) continue;
+    const metrics = metricsByAgent.get(run.agentType);
+    if (metrics) metrics.convertedRunCount += 1;
   }
 
   const totals = emptyMetrics();

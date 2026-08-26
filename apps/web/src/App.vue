@@ -26,6 +26,7 @@ const viewModules = {
   ads: () => import("./components/AdsView.vue"),
   "review-voc": () => import("./components/ReviewVocView.vue"),
   "action-center": () => import("./components/ActionCenterPanel.vue"),
+  "agent-os": () => import("./components/AgentOsView.vue"),
   "ai-agents": () => import("./components/AiAgentsView.vue"),
   tasks: () => import("./components/TasksView.vue"),
   promotions: () => import("./components/PromotionsView.vue"),
@@ -57,6 +58,7 @@ const ListingHealthView = defineAppView(viewModules["listing-health"]);
 const AdsView = defineAppView(viewModules.ads);
 const ReviewVocView = defineAppView(viewModules["review-voc"]);
 const ActionCenterPanel = defineAppView(viewModules["action-center"]);
+const AgentOsView = defineAppView(viewModules["agent-os"]);
 const AiAgentsView = defineAppView(viewModules["ai-agents"]);
 const TasksView = defineAppView(viewModules.tasks);
 const PromotionsView = defineAppView(viewModules.promotions);
@@ -261,6 +263,7 @@ onMounted(async () => {
       <AdsView v-if="activeTab === 'ads'" :date="date" />
       <ReviewVocView v-if="activeTab === 'review-voc'" :date="date" />
       <ActionCenterPanel v-if="activeTab === 'action-center'" :date="date" />
+      <AgentOsView v-if="activeTab === 'agent-os'" />
       <AiAgentsView v-if="activeTab === 'ai-agents'" />
       <TasksView v-if="activeTab === 'tasks'" />
       <PromotionsView v-if="activeTab === 'promotions'" :date="date" />

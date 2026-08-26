@@ -42,6 +42,7 @@ export interface AmazonBestSellerCollector {
 export interface CategoryCollectionOptions {
   collector?: AmazonBestSellerCollector;
   signal?: AbortSignal;
+  forceRefresh?: boolean;
   organizationId?: number;
   dataSource?: string;
   ensureActive?: () => void;
@@ -111,7 +112,10 @@ export async function runCategoryCollectionForMonitor(
   try {
     ensureCollectionActive(options);
     console.log(`[${ts()}] [Pipeline] Collecting category="${category.name}" marketplace=${category.marketplace} topN=${category.crawlTopN}...`);
-    const pages = await collector.collect(category, date, { signal: options.signal });
+    const pages = await collector.collect(category, date, {
+      signal: options.signal,
+      forceRefresh: options.forceRefresh
+    });
     ensureCollectionActive(options);
     const t1 = Date.now();
     console.log(`[${ts()}] [Pipeline] Crawl done in ${formatDuration(t1 - t0)} — ${pages.length} pages, processing products...`);

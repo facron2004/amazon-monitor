@@ -5,6 +5,9 @@ import {
   isoDateOffset,
 } from "@amazon-monitor/shared";
 import { createAdsStore } from "./store/ads-store.js";
+import { createAgentOsStore } from "./agent-os/store.js";
+import { createIntelligenceStore } from "./agent-os/intelligence-store.js";
+import { createActionExecutionStore } from "./agent-os/action-execution-store.js";
 import { createAgentStore } from "./store/agent-store.js";
 import { createAiRunStore } from "./store/ai-run-store.js";
 import {
@@ -106,6 +109,9 @@ export function createStore(db: DatabaseSync): Store {
     ...createProductStore(db),
     ...createAiRunStore(db),
     ...createAgentStore(db),
+    agentOs: createAgentOsStore(db),
+    agentOsIntelligence: createIntelligenceStore(db),
+    agentOsActionExecutions: createActionExecutionStore(db),
     ...createListingHealthStore(db),
     ...createAdsStore(db),
     ...createReviewVocStore(db),
@@ -131,6 +137,14 @@ export function createStore(db: DatabaseSync): Store {
           DELETE FROM action_executions;
           DELETE FROM action_approvals;
           DELETE FROM action_proposals;
+          DELETE FROM agent_os_action_proposals;
+          DELETE FROM agent_os_workflow_runs;
+          DELETE FROM agent_os_memory_entries;
+          DELETE FROM agent_os_goals;
+          DELETE FROM agent_os_intelligence_experiments;
+          DELETE FROM agent_os_intelligence_decisions;
+          DELETE FROM agent_os_intelligence_opportunities;
+          DELETE FROM agent_os_action_executions;
           DELETE FROM agent_run_events;
           DELETE FROM agent_tool_calls;
           DELETE FROM agent_steps;

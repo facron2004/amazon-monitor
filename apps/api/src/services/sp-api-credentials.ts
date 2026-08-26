@@ -45,7 +45,12 @@ export function decryptSpApiCredentials(
     decipher.update(Buffer.from(encrypted.ciphertext, "base64")),
     decipher.final()
   ]).toString("utf8");
-  const parsed = JSON.parse(plaintext) as Partial<SpApiCredentials>;
+  let parsed: Partial<SpApiCredentials>;
+  try {
+    parsed = JSON.parse(plaintext) as Partial<SpApiCredentials>;
+  } catch {
+    throw new Error("Stored SP-API credentials are corrupt (invalid JSON after decryption)");
+  }
   if (!parsed.lwaClientId || !parsed.lwaClientSecret || !parsed.lwaRefreshToken) {
     throw new Error("Stored SP-API credentials are invalid");
   }

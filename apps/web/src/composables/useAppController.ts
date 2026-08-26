@@ -49,6 +49,7 @@ export function useAppController() {
   const adsLoading = ref(false);
   const reviewVocLoading = ref(false);
   const actionCenterLoading = ref(false);
+  const agentOsLoading = ref(false);
   const aiAgentsLoading = ref(false);
   const tasksLoading = ref(false);
   const promotionsLoading = ref(false);
@@ -76,6 +77,7 @@ export function useAppController() {
     ads: adsLoading,
     "review-voc": reviewVocLoading,
     "action-center": actionCenterLoading,
+    "agent-os": agentOsLoading,
     "ai-agents": aiAgentsLoading,
     tasks: tasksLoading,
     promotions: promotionsLoading,
@@ -93,7 +95,7 @@ export function useAppController() {
 
   const loading = computed(() =>
     overviewLoading.value || categoriesLoading.value || keywordsLoading.value ||
-    competitorsLoading.value || productsLoading.value || inventoryLoading.value || profitLoading.value || listingHealthLoading.value || adsLoading.value || reviewVocLoading.value || actionCenterLoading.value || aiAgentsLoading.value || promotionsLoading.value || rulesLoading.value || dataSourcesLoading.value || alertsLoading.value || reportsLoading.value ||
+    competitorsLoading.value || productsLoading.value || inventoryLoading.value || profitLoading.value || listingHealthLoading.value || adsLoading.value || reviewVocLoading.value || actionCenterLoading.value || agentOsLoading.value || aiAgentsLoading.value || promotionsLoading.value || rulesLoading.value || dataSourcesLoading.value || alertsLoading.value || reportsLoading.value ||
     notificationsLoading.value || logsLoading.value || collecting.value
   );
 
@@ -133,7 +135,7 @@ export function useAppController() {
     setError,
     renderKeywordChart,
     loadCurrentView,
-    collectAllCategories: () => categoryApi.collectAllCategories({ date: date.value }),
+    collectAllCategories: () => categoryApi.collectAllCategories({ date: date.value, forceRefresh: true }),
     refreshCollectionStatus
   });
 
@@ -181,6 +183,10 @@ export function useAppController() {
         insightEventsStore.loadReviewDueEvents(date.value, signal),
         insightEventsStore.loadWatchStates(signal)
       ]);
+    },
+    "agent-os": async (signal?: AbortSignal) => {
+      const { useAgentOsStore } = await import("../stores/agentOs.js");
+      await useAgentOsStore().fetchWorkspace(signal);
     },
     "ai-agents": async () => {
       const [{ useAiRunsStore }, { useAgentWorkspaceStore }] = await Promise.all([

@@ -29,7 +29,7 @@ async function refresh(): Promise<void> {
 async function runCollection(): Promise<void> {
   if (!canWrite.value) return;
   try {
-    const jobs = await store.runCollection({ taskType: runTaskType.value, date: props.date });
+    const jobs = await store.runCollection({ taskType: runTaskType.value, date: props.date, forceRefresh: true });
     if (jobs.length === 0) {
       ElMessage.warning("当前范围没有已启用的采集目标。");
       return;

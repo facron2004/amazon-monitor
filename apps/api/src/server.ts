@@ -1,5 +1,5 @@
 import cors from "cors";
-import express, { type Request, type Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import { existsSync, readFileSync } from "node:fs";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -13,6 +13,12 @@ import type { NotificationSender } from "./notifier.js";
 import type { ReportPdfRenderer } from "./reports/report-pdf.js";
 import { registerAdsRoutes } from "./routes/ads.js";
 import { registerAgentRoutes } from "./routes/agent.js";
+import { registerAgentOsRoutes } from "./routes/agent-os.js";
+import { registerAgentOsActionRoutes } from "./routes/agent-os-actions.js";
+import { registerAgentOsIntelligenceRoutes } from "./routes/agent-os-intelligence.js";
+import { registerAgentOsDataQualityRoutes } from "./routes/agent-os-data-quality.js";
+import { registerAgentOsWorkflowRoutes } from "./routes/agent-os-workflows.js";
+import { registerAgentOsSignalRoutes } from "./routes/agent-os-signals.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerAuthRoutes, sessionLoader } from "./routes/auth.js";
 import { registerBrandPlaybookRoutes } from "./routes/brand-playbooks.js";
@@ -312,12 +318,18 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   registerInventoryRoutes(app, store);
   registerProfitRoutes(app, store);
   registerAiRoutes(app, store);
-  registerAgentRoutes(
-    app,
-    store,
-    options.agentRuntime ?? new AgentRuntimeService(store),
-    new AgentActionService(store, options.notificationSender),
-  );
+    registerAgentRoutes(
+      app,
+      store,
+      options.agentRuntime ?? new AgentRuntimeService(store),
+      new AgentActionService(store, options.notificationSender),
+    );
+    registerAgentOsRoutes(app, store);
+    registerAgentOsActionRoutes(app, store, { notificationSender: options.notificationSender });
+    registerAgentOsIntelligenceRoutes(app, store);
+    registerAgentOsDataQualityRoutes(app, store);
+    registerAgentOsWorkflowRoutes(app, store);
+    registerAgentOsSignalRoutes(app, store);
   registerReportRoutes(app, store, { reportPdfRenderer: options.reportPdfRenderer });
   registerOperationRoutes(app, store);
   registerNotificationRoutes(app, store, { notificationSender: options.notificationSender });
@@ -338,7 +350,7 @@ export function createApiApp(store: Store, options: ApiAppOptions = {}) {
   });
 
   // Global error handler — sanitize messages in production
-  app.use((error: unknown, _req: Request, response: Response, _next: Function) => {
+  app.use((error: unknown, _req: Request, response: Response, _next: NextFunction) => {
     console.error("[API Error]", error);
     const statusCode = (error as { statusCode?: number })?.statusCode ?? 500;
     const message = isProduction && statusCode >= 500

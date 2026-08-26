@@ -161,6 +161,7 @@ export interface CollectJob {
   taskType: "keyword" | "category" | "data_source_sync";
   targetId: number;
   date: string;
+  forceRefresh: boolean;
   status: "pending" | "processing" | "completed" | "failed";
   createdAt: string;
   startedAt: string | null;

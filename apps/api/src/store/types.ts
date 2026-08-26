@@ -147,6 +147,9 @@ import type {
   User,
   UserRole,
 } from "@amazon-monitor/shared";
+import type { AgentOsPersistenceAdapter } from "../agent-os/types.js";
+import type { IntelligencePersistenceAdapter } from "../agent-os/intelligence-types.js";
+import type { ActionExecutionPersistenceAdapter } from "../agent-os/action-execution-types.js";
 
 export type { CollectJob } from "@amazon-monitor/shared";
 
@@ -570,6 +573,7 @@ export interface QueueStore {
     targetId: number,
     date: string,
     orgId?: number,
+    options?: { forceRefresh?: boolean },
   ): CollectJob;
   claimNextJob(workerId: string, leaseDurationMs: number): ClaimedCollectJob | null;
   renewJobLease(id: number, leaseOwner: string, leaseToken: string, leaseDurationMs: number): boolean;
@@ -1230,6 +1234,9 @@ export interface Store
     TaskStore,
     SopStore,
     IdentityStore {
+  agentOs: AgentOsPersistenceAdapter;
+  agentOsIntelligence: IntelligencePersistenceAdapter;
+  agentOsActionExecutions: ActionExecutionPersistenceAdapter;
   reset(): void;
   /**
    * Run work inside a SAVEPOINT and optionally verify an ownership guard both

@@ -125,6 +125,25 @@ describe("collection pipeline", () => {
     expect(store.listTaskLogs()[0].status).toBe("failed");
   });
 
+  it("passes the explicit force-refresh intent to the search collector", async () => {
+    const db = new DatabaseSync(":memory:");
+    initSchema(db);
+    const store = createStore(db);
+    const keyword = store.createKeyword({ keyword: "ice maker", marketplace: "amazon.com", crawlPages: 1, status: "enabled" });
+    let receivedForceRefresh: boolean | undefined;
+    const collector: AmazonSearchCollector = {
+      async collect(_keyword, _date, options) {
+        receivedForceRefresh = options?.forceRefresh;
+        return [{ pageNo: 1, products: [product("B0FORCEPIPE1", "Force Refresh Ice Maker", 59.99, null, false)], url: "https://example.com/search" }];
+      }
+    };
+
+    await runCollectionForKeyword(store, keyword.id, "2026-05-17", { collector, forceRefresh: true });
+
+    expect(receivedForceRefresh).toBe(true);
+    db.close();
+  });
+
   it("creates idempotent Listing and rating evidence for keyword-only competitors", async () => {
     const db = new DatabaseSync(":memory:");
     initSchema(db);

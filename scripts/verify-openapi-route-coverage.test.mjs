@@ -18,9 +18,9 @@ describe("OpenAPI route coverage", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      routeCount: 216,
+      routeCount: 259,
       directEndpointCount: DEFAULT_DIRECT_ENDPOINTS.length,
-      openApiCount: 221,
+      openApiCount: 264,
       missingRoutes: [],
       undocumentedOpenApi: [],
       duplicateRoutes: [],

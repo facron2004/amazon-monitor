@@ -5,7 +5,7 @@ import type {
   AdsWorkflowResponse,
   UpsertAdDailyMetricInput
 } from "@amazon-monitor/shared";
-import { request } from "./api-base";
+import { request, setOptional } from "./api-base";
 
 export type AdsMetricPayload = Omit<UpsertAdDailyMetricInput, "orgId">;
 
@@ -41,8 +41,4 @@ function buildQuery(query: AdsQuery | Omit<AdsMetricListFilter, "orgId">): URLSe
   return params;
 }
 
-function setOptional(params: URLSearchParams, key: string, value: string | number | undefined | null): void {
-  if (value !== undefined && value !== null && value !== "") {
-    params.set(key, String(value));
-  }
-}
+

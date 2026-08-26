@@ -1,6 +1,6 @@
 # Amazon 关键词竞品价格与排名监控系统
 
-> **v1.1.0** · [更新日志](CHANGELOG.md) · 2026-08-09
+> **v1.2.0** · [更新日志](CHANGELOG.md) · 2026-08-26
 
 基于 PRD 落地的可运行系统：关键词配置、Amazon 搜索页真实采集、Category Best Sellers 采集、类目每日竞争情报首页、自营 SKU 经营中心、规则中心、每日快照、支持手动、CSV、BSR Top100、新品黑马与 Agent 证据候选人工确认入池的竞品池、跨关键词/类目去重的 Listing 与评分变化、昨日对比、告警、任务、日报、周报、月报、采集日志和后台页面已经串成闭环。
 
@@ -21,6 +21,8 @@ v0.5.0 引入 **AI Agent 矩阵**（确定性 + 证据绑定 + approval-gated）
 | **Report Writer**      | `POST /api/ai/create-report`      | daily/weekly/monthly reports + insight events       | Markdown 运营报告 + 审批动作摘要                                     |
 
 Agent 运行历史通过 `GET /api/ai/runs` 暴露给前端 `Agent 中心`，响应包含组织范围内的 `total`、`limit` 和 `offset`，支持按 Agent 类型、状态和分页查看完整审计记录；刷新保留当前页，切换筛选或每页条数时回到第一页。所有已登录角色都可审计本组织运行记录，反馈和 Agent 执行则按工作流、竞品、Ads、报告等领域能力授权。每条审批动作可从 Agent 中心或 Listing、Ads、Review VOC 专项页面转为 `ai_run` 来源任务，保留 run id、证据、理由、风险和置信度，之后进入人工执行与复盘流程；运营也可对单条建议点赞或点踩，反馈按组织和用户留痕并可重复更新。管理员和经理还可通过 `GET /api/ai/quality?days=7|30|90` 与 Agent 中心质量面板查看团队反馈、含动作运行的转任务率和已复盘任务确认率；任务尚未保存动作序号，因此该指标明确按运行去重，不表述为单条建议采纳率。
+
+Agent OS 现已提供真实 Insight Event 驱动的 Signal Feed：`GET /api/agent-os/signals` 展示 `RANK_SURGE` 形成的 `RANKING_JUMP` 信号，`PATCH /api/agent-os/signals/:id` 更新状态，`POST /api/agent-os/signals/:id/investigate` 以幂等方式启动 `ranking-jump-analysis`。该 Workflow 会在研究证据后暂停等待人工审批，再生成带 Action Proposal 和 Memory 的响应计划；不会自动跟随竞品或改价。
 
 Product Research 的新品立项草案可在人工确认后把四项必需门槛一次拆成 Review VOC、利润、合规和供应链验证任务。转换接口按 Agent run 幂等，重复确认返回原任务，不重复写入；创建任务不代表批准立项，任务详情保留草案、证据日期、验收要求和来源运行。每次选品运行同时记录 BSR 证据日期、更新时间、来源和采集状态；超过每日新鲜度要求或采集不完整时，Agent 会把置信度降到观察级、草案切换为“保持观察”，并阻止创建立项验证任务。
 
@@ -193,6 +195,18 @@ Windows 发布 CI 先执行根级 `npm run verify`（生产构建、全量单测
 
 `collect:release-evidence` 只写入版本、路径、文件大小、SHA-256、Authenticode 状态、builder-debug.yml 指纹和构建提交号，不包含证书、密码或 `.env`。`verify:release-evidence` 会重新读取当前产物，核对必需文件、大小、哈希、签名状态、已知 artifact 类型和 release root 路径边界，避免上传与实际构建不一致或越界读取的证据。Windows CI 会在成功或失败后将证据 JSON 和 builder 调试元数据上传为 14 天 artifact，便于复核失败构建。
 
+### macOS ARM64 打包
+
+桌面端已增加 Apple Silicon ARM64 DMG 构建入口：
+
+```bash
+npm --workspace @amazon-monitor/desktop run package:mac:arm64
+```
+
+在 Agent 全量类型检查通过后，该命令会生成 `release/electron` 下的 macOS ARM64 DMG，并使用 `@openai/codex-darwin-arm64` 运行 Codex app-server。macOS 构建必须在 macOS runner 或 Mac 机器上执行；正式分发还需要 Developer ID 签名与 notarization。当前 Windows 主机只能完成源码、类型和打包配置验证，不能直接产出 macOS 安装包。
+
+仓库提供 `.github/workflows/macos-arm64-package.yml` 手动工作流；在 GitHub Actions 中运行 `workflow_dispatch` 后，构建出的未签名 DMG 会作为 artifact 下载。正式对外发布时，再配置 Developer ID 签名和 notarization。
+
 ## 常用命令
 
 ### 开发命令
@@ -241,6 +255,8 @@ npm run verify:sp-api-shadow-package -- <evidence-package-directory> # 校验真
 - 解析 ASIN、标题、图片、商品链接、搜索页价格、Coupon、Deal、评分、评论数、Sponsored、Prime、配送文案
 - 如果 Amazon 返回验证码、自动访问拦截或页面没有商品卡片，任务会记录失败日志，并在 `data/collector-screenshots` 保存排查截图
 - 不做假数据兜底，不生成虚构竞品
+- 普通定时采集可复用同一 Worker 内当日的详情缓存以控制负载；界面发起的“重抓”会携带 `forceRefresh=true`，重新访问商品详情页，并在任务完成后清理前端请求/视图缓存再加载结果
+- 同一目标同一业务日的强制重抓不会与正在执行的普通任务并发，而是等待前一任务结束后再执行，避免交叉写入同日快照
 
 ### 采集调优参数
 
@@ -305,6 +321,16 @@ $env:SMTP_FROM="sender@example.com"
 ```
 
 桌面 EXE 不会把邮箱凭据打进安装包。安装版优先读取 `%APPDATA%\Amazon Monitor\.env`，也支持将 `.env` 放在 EXE 同目录；修改后重启 EXE 生效。
+
+邮件正文使用 `Amazon Intelligence Brief` HTML 模板：先展示 30 秒执行摘要，再按事件归并 Critical Alerts，随后给出市场变化、BSR Top Movers、价格/Coupon/Deal、关键词动向和压缩后的普通变化；已有 Insight Event 会继续保留 What happened / Why it matters / Recommended action 和 Action Center 跟进信息。邮件仍附带完整 Excel 证据，未配置公开地址时不会伪造 Dashboard 链接。
+
+如果需要邮件中的 Dashboard CTA，配置：
+
+```powershell
+$env:PUBLIC_BASE_URL="https://amazon-monitor.example.com"
+```
+
+邮件 CTA 会带 `source=email` 和报告日期参数；商品卡片沿用已采集的 Amazon listing 链接，完整历史和普通变化仍以 Web/Excel 为准。
 
 ### 飞书通知
 

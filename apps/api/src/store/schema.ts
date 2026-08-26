@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { agentOsSchemaSql } from "../agent-os/schema.js";
 import { adsSchemaSql } from "./schema/ads-schema.js";
 import { agentSchemaSql } from "./schema/agent-schema.js";
 import { aiSchemaSql } from "./schema/ai-schema.js";
@@ -41,6 +42,7 @@ const schemaSql = [
   adsSchemaSql,
   reportSchemaSql,
   workflowSchemaSql,
+  agentOsSchemaSql,
   promotionSchemaSql,
   aiSchemaSql,
   agentSchemaSql,

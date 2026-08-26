@@ -7,6 +7,7 @@ import type {
   QueueStats,
   WorkerStatus
 } from "@amazon-monitor/shared";
+import { clearRequestCache } from "../api-base";
 import { collectApi, type CollectorRunPayload } from "../api-collect";
 
 export type CollectorJobStatusFilter = CollectJob["status"] | "all";
@@ -127,6 +128,7 @@ export const useCollectorsStore = defineStore("collectors", () => {
     error.value = null;
     try {
       const queued = await collectApi.run(payload);
+      clearRequestCache();
       await fetchCenter();
       return queued;
     } catch (cause) {

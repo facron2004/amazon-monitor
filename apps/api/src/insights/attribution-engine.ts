@@ -1,4 +1,5 @@
 import type { AttributionTag } from "@amazon-monitor/shared";
+import { rankDelta } from "./insight-event-builder.js";
 
 export interface AttributionInput {
   currentRank: number | null;
@@ -102,13 +103,6 @@ export function inferAttribution(input: AttributionInput): AttributionResult {
   }
 
   return { tags: unique(tags), evidenceItems };
-}
-
-function rankDelta(previousRank: number | null, currentRank: number | null): number | null {
-  if (previousRank === null || currentRank === null) {
-    return null;
-  }
-  return previousRank - currentRank;
 }
 
 function isTopRank(rank: number | null, boundary: number): boolean {

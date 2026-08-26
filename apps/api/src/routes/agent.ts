@@ -202,15 +202,26 @@ export function registerAgentRoutes(
       Number(request.get("Last-Event-ID") ?? request.query.after ?? 0) || 0,
     );
     const flush = () => {
-      const events = store.listAgentRunEvents(runId, sequence);
-      for (const event of events) {
-        sendSseEvent(response, event);
-        sequence = event.sequence;
-      }
-      const current = store.getAgentRun(runId, context.organization.id);
-      if (current && ["completed", "failed", "cancelled", "waiting_approval"].includes(current.status)) {
+      try {
+        const events = store.listAgentRunEvents(runId, sequence);
+        for (const event of events) {
+          sendSseEvent(response, event);
+          sequence = event.sequence;
+        }
+        const current = store.getAgentRun(runId, context.organization.id);
+        if (current && ["completed", "failed", "cancelled", "waiting_approval"].includes(current.status)) {
+          clearInterval(timer);
+          response.end();
+        }
+      } catch (error) {
+        // setInterval 回调抛出会变成 uncaught exception 并可能崩溃进程；这里记录并停止轮询。
         clearInterval(timer);
-        response.end();
+        console.error(`[Agent SSE] flush failed for run ${runId}:`, error);
+        try {
+          response.end();
+        } catch {
+          // 连接可能已关闭，忽略
+        }
       }
     };
     const timer = setInterval(flush, 500);

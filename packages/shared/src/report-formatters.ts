@@ -12,5 +12,5 @@ export function formatNullableMoney(value: NullableNumber): string {
 }
 
 export function formatPercent(value: number): string {
-  return `${roundCurrency(value * 100).toFixed(1)}%`;
+  return `${(value * 100).toFixed(1)}%`;
 }

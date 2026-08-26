@@ -35,6 +35,21 @@ describe("QueueStore", () => {
     expect(list.length).toBe(1);
   });
 
+  it("persists a forced rerun and waits for an active normal job to finish", () => {
+    const normal = store.pushJob("keyword", 42, "2026-06-11");
+    const claimedNormal = store.claimNextJob("test-worker", 60_000)!;
+    const forced = store.pushJob("keyword", 42, "2026-06-11", 1, { forceRefresh: true });
+
+    expect(forced.id).not.toBe(normal.id);
+    expect(forced.forceRefresh).toBe(true);
+    expect(store.claimNextJob("test-worker", 60_000)).toBeNull();
+
+    store.completeJob(claimedNormal.id, claimedNormal.leaseOwner, claimedNormal.leaseToken);
+    const claimedForced = store.claimNextJob("test-worker", 60_000)!;
+    expect(claimedForced.id).toBe(forced.id);
+    expect(claimedForced.forceRefresh).toBe(true);
+  });
+
   it("rolls back transaction work when the ownership guard is lost before commit", () => {
     expect(() => store.runInTransaction(
       () => {

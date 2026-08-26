@@ -339,8 +339,8 @@ async function retryAgentConnectionSync(
       const status = await readOAuthStatus();
       await syncAgentConnection(connectionStore, status);
       if (status.connected) return;
-    } catch {
-      // A later IPC refresh can recover a transient startup failure.
+    } catch (error) {
+      console.warn(`[Agent] Connection sync attempt ${attempt + 1} failed:`, error);
     }
   }
 }
@@ -370,8 +370,8 @@ async function readOAuthStatus(): Promise<AgentOAuthStatus> {
   try {
     const result = await supervisor?.requestOAuth("status");
     if (result && "connected" in result) return result;
-  } catch {
-    // The settings view can still render while the Agent process starts.
+  } catch (error) {
+    console.warn("[Agent] OAuth status read failed:", error);
   }
   return { connected: false, authMode: null, planType: null };
 }

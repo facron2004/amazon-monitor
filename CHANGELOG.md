@@ -14,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+## [1.2.0] - 2026-08-26
+
+### Added
+
+- **Amazon Intelligence Brief 邮件**：SMTP 邮件升级为 720px、table/inline CSS 的 HTML 简报，增加 30 秒执行摘要、合并后的 Critical Alerts、市场 KPI、BSR Top Movers、价格/Coupon/Deal、关键词变化和普通变化汇总。
+- **Agent OS Signal Feed**：基于真实 `InsightEvent(RANK_SURGE)` 的组织级 `RANKING_JUMP` 信号、证据展示、状态更新和幂等 `ranking-jump-analysis` Workflow；研究结果保持人工审批边界。
+- **macOS ARM64 打包入口**：Electron Builder 增加 `package:mac:arm64`、DMG 目标和 macOS ARM64 Codex 二进制解析；实际 DMG 仍需在 macOS runner 上构建、签名和公证。
+
+### Changed
+
+- **邮件信息流**：重点事件统一展示核心变化、Why it matters、Recommended action 和 Dashboard/Listing CTA；原有 Action Center 跟进内容与 Excel 证据继续保留，邮件主题改为 `Amazon Intelligence Brief`。
+
+### Fixed
+
+- **采集数据可信度**：手动同日重抓通过 `forceRefresh` 贯穿队列、Worker 和详情采集器，跳过同日详情缓存；任务完成后清理前端请求/视图缓存，并避免强制任务与同目标普通任务并发写入。
+
 ## [1.1.0] - 2026-07-30
 
 ### Added

@@ -22,7 +22,7 @@ import type {
   TopInsightFilterOptions,
   TopInsightFilters
 } from "@amazon-monitor/shared";
-import { request, withSignal } from "./api-base";
+import { request, setOptional, withSignal } from "./api-base";
 import { fetchAllInsightEventPages } from "./api-insight-event-pagination";
 
 export interface InsightEventQuery {
@@ -312,8 +312,4 @@ function buildInsightEventTrendQuery(params: InsightEventTrendQuery): URLSearchP
   return query;
 }
 
-function setOptional(query: URLSearchParams, key: string, value: string | number | null | undefined): void {
-  if (value !== undefined && value !== null && value !== "") {
-    query.set(key, String(value));
-  }
-}
+

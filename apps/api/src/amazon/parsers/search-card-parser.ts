@@ -217,8 +217,18 @@ export function extractSearchCards(): SerpProductInput[] {
       return match?.[0] ?? "$";
     },
     parseRating(value: string): number | null {
-      const match = value.match(/([0-9]+(?:\.[0-9]+)?)/);
-      return match ? Number(match[1]) : null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      if (!normalized) return null;
+      const numberPattern = "[0-5](?:[.,][0-9]+)?";
+      const match =
+        normalized.match(new RegExp(`5\\s*(?:つ星|星)\\s*のうち\\s*(${numberPattern})`, "i"))
+        ?? normalized.match(new RegExp(`(${numberPattern})\\s*(?:out of|von|sur|de|su)\\s*5`, "i"))
+        ?? normalized.match(new RegExp(`(${numberPattern})\\s*(?:stars?|sterne[n]?|étoiles?|estrellas?|estrelas?|stelle|sterren|つ星|星|颗星)`, "i"))
+        ?? normalized.match(new RegExp(`^(${numberPattern})$`));
+      const raw = match?.[1]?.replace(",", ".");
+      if (!raw) return null;
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed >= 0 && parsed <= 5 ? parsed : null;
     },
     parseInteger(value: string): number | null {
       const match = value.replace(/,/g, "").match(/([0-9]+)/);

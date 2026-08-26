@@ -37,15 +37,20 @@ export async function collectMissingBestSellerDetails(
   options: AbortableCollectOptions = {}
 ): Promise<BestSellerProductInput[]> {
   throwIfAborted(options.signal);
+  const forceRefresh = options.forceRefresh === true;
   const cacheKeyFor = (product: BestSellerProductInput) => detailCacheKey(date, category.marketplace, product.asin);
-  const withCachedDetails = products.map((product) => applyCachedBestSellerDetails(product, detailCache.get(cacheKeyFor(product))));
+  const withCachedDetails = forceRefresh
+    ? products
+    : products.map((product) => applyCachedBestSellerDetails(product, detailCache.get(cacheKeyFor(product))));
   // Cap how many detail pages we open per best-seller task. `crawlTopN=100`
   // used to launch 100 detail pages serially through `detailConcurrency=3`,
   // which dominated total runtime for large categories. We still visit the
   // top N (env-tunable) — products past the cap keep whatever data the
   // best-seller card already exposed (rank/title/price).
   const detailCap = Math.max(1, Math.min(bestSellerDetailTopN(), maxDetailProducts()));
-  const candidates = withCachedDetails.filter((product) => shouldCollectBestSellerDetails(product) && !detailCache.has(cacheKeyFor(product)));
+  const candidates = withCachedDetails.filter(
+    (product) => shouldCollectBestSellerDetails(product) && (forceRefresh || !detailCache.has(cacheKeyFor(product)))
+  );
   const missing = prioritizeDetailCollection(candidates).slice(0, detailCap);
   if (missing.length === 0) {
     return withCachedDetails;
@@ -118,13 +123,16 @@ export async function collectPageProductDetailRanks(
   options: AbortableCollectOptions = {}
 ): Promise<{ products: SerpProductInput[]; collectedCount: number }> {
   throwIfAborted(options.signal);
+  const forceRefresh = options.forceRefresh === true;
   const cacheKeyFor = (product: SerpProductInput) => detailCacheKey(date, keyword.marketplace, product.asin);
   const detailsToCollect = prioritizeDetailCollection(
-    products.filter((product) => !detailRankCache.has(cacheKeyFor(product)))
+    products.filter((product) => forceRefresh || !detailRankCache.has(cacheKeyFor(product)))
   ).slice(0, Math.max(0, detailLimit));
   if (detailsToCollect.length === 0) {
     return {
-      products: products.map((product) => applyCachedDetailRanks(product, detailRankCache.get(cacheKeyFor(product)))),
+      products: forceRefresh
+        ? products
+        : products.map((product) => applyCachedDetailRanks(product, detailRankCache.get(cacheKeyFor(product)))),
       collectedCount: 0
     };
   }
@@ -138,6 +146,7 @@ export async function collectPageProductDetailRanks(
       if (error instanceof Error && error.message.includes("Amazon blocked collection")) {
         throw error;
       }
+      console.warn(`[Collector] Detail rank collection failed for ASIN ${product.asin}:`, error);
       return product;
     }
   });
@@ -150,7 +159,12 @@ export async function collectPageProductDetailRanks(
   }
 
   return {
-    products: products.map((product) => enrichedByAsin.get(product.asin) ?? applyCachedDetailRanks(product, detailRankCache.get(cacheKeyFor(product)))),
+    products: products.map((product) => {
+      if (enrichedByAsin.has(product.asin)) {
+        return enrichedByAsin.get(product.asin)!;
+      }
+      return forceRefresh ? product : applyCachedDetailRanks(product, detailRankCache.get(cacheKeyFor(product)));
+    }),
     collectedCount: enriched.filter((product) => Boolean(product.detailCollectedAt)).length
   };
 }

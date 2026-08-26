@@ -2,49 +2,48 @@ import type { BestsellerRankSnapshot, DashboardSummary } from "@amazon-monitor/s
 import type { Store } from "../store.js";
 import {
   appendDailyInsightReportMarkdown,
-  buildInsightHtmlSections,
-  buildInsightTextSections,
-  collectDailyInsightReportData
+  buildInsightTextSections
 } from "../reports/insight-report.js";
 import { cleanEnvValue } from "./env.js";
-import { escapeHtml } from "./text-utils.js";
+import {
+  buildNotificationBriefText,
+  collectNotificationBriefData,
+  type NotificationBriefData
+} from "./intelligence-brief.js";
+import { buildNotificationBriefHtml } from "./intelligence-brief-renderer.js";
 
 export function buildNotificationContent(store: Store, date: string, summary?: DashboardSummary, orgId = 1): string {
+  return buildNotificationContentFromBrief(store, date, collectNotificationBriefData(store, date, summary, orgId), orgId);
+}
+
+export function buildNotificationEmailContents(
+  store: Store,
+  date: string,
+  summary?: DashboardSummary,
+  orgId = 1
+): { content: string; htmlContent: string } {
+  const brief = collectNotificationBriefData(store, date, summary, orgId);
+  return {
+    content: buildNotificationContentFromBrief(store, date, brief, orgId),
+    htmlContent: buildNotificationHtmlFromBrief(brief, date)
+  };
+}
+
+function buildNotificationContentFromBrief(store: Store, date: string, brief: NotificationBriefData, orgId: number): string {
   const report = store.getDailyReport(date, undefined, orgId);
   const categoryReport = store.getCategoryReport(date, undefined, orgId);
   const combinedReport = [categoryReport, report].filter((item) => item.trim()).join("\n\n---\n\n");
-  const insightData = collectDailyInsightReportData(store, date, orgId);
-  if (combinedReport.trim()) {
-    return appendBsrPromoTextSummary(appendDailyInsightReportMarkdown(combinedReport, insightData), store, date, orgId);
-  }
-
-  const dashSummary = summary ?? store.getDashboardSummary(date, orgId);
-  const alerts = store.listAlerts({ orgId, date, limit: 10 });
-  const categorySignals = store.listCategorySignals({ orgId, date, limit: 10 });
-  const bsrPromoLines = bsrPromoItems(store, date, 10, orgId).map(
-    (item) => `- #${item.rank} ${item.categoryName} ${item.asin}: ${promoText(item)}`
-  );
+  const insightDetails = combinedReport.trim()
+    ? appendDailyInsightReportMarkdown(combinedReport, brief.insightData)
+    : buildInsightTextSections(brief.insightData).join("\n");
+  const bsrPromoLines = bsrPromoTextLines(store, date, 10, orgId);
   return [
-    "# Amazon Keyword Monitor Daily Report",
+    buildNotificationBriefText(brief, {
+      dashboardUrl: buildNotificationDashboardUrl(date),
+      reportUrl: buildReportExcelDownloadUrl(date)
+    }),
     "",
-    `Date: ${date}`,
-    `Active keywords: ${dashSummary.activeKeywordCount}`,
-    `Active categories: ${dashSummary.activeCategoryCount}`,
-    `Snapshots: ${dashSummary.todaySnapshotCount}`,
-    `Category snapshots: ${dashSummary.categorySnapshotCount}`,
-    `Competitors: ${dashSummary.competitorCount}`,
-    `Alerts: ${dashSummary.alertCount}`,
-    `Category signals: ${dashSummary.categorySignalCount}`,
-    "",
-    "## Top alerts",
-    ...(alerts.length ? alerts.map((alert) => `- [${alert.alertLevel}] ${alert.keyword} ${alert.asin}: ${alert.alertContent}`) : ["- No keyword alerts"]),
-    "",
-    "## Top category signals",
-    ...(categorySignals.length
-      ? categorySignals.map((signal) => `- [${signal.alertLevel}] ${signal.categoryName} ${signal.asin ?? ""}: ${signal.content}`)
-      : ["- No category signals"]),
-    "",
-    ...buildInsightTextSections(insightData),
+    insightDetails,
     "",
     "## BSR Coupon / Deal",
     ...(bsrPromoLines.length ? bsrPromoLines : ["- No BSR coupon/deal items"])
@@ -79,106 +78,25 @@ export function buildReportExcelDownloadUrl(date: string, env: NodeJS.ProcessEnv
 }
 
 export function buildNotificationSummaryHtmlContent(store: Store, date: string, summary?: DashboardSummary, orgId = 1): string {
-  const dashSummary = summary ?? store.getDashboardSummary(date, orgId);
-  const alerts = store.listAlerts({ orgId, date, limit: 5 });
-  const categorySignals = store.listCategorySignals({ orgId, date, limit: 5 });
-  const bsrPromos = bsrPromoItems(store, date, 8, orgId);
-  const insightData = collectDailyInsightReportData(store, date, orgId);
-  const rows = [
-    ["启用关键词", dashSummary.activeKeywordCount],
-    ["启用类目", dashSummary.activeCategoryCount],
-    ["关键词快照 ASIN", dashSummary.todaySnapshotCount],
-    ["类目榜单 ASIN", dashSummary.categorySnapshotCount],
-    ["竞品池 ASIN", dashSummary.competitorCount],
-    ["关键词告警", dashSummary.alertCount],
-    ["类目信号", dashSummary.categorySignalCount]
-  ];
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Amazon Monitor Daily Report ${escapeHtml(date)}</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f5f1;font-family:'Segoe UI','Microsoft YaHei',Arial,sans-serif;color:#20211f;">
-  <div style="max-width:760px;margin:0 auto;padding:24px;">
-    <div style="background:#ffffff;border:1px solid #dddfd7;border-radius:8px;overflow:hidden;">
-      <div style="padding:22px 24px;background:#20211f;color:#f7f7f1;">
-        <div style="font-size:12px;letter-spacing:.08em;color:#99f6e4;text-transform:uppercase;">Amazon Competitive Intelligence</div>
-        <h1 style="margin:8px 0 0;font-size:22px;line-height:1.3;">每日监控报告</h1>
-        <div style="margin-top:6px;font-size:13px;color:#c9cdc4;">报告日期：${escapeHtml(date)}</div>
-      </div>
-      <div style="padding:22px 24px;">
-        <p style="margin:0 0 14px;font-size:14px;line-height:1.7;">
-          本次邮件正文只保留摘要，完整数据已整理为 Excel 附件：
-          <strong>amazon-monitor-${escapeHtml(date)}.xlsx</strong>。
-        </p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px;margin:14px 0 18px;">
-          <tbody>
-            ${rows
-              .map(
-                ([label, value]) =>
-                  `<tr><td style="padding:10px;border-bottom:1px solid #e2e4dd;color:#686c63;">${escapeHtml(String(label))}</td><td style="padding:10px;border-bottom:1px solid #e2e4dd;text-align:right;font-weight:700;">${escapeHtml(String(value))}</td></tr>`
-              )
-              .join("")}
-          </tbody>
-        </table>
-        <h2 style="margin:18px 0 8px;font-size:15px;">重点关键词告警</h2>
-        <ul style="margin:0 0 14px;padding-left:18px;font-size:13px;line-height:1.65;">
-          ${
-            alerts.length
-              ? alerts.map((alert) => `<li>[${escapeHtml(alert.alertLevel)}] ${escapeHtml(alert.keyword)} ${escapeHtml(alert.asin)}：${escapeHtml(alert.alertContent)}</li>`).join("")
-              : "<li>暂无关键词告警</li>"
-          }
-        </ul>
-        <h2 style="margin:18px 0 8px;font-size:15px;">重点类目信号</h2>
-        <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.65;">
-          ${
-            categorySignals.length
-              ? categorySignals
-                  .map((signal) => `<li>[${escapeHtml(signal.alertLevel)}] ${escapeHtml(signal.categoryName)} ${escapeHtml(signal.asin ?? "")}：${escapeHtml(signal.content)}</li>`)
-                  .join("")
-              : "<li>暂无类目信号</li>"
-          }
-        </ul>
-        ${buildInsightHtmlSections(insightData)}
-        <h2 style="margin:18px 0 8px;font-size:15px;">BSR Coupon / Deal</h2>
-        <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:0;">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #e2e4dd;color:#686c63;">Rank</th>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #e2e4dd;color:#686c63;">ASIN</th>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #e2e4dd;color:#686c63;">Product</th>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #e2e4dd;color:#686c63;">Coupon / Deal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              bsrPromos.length
-                ? bsrPromos
-                    .map(
-                      (item) =>
-                        `<tr><td style="padding:8px;border-bottom:1px solid #eef0ea;">#${escapeHtml(String(item.rank))}</td><td style="padding:8px;border-bottom:1px solid #eef0ea;font-weight:700;">${escapeHtml(item.asin)}</td><td style="padding:8px;border-bottom:1px solid #eef0ea;">${escapeHtml(item.title.slice(0, 80))}</td><td style="padding:8px;border-bottom:1px solid #eef0ea;color:#b45309;font-weight:700;">${escapeHtml(promoText(item) ?? "-")}</td></tr>`
-                    )
-                    .join("")
-                : `<tr><td colspan="4" style="padding:8px;border-bottom:1px solid #eef0ea;color:#686c63;">No BSR coupon/deal items</td></tr>`
-            }
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
+  return buildNotificationHtmlFromBrief(collectNotificationBriefData(store, date, summary, orgId), date);
 }
 
-function appendBsrPromoTextSummary(content: string, store: Store, date: string, orgId: number): string {
-  const lines = bsrPromoItems(store, date, 10, orgId).map((item) => `- #${item.rank} ${item.categoryName} ${item.asin}: ${promoText(item)}`);
-  if (!lines.length) {
-    return content;
-  }
-  return [content, "", "## BSR Coupon / Deal", ...lines].join("\n");
+function buildNotificationHtmlFromBrief(brief: NotificationBriefData, date: string): string {
+  return buildNotificationBriefHtml(brief, {
+    dashboardUrl: buildNotificationDashboardUrl(date),
+    reportUrl: buildReportExcelDownloadUrl(date)
+  });
+}
+
+export function buildNotificationDashboardUrl(date: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  const baseUrl = cleanEnvValue(env.PUBLIC_BASE_URL);
+  if (!baseUrl) return null;
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  return `${normalizedBaseUrl}/?source=email&date=${encodeURIComponent(date)}`;
+}
+
+function bsrPromoTextLines(store: Store, date: string, limit: number, orgId: number): string[] {
+  return bsrPromoItems(store, date, limit, orgId).map((item) => `- #${item.rank} ${item.categoryName} ${item.asin}: ${promoText(item)}`);
 }
 
 function bsrPromoItems(store: Store, date: string, limit: number, orgId: number): BestsellerRankSnapshot[] {

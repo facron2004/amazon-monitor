@@ -28,6 +28,7 @@ interface CollectJobRow {
   target_id: number;
   date: string;
   status: CollectJob["status"];
+  force_refresh: number;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -46,6 +47,7 @@ export function mapCollectJob(row: CollectJobRow): CollectJob {
     taskType: row.task_type as "keyword" | "category" | "data_source_sync",
     targetId: row.target_id,
     date: row.date,
+    forceRefresh: row.force_refresh === 1,
     status: row.status as "pending" | "processing" | "completed" | "failed",
     createdAt: row.created_at,
     startedAt: row.started_at ?? null,
@@ -80,19 +82,35 @@ function retryAt(now: string, retryAfterMs: number | undefined): string | null {
 
 export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
   return {
-    pushJob(taskType, targetId, date, orgId = 1) {
+    pushJob(taskType, targetId, date, orgId = 1, options = {}) {
       const now = nowIso();
+      const forceRefresh = options.forceRefresh === true ? 1 : 0;
+
+      const activeJob = db.prepare(`
+        SELECT * FROM amazon_collect_job_queue
+        WHERE org_id = ? AND task_type = ? AND target_id = ? AND date = ?
+          AND status IN ('pending', 'processing')
+        ORDER BY force_refresh DESC, id ASC
+        LIMIT 1
+      `).get(orgId, taskType, targetId, date) as unknown as CollectJobRow | undefined;
+
+      // A normal request can reuse an active forced request. A forced request
+      // gets its own pending slot when a normal job is already active, so it
+      // cannot silently inherit the normal job's cache policy.
+      if (activeJob && (forceRefresh === 0 || activeJob.force_refresh === 1)) {
+        return mapCollectJob(activeJob);
+      }
 
       // Atomic dedup via partial unique index idx_queue_dedup_active.
       // INSERT OR IGNORE skips if a pending/processing job already exists for
-      // this (task_type, target_id, date) — eliminates the race window that
-      // the previous SELECT-then-INSERT had under concurrent pushJob calls.
+      // this (task_type, target_id, date, force_refresh) — eliminates the race
+      // window that the previous SELECT-then-INSERT had under concurrent calls.
       const insertStmt = db.prepare(`
         INSERT OR IGNORE INTO amazon_collect_job_queue
-        (org_id, task_type, target_id, date, status, created_at)
-        VALUES (?, ?, ?, ?, 'pending', ?)
+        (org_id, task_type, target_id, date, force_refresh, status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?)
       `);
-      const result = insertStmt.run(orgId, taskType, targetId, date, now);
+      const result = insertStmt.run(orgId, taskType, targetId, date, forceRefresh, now);
 
       if (result.changes > 0) {
         const newJob = db.prepare(`
@@ -104,14 +122,15 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       // Existing pending/processing job — return it
       const existing = db.prepare(`
         SELECT * FROM amazon_collect_job_queue
-        WHERE org_id = ? AND task_type = ? AND target_id = ? AND date = ? AND status IN ('pending', 'processing')
+        WHERE org_id = ? AND task_type = ? AND target_id = ? AND date = ?
+          AND force_refresh = ? AND status IN ('pending', 'processing')
         LIMIT 1
-      `).get(orgId, taskType, targetId, date) as unknown as CollectJobRow | undefined;
+      `).get(orgId, taskType, targetId, date, forceRefresh) as unknown as CollectJobRow | undefined;
 
       // Defensive: rare race where the job transitioned between INSERT IGNORE
       // and SELECT. Re-attempt the insert once.
       if (!existing) {
-        const retry = insertStmt.run(orgId, taskType, targetId, date, now);
+        const retry = insertStmt.run(orgId, taskType, targetId, date, forceRefresh, now);
         if (retry.changes > 0) {
           const newJob = db.prepare(`
             SELECT * FROM amazon_collect_job_queue WHERE id = ?
@@ -120,7 +139,16 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
         }
       }
 
-      if (!existing) throw new Error("Unable to queue collection job");
+      if (!existing) {
+        const forcedActiveJob = db.prepare(`
+          SELECT * FROM amazon_collect_job_queue
+          WHERE org_id = ? AND task_type = ? AND target_id = ? AND date = ?
+            AND force_refresh = 1 AND status IN ('pending', 'processing')
+          LIMIT 1
+        `).get(orgId, taskType, targetId, date) as unknown as CollectJobRow | undefined;
+        if (forcedActiveJob) return mapCollectJob(forcedActiveJob);
+        throw new Error("Unable to queue collection job");
+      }
       return mapCollectJob(existing);
     },
 
@@ -130,9 +158,18 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
       try {
         const now = nowIso();
         const job = db.prepare(`
-          SELECT * FROM amazon_collect_job_queue
-          WHERE status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-          ORDER BY COALESCE(next_attempt_at, created_at) ASC, id ASC
+          SELECT queued.* FROM amazon_collect_job_queue queued
+          WHERE queued.status = 'pending' AND (queued.next_attempt_at IS NULL OR queued.next_attempt_at <= ?)
+            AND NOT EXISTS (
+              SELECT 1 FROM amazon_collect_job_queue active
+              WHERE active.org_id = queued.org_id
+                AND active.task_type = queued.task_type
+                AND active.target_id = queued.target_id
+                AND active.date = queued.date
+                AND active.status IN ('pending', 'processing')
+                AND active.id <> queued.id
+            )
+          ORDER BY COALESCE(queued.next_attempt_at, queued.created_at) ASC, queued.id ASC
           LIMIT 1
         `).get(now) as unknown as CollectJobRow | undefined;
 

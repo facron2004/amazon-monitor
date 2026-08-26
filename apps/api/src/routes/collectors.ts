@@ -34,7 +34,14 @@ export function registerCollectorRoutes(
   app.post("/api/collectors/run", ...collectGuard, asyncHandler(async (request, response) => {
     const context = requireSessionContext(request);
     const input = validateBody(collectorRunSchema, request.body ?? {});
-    const jobs = queueCollectorJobs(store, context.organization.id, input.taskType, input.date ?? isoDate(), input.targetId);
+    const jobs = queueCollectorJobs(
+      store,
+      context.organization.id,
+      input.taskType,
+      input.date ?? isoDate(),
+      input.targetId,
+      input.forceRefresh
+    );
     console.log(
       `[${ts()}] [API] Collector run requested: task_type=${input.taskType}, jobs=${jobs.length}, date=${input.date ?? jobs[0]?.date ?? isoDate()}`
     );
@@ -136,32 +143,33 @@ function queueCollectorJobs(
   organizationId: number,
   taskType: "all" | "keyword" | "category",
   date: string,
-  targetId?: number
+  targetId?: number,
+  forceRefresh = false
 ): CollectJob[] {
   if (taskType === "all") {
     const keywordJobs = store
       .listKeywords({ orgId: organizationId, status: "enabled" })
-      .map((keyword) => store.pushJob("keyword", keyword.id, date, organizationId));
+      .map((keyword) => store.pushJob("keyword", keyword.id, date, organizationId, { forceRefresh }));
     const categoryJobs = store
       .listCategoryMonitors({ orgId: organizationId, status: "enabled" })
-      .map((category) => store.pushJob("category", category.id, date, organizationId));
+      .map((category) => store.pushJob("category", category.id, date, organizationId, { forceRefresh }));
     return [...keywordJobs, ...categoryJobs];
   }
 
   if (targetId !== undefined) {
     assertCollectTargetAvailable(store, organizationId, taskType, targetId);
-    return [store.pushJob(taskType, targetId, date, organizationId)];
+    return [store.pushJob(taskType, targetId, date, organizationId, { forceRefresh })];
   }
 
   if (taskType === "keyword") {
     return store
       .listKeywords({ orgId: organizationId, status: "enabled" })
-      .map((keyword) => store.pushJob("keyword", keyword.id, date, organizationId));
+      .map((keyword) => store.pushJob("keyword", keyword.id, date, organizationId, { forceRefresh }));
   }
 
   return store
     .listCategoryMonitors({ orgId: organizationId, status: "enabled" })
-    .map((category) => store.pushJob("category", category.id, date, organizationId));
+    .map((category) => store.pushJob("category", category.id, date, organizationId, { forceRefresh }));
 }
 
 function assertCollectTargetAvailable(

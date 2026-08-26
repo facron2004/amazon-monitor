@@ -4,8 +4,8 @@ import type { Store } from "./store.js";
 import { isoDate } from "./pipeline.js";
 import {
   buildFeishuNotificationContent,
-  buildNotificationContent,
-  buildNotificationSummaryHtmlContent,
+  buildNotificationDashboardUrl,
+  buildNotificationEmailContents,
   buildReportExcelDownloadUrl
 } from "./notifications/content.js";
 import { formatLocalDate, formatLocalTime } from "./notifications/schedule-time.js";
@@ -15,6 +15,8 @@ export { loadEnv } from "./notifications/env.js";
 export {
   buildFeishuNotificationContent,
   buildNotificationContent,
+  buildNotificationDashboardUrl,
+  buildNotificationEmailContents,
   buildNotificationSummaryHtmlContent,
   buildReportExcelDownloadUrl
 } from "./notifications/content.js";
@@ -28,13 +30,14 @@ export async function sendNotificationSchedule(
 ): Promise<NotificationSendLog> {
   const sentAt = new Date().toISOString();
   const summary = store.getDashboardSummary(date, schedule.orgId);
+  const emailContents = schedule.channel === "email"
+    ? buildNotificationEmailContents(store, date, summary, schedule.orgId)
+    : null;
   const content =
     schedule.channel === "feishu"
       ? buildFeishuNotificationContent(store, date, summary, buildReportExcelDownloadUrl(date), schedule.orgId)
-      : buildNotificationContent(store, date, summary, schedule.orgId);
-  const htmlContent = schedule.channel === "email"
-    ? buildNotificationSummaryHtmlContent(store, date, summary, schedule.orgId)
-    : undefined;
+      : emailContents!.content;
+  const htmlContent = emailContents?.htmlContent;
   const attachments = schedule.channel === "email"
     ? [buildNotificationExcelAttachment(store, date, schedule.orgId)]
     : undefined;

@@ -4,7 +4,7 @@ import type {
   TaskSourceType,
   TaskStatus,
 } from "@amazon-monitor/shared";
-import { nowIso } from "./sql-utils.js";
+import { clampLimit, clampOffset, nowIso } from "./sql-utils.js";
 import type { Store } from "./types.js";
 import {
   insertTask,
@@ -180,8 +180,8 @@ export function createTaskStore(db: DatabaseSync): TaskStoreMethods {
         where.push("priority = ?");
         params.push(filter.priority);
       }
-      const limit = filter?.limit ?? 200;
-      const offset = filter?.offset ?? 0;
+      const limit = clampLimit(filter?.limit ?? 200);
+      const offset = clampOffset(filter?.offset);
       const rows = db
         .prepare(`SELECT * FROM tasks WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ? OFFSET ?`)
         .all(...params, limit, offset) as unknown as TaskRow[];

@@ -17,6 +17,7 @@ data/*.sqlite-*
 /*amazon-monitor.sqlite
 data/*.png
 data/*.xlsx
+data/*.txt
 data/collector-screenshots/
 apps/api/data/
 

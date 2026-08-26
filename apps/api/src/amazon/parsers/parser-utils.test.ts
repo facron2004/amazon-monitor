@@ -209,9 +209,17 @@ describe("parseRating", () => {
     expect(parseRating("4.6 out of 5 stars")).toBe(4.6);
   });
 
-  it("extracts the first number from Japanese format (leading 5 in '5つ星のうち4.3')", () => {
-    // parseRating matches the first numeric token; the leading "5" wins.
-    expect(parseRating("5つ星のうち4.3")).toBe(5);
+  it("extracts the actual rating from Japanese '5つ星のうち4.3' format", () => {
+    expect(parseRating("5つ星のうち4.3")).toBe(4.3);
+  });
+
+  it("normalizes localized decimal commas", () => {
+    expect(parseRating("4,3 von 5 Sternen")).toBe(4.3);
+  });
+
+  it("rejects numbers outside the rating scale", () => {
+    expect(parseRating("6 stars")).toBeNull();
+    expect(parseRating("12,345 reviews")).toBeNull();
   });
 
   it("extracts decimal rating when it appears first", () => {

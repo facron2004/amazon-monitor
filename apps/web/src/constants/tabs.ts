@@ -18,6 +18,7 @@ import {
   Send,
   SlidersHorizontal,
   Tags,
+  Waypoints,
   Warehouse
 } from "@lucide/vue";
 
@@ -33,6 +34,7 @@ export type TabKey =
   | "ads"
   | "review-voc"
   | "action-center"
+  | "agent-os"
   | "ai-agents"
   | "tasks"
   | "promotions"
@@ -56,6 +58,7 @@ export const tabs: Array<{ key: TabKey; label: string; icon: typeof BarChart3 }>
   { key: "ads", label: "广告工作流", icon: Megaphone },
   { key: "review-voc", label: "评论 VOC", icon: MessageSquare },
   { key: "action-center", label: "运营行动中心", icon: ListChecks },
+  { key: "agent-os", label: "Agent OS", icon: Waypoints },
   { key: "ai-agents", label: "Agent 中心", icon: Bot },
   { key: "tasks", label: "任务", icon: ClipboardList },
   { key: "promotions", label: "活动排期", icon: CalendarRange },

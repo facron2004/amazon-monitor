@@ -1,0 +1,35 @@
+name: macOS ARM64 package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build unsigned ARM64 DMG
+        run: npm --workspace @amazon-monitor/desktop run package:mac:arm64
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-monitor-macos-arm64-${{ github.run_number }}
+          path: release/electron/*.dmg
+          if-no-files-found: error

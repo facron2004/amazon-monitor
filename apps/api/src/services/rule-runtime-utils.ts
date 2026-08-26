@@ -136,6 +136,4 @@ export function formatNumber(value: number | null): string {
   return value === null ? "--" : new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value);
 }
 
-export function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
-}
+export { formatPercent } from "@amazon-monitor/shared";

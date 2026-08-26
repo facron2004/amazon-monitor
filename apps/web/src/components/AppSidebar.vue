@@ -39,7 +39,7 @@ const monitorTabs = computed(() =>
 );
 
 const followUpTabs = computed(() =>
-  tabs.filter((tab) => ["action-center", "ai-agents", "tasks", "promotions", "sops"].includes(tab.key))
+  tabs.filter((tab) => ["action-center", "agent-os", "ai-agents", "tasks", "promotions", "sops"].includes(tab.key))
 );
 
 const systemTabs = computed(() => tabs.filter((tab) => ["rules", "data-sources", "alerts", "notifications", "reports", "logs"].includes(tab.key)));

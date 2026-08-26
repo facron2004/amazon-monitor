@@ -4,7 +4,7 @@ import type { AmazonSearchCollector } from "../amazon-collector.js";
 import { ts } from "../log.js";
 import { isoDate } from "../pipeline.js";
 import type { Store } from "../store.js";
-import { asyncHandler, getDate, optionalNumber, optionalString } from "./http-utils.js";
+import { asyncHandler, getDate, optionalBoolean, optionalNumber, optionalString } from "./http-utils.js";
 import {
   keywordInputSchema,
   keywordPatchSchema,
@@ -105,6 +105,7 @@ export function registerKeywordRoutes(app: Express, store: Store, options: { col
   app.post("/api/collect/run", ...collectGuard, asyncHandler(async (request, response) => {
     const context = requireSessionContext(request);
     const date = optionalString(request.body?.date) ?? isoDate();
+    const forceRefresh = optionalBoolean(request.body?.forceRefresh) ?? false;
     if (request.body?.keywordId) {
       const keywordId = Number(request.body.keywordId);
       const keyword = store.getKeyword(keywordId, context.organization.id);
@@ -112,13 +113,13 @@ export function registerKeywordRoutes(app: Express, store: Store, options: { col
         response.status(404).json({ message: "Keyword not found" });
         return;
       }
-      const job = store.pushJob("keyword", keywordId, date, context.organization.id);
+      const job = store.pushJob("keyword", keywordId, date, context.organization.id, { forceRefresh });
       console.log(`[${ts()}] [API] Collect requested: keyword_id=${job.targetId}, date=${date}, job_id=${job.id}`);
       response.status(202).json(job);
       return;
     }
     const keywords = store.listKeywords({ orgId: context.organization.id, status: "enabled" });
-    const jobs = keywords.map((k) => store.pushJob("keyword", k.id, date, context.organization.id));
+    const jobs = keywords.map((k) => store.pushJob("keyword", k.id, date, context.organization.id, { forceRefresh }));
     console.log(`[${ts()}] [API] Collect all requested: ${jobs.length} keyword jobs queued, date=${date}`);
     response.status(202).json(jobs);
   }));

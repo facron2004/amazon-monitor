@@ -1,5 +1,6 @@
 import type { Ref } from "vue";
 import type { CategoryMonitor } from "@amazon-monitor/shared";
+import { clearRequestCache } from "../api-base";
 import { categoryApi } from "../api-categories";
 import { collectApi } from "../api-collect";
 import { reportsApi } from "../api-reports";
@@ -7,6 +8,7 @@ import type { CategoryReportResponse } from "../api-types";
 import { toErrorMessage } from "../utils/error-message";
 import { runErrorHandledTask } from "../utils/run-error-handled-task";
 import { waitForCollectJobs } from "./collect-jobs";
+import { clearViewCache } from "./app-view-loader";
 
 interface CategoryIntelligenceStore {
   selectedCategoryId: number | null;
@@ -71,13 +73,16 @@ export function useCategoryIntelligenceActions(options: UseCategoryIntelligenceA
     const t0 = Date.now();
 
     try {
-      const job = await categoryApi.collectCategory(id, { date: options.date.value });
+      const job = await categoryApi.collectCategory(id, { date: options.date.value, forceRefresh: true });
       await options.refreshCollectionStatus();
       await waitForCollectJobs([job], {
         getJobStatus: (jobId) => collectApi.collectJob(jobId),
         onPoll: options.refreshCollectionStatus
       });
+      clearRequestCache();
+      clearViewCache();
       await options.store.loadCategories(options.date.value);
+      await syncReport();
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       options.setAction(`类目榜单采集已完成 (耗时 ${elapsed}s)`);
     } catch (error) {

@@ -11,44 +11,39 @@ import type {
   CompetitorActivityEvent,
   ProductPriceHistory
 } from "@amazon-monitor/shared";
-import { request } from "./api-base";
+import { request, setOptional } from "./api-base";
 import type {
   BsrHistoryQuery,
   BsrScopeQuery,
   BsrQualityQuery,
   CategoryActivityEventsQuery,
+  CategoryCollectPayload,
   CategoryDetail,
   CategoryPriceHistoryQuery,
   DatePayload,
   DatedBsrScopeQuery
 } from "./api-types";
 
-function setOptionalParam(params: URLSearchParams, key: string, value: string | number | null | undefined) {
-  if (value !== null && value !== undefined && value !== "") {
-    params.set(key, String(value));
-  }
-}
-
 function buildCategoryScopeParams(
   payload: Pick<CategoryPriceHistoryQuery, "date" | "categoryId" | "asin"> & Pick<CategoryActivityEventsQuery, "brand">,
   limit = 500
 ) {
   const params = new URLSearchParams();
-  setOptionalParam(params, "date", payload.date);
-  setOptionalParam(params, "categoryId", payload.categoryId);
-  setOptionalParam(params, "asin", payload.asin);
-  setOptionalParam(params, "brand", payload.brand);
-  setOptionalParam(params, "limit", limit);
+  setOptional(params, "date", payload.date);
+  setOptional(params, "categoryId", payload.categoryId);
+  setOptional(params, "asin", payload.asin);
+  setOptional(params, "brand", payload.brand);
+  setOptional(params, "limit", limit);
   return params;
 }
 
 function buildBsrScopeParams(payload: BsrScopeQuery, limit = 500) {
   const params = new URLSearchParams();
-  setOptionalParam(params, "date", payload.date);
-  setOptionalParam(params, "sourceType", payload.sourceType);
-  setOptionalParam(params, "sourceId", payload.sourceId);
-  setOptionalParam(params, "category", payload.category);
-  setOptionalParam(params, "limit", limit);
+  setOptional(params, "date", payload.date);
+  setOptional(params, "sourceType", payload.sourceType);
+  setOptional(params, "sourceId", payload.sourceId);
+  setOptional(params, "category", payload.category);
+  setOptional(params, "limit", limit);
   return params;
 }
 
@@ -69,21 +64,21 @@ export const categoryApi = {
     const params = new URLSearchParams({ date, compareDate });
     return request<CategorySnapshotDiffResponse>(`/categories/${id}/diff?${params.toString()}`);
   },
-  collectCategory: (id: number, payload: DatePayload) =>
+  collectCategory: (id: number, payload: CategoryCollectPayload) =>
     request<CollectJob>(`/categories/${id}/collect`, {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  collectAllCategories: (payload: DatePayload) =>
+  collectAllCategories: (payload: CategoryCollectPayload) =>
     request<CollectJob[]>("/categories/collect/run", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
   categorySignals: (date: string, categoryId?: number | null) => {
     const params = new URLSearchParams();
-    setOptionalParam(params, "date", date);
-    setOptionalParam(params, "categoryId", categoryId);
-    setOptionalParam(params, "limit", 200);
+    setOptional(params, "date", date);
+    setOptional(params, "categoryId", categoryId);
+    setOptional(params, "limit", 200);
     return request<CategorySignalLog[]>(`/category-signals?${params.toString()}`);
   },
   productPriceHistory: (payload: CategoryPriceHistoryQuery) =>

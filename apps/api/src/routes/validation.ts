@@ -106,7 +106,8 @@ export const paginationQuerySchema = z.object({
 export const collectorRunSchema = z.object({
   taskType: z.enum(["all", "keyword", "category"]).default("all"),
   targetId: z.number().int().min(1).optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  forceRefresh: z.boolean().default(false)
 }).superRefine((value, context) => {
   if (value.taskType === "all" && value.targetId !== undefined) {
     context.addIssue({

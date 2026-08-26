@@ -1,5 +1,20 @@
 # Workflow Agent 开发进度
 
+## 2026-08-21
+
+- 桌面端新增 macOS ARM64 支持切片：`apps/desktop/package.json` 增加 `package:mac:arm64` 和 DMG 目标；Codex app-server 按 `darwin-arm64` / `darwin-x64` 解析对应可执行文件，并将平台二进制从 asar 中解包。
+- 桌面类型检查与回归通过：35/35 桌面用例、`apps/desktop` TypeScript 检查通过；现有 Windows NSIS 配置保持不变。
+- 构建边界：清理后的根级 `build:release` 已通过（shared、Agent、API、Web、Desktop）；当前主机为 Windows，Electron Builder 不允许从 Windows 构建 macOS，因此本轮仍未生成 DMG。需在 macOS runner 或 Mac 机器上执行真实构建，随后再进行签名、公证与启动验收。
+
+## 2026-08-20
+
+- 将通知邮件从“摘要 + Excel 附件”升级为事件流式 `Amazon Intelligence Brief`：复用 Insight Event、关键词日变化、BSR 变化、类目信号、价格历史和促销快照，按 30 秒摘要、重点事件、市场变化、Top Movers、价格/关键词动向和普通变化汇总组织 HTML 邮件；P0/P1 事件保留证据、建议动作和 Action Center 跟进。
+- 新增 `PUBLIC_BASE_URL` Dashboard CTA（带 `source=email` 和日期参数），继续保留 Excel 附件；未配置公开地址时不输出假链接。通知模块补充 2 个数据/渲染层文件，未新增 API 路由或 OpenAPI operation。
+- 验证：API 全量单测 112 个文件 / 700 个用例通过，通知聚焦测试 9/9 通过，API `tsc --noEmit` 通过；`npm --workspace @amazon-monitor/api run build` 已通过 TypeScript 阶段，但当前环境缺少可执行的 `shx`，因此复制 OpenAPI 文件阶段未完成。
+- 按 `Amazon_Agent_Upgrade_PRD.md` 的近期顺序补齐首个 Signal Engine 切片：真实 `InsightEvent(RANK_SURGE)` 映射为组织隔离的 `RANKING_JUMP` Signal Feed，提供查看、忽略和开始研究入口；无演示数据 fallback。
+- 新增 `ranking-jump-analysis` Workflow：价格、促销、Listing、Review、Ads、历史排名分析均先走证据链，生成 approval-gated `RANKING_JUMP_RESPONSE_PLAN`，保持暂停/恢复、Action Proposal、Memory 和重复请求幂等。
+- 增量验证：Signal 路由 3/3、Workflow/API 聚焦 25/25、Web Agent API/Store 3/3、API `tsc`、Web `vue-tsc` 和 OpenAPI 双向覆盖通过；本轮清理后的 Agent/Desktop 聚焦回归 97/97，根级 `build:release` 和全量单测 1100/1100 通过。
+
 ## 2026-08-12
 
 - 将租约守卫下沉到 Store SAVEPOINT 提交边界：关键词、类目和 FBA 分页 promotion 在事务释放前再次确认 lease；新增租约在提交边界丢失时回滚全部事实的回归。API 全量 660/660、Queue/Pipeline 27/27、SP-API/Fact/Worker 24/24、API 与脚本类型检查均通过。
