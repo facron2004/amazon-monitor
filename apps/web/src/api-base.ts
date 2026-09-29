@@ -95,6 +95,7 @@ function assertCurrentSession(namespace: string): void {
 }
 
 export async function request<T>(path: string, init?: RequestOptions): Promise<T> {
+  init?.signal?.throwIfAborted();
   const namespace = getSessionCacheNamespace();
   const key = cacheKey(path, init, namespace);
   if (key) {
@@ -103,8 +104,11 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
       return cached.data as T;
     }
     const inflight = inflightRequests.get(key);
-    if (inflight) {
-      return inflight.promise as Promise<T>;
+    if (inflight && !inflight.controller.signal.aborted) {
+      const result = await inflight.promise as T;
+      init?.signal?.throwIfAborted();
+      assertCurrentSession(namespace);
+      return result;
     }
   }
 
@@ -114,14 +118,8 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   // If the caller already provided a signal, forward its abort to our controller
-  if (init?.signal) {
-    if (init.signal.aborted) {
-      clearTimeout(timeoutId);
-      controller.abort(init.signal.reason);
-    } else {
-      init.signal.addEventListener("abort", () => controller.abort(init.signal!.reason), { once: true });
-    }
-  }
+  const forwardAbort = () => controller.abort(init?.signal?.reason);
+  init?.signal?.addEventListener("abort", forwardAbort, { once: true });
 
   try {
     const requestPromise = fetch(buildRequestUrl(path), {
@@ -133,6 +131,8 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
         ...(init?.headers ?? {})
       }
     }).then(async (response) => {
+      controller.signal.throwIfAborted();
+      assertCurrentSession(namespace);
       if (!response.ok) {
         if (response.status === 401) {
           window.dispatchEvent(new CustomEvent("amazon-monitor-unauthorized"));
@@ -146,6 +146,11 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
       }
 
       return (await response.json()) as T;
+    }).then((result) => {
+      controller.signal.throwIfAborted();
+      assertCurrentSession(namespace);
+      if (key) responseCache.set(key, { at: Date.now(), data: result });
+      return result;
     });
 
     if (key) {
@@ -155,13 +160,11 @@ export async function request<T>(path: string, init?: RequestOptions): Promise<T
       });
     }
 
-    const result = await requestPromise;
-    assertCurrentSession(namespace);
-    if (key) responseCache.set(key, { at: Date.now(), data: result });
-    return result;
+    return await requestPromise;
 
   } finally {
     clearTimeout(timeoutId);
+    init?.signal?.removeEventListener("abort", forwardAbort);
     if (key && inflightRequests.get(key)?.controller === controller) {
       inflightRequests.delete(key);
     }

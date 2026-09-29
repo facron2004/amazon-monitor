@@ -416,10 +416,10 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
           if (nextRetry >= maxRetries) {
             const result = db.prepare(`
               UPDATE amazon_collect_job_queue
-              SET status = 'failed', completed_at = ?, error_message = ?,
+              SET status = 'failed', completed_at = ?, error_message = ?, retry_count = ?,
                 next_attempt_at = NULL, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
               WHERE id = ? AND status = 'processing' AND lease_token = ? AND lease_expires_at <= ?
-            `).run(now, "任务租约已过期，已自动回收", job.id, job.lease_token, now);
+            `).run(now, "任务租约已过期，已自动回收", nextRetry, job.id, job.lease_token, now);
             if (result.changes > 0) recovered.push(job.id);
           } else {
             const result = db.prepare(`

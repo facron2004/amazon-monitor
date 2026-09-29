@@ -364,9 +364,11 @@ describe("QueueStore", () => {
       const aAfter = store.getJobStatus(a.id)!;
       const bAfter = store.getJobStatus(b.id)!;
       expect(aAfter.status).toBe("failed");
+      expect(aAfter.retryCount).toBe(1);
       expect(aAfter.errorMessage).toBe("任务租约已过期，已自动回收");
       expect(aAfter.completedAt).not.toBeNull();
       expect(bAfter.status).toBe("failed");
+      expect(bAfter.retryCount).toBe(1);
       expect(bAfter.errorMessage).toBe("任务租约已过期，已自动回收");
     });
 

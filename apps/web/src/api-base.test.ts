@@ -81,6 +81,7 @@ describe("buildRequestUrl", () => {
 
     beginSessionBoundary({ organizationId: 1, userId: 10 });
     const staleRequest = request<{ organization: string }>("/dashboard/summary");
+    const sharedRequest = request<{ organization: string }>("/dashboard/summary");
 
     beginSessionBoundary({ organizationId: 2, userId: 20 });
     expect(requestSignal).toBeInstanceOf(AbortSignal);
@@ -88,5 +89,44 @@ describe("buildRequestUrl", () => {
 
     resolveResponse(new Response(JSON.stringify({ organization: "A" }), { status: 200 }));
     await expect(staleRequest).rejects.toMatchObject({ name: "AbortError" });
+    await expect(sharedRequest).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an already cancelled caller even when the response is cached", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ value: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await request("/tasks");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(request("/tasks", { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reuse a cancelled in-flight request or cache its late response", async () => {
+    let resolveOld: (response: Response) => void = () => undefined;
+    const fetchMock = vi.fn<() => Promise<Response>>()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockResolvedValueOnce(Response.json({ value: "new" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const oldRequest = request("/tasks", { signal: controller.signal });
+    controller.abort();
+    const nextRequest = request("/tasks");
+    resolveOld(Response.json({ value: "old" }));
+
+    await expect(oldRequest).rejects.toMatchObject({ name: "AbortError" });
+    await expect(nextRequest).resolves.toEqual({ value: "new" });
+    await expect(request("/tasks")).resolves.toEqual({ value: "new" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes the caller abort listener when a request settles", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true })));
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, "addEventListener");
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    await request("/tasks", { signal: controller.signal });
+    expect(remove).toHaveBeenCalledWith("abort", add.mock.calls[0]?.[1]);
   });
 });
