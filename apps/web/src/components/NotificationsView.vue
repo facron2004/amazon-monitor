@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { NotificationSchedule, NotificationSendLog } from "@amazon-monitor/shared";
 import type { NotificationForm } from "../types/notification";
+import NotificationDashboardPanel from "./NotificationDashboardPanel.vue";
 import NotificationLogsPanel from "./NotificationLogsPanel.vue";
 import NotificationSchedulesPanel from "./NotificationSchedulesPanel.vue";
 
@@ -41,6 +42,11 @@ const emit = defineEmits<Emits>();
         <p class="smtp-highlight">当前投递模板支持 ASIN、缩略图、标题、类目 BSR、聚合排名和 Amazon 直达链接。</p>
       </div>
     </div>
+
+    <NotificationDashboardPanel
+      :notification-schedules="notificationSchedules"
+      :notification-logs="notificationLogs"
+    />
 
     <NotificationSchedulesPanel
       :notification-schedules="notificationSchedules"

@@ -5,7 +5,21 @@ import type { DatabaseSync } from "node:sqlite";
  */
 export const SCHEMA_VERSION = 2;
 
+/**
+ * 标识符合法性校验：DDL 语句无法使用 ? 参数绑定，插值前必须确保
+ * table/column 是纯标识符，防止未来调用方误传用户输入造成注入。
+ */
+const sqlIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function assertSqlIdentifier(name: string, kind: "table" | "column"): void {
+  if (!sqlIdentifierPattern.test(name)) {
+    throw new Error(`Invalid SQL ${kind} identifier: ${JSON.stringify(name)}`);
+  }
+}
+
 export function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {
+  assertSqlIdentifier(table, "table");
+  assertSqlIdentifier(column, "column");
   const tableExists = db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?"
   ).get(table);

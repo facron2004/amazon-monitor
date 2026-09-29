@@ -198,7 +198,12 @@ function parseJsonOutput(value: string): unknown {
   const unwrapped = trimmed.startsWith("```")
     ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
     : trimmed;
-  return JSON.parse(unwrapped);
+  try {
+    return JSON.parse(unwrapped);
+  } catch (error) {
+    // LLM 输出的 JSON 经常格式非法；带上原始文本片段便于定位是哪次运行的输出有问题。
+    throw new Error(`Agent run output is not valid JSON: ${unwrapped.slice(0, 200)} (${error instanceof Error ? error.message : "parse error"})`);
+  }
 }
 
 function isAgentToolName(value: string): value is AgentToolName {

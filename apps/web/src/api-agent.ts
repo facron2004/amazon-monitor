@@ -81,6 +81,10 @@ export const agentApi = {
     const source = new EventSource(buildRequestUrl(`/agent/runs/${id}/events`), {
       withCredentials: true,
     });
+    // EventSource 断线会自动重连；记录错误便于排查连接问题，最终事件（run.completed/failed）到达后由调用方关闭。
+    source.onerror = () => {
+      console.warn(`[Agent SSE] Event stream for run ${id} error (will auto-reconnect if possible)`);
+    };
     const names = [
       "run.created", "planning.started", "plan.created",
       "freshness.started", "freshness.completed", "model.started",

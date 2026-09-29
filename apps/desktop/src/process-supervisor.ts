@@ -329,7 +329,10 @@ export class DesktopProcessSupervisor {
         await mkdir(this.options.logsPath, { recursive: true });
         await appendFile(join(this.options.logsPath, `${name}.log`), line, "utf8");
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        // 日志写入失败不应中断进程，但需要留下可排查的信号（磁盘满/权限问题）。
+        console.error(`[ProcessSupervisor] Failed to write log for ${name}:`, error);
+      });
     this.logQueues.set(name, next);
   }
 }

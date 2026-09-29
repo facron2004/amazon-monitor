@@ -182,7 +182,12 @@ function toSummary(connection: StoredConnection) {
 }
 
 function parseStoredState(value: string): StoredConnectionState {
-  const parsed: unknown = JSON.parse(value);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Stored model connection data is invalid (corrupt JSON)");
+  }
   if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.connections)) {
     throw new Error("Stored model connection data is invalid");
   }

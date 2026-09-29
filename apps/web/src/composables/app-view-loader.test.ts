@@ -37,6 +37,27 @@ afterEach(() => {
 });
 
 describe("loadAppView", () => {
+  it("does not cache a loader that resolves after cancellation", async () => {
+    const controller = new AbortController();
+    const loader = vi.fn(async () => { controller.abort(); });
+    const loaders = createLoaders(loader);
+
+    await expect(loadAppView("agent-os", loaders, "2026-07-28", false, controller.signal))
+      .rejects.toBeInstanceOf(DOMException);
+    await expect(loadAppView("agent-os", loaders, "2026-07-28")).resolves.toEqual({ cached: false });
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not start loading with an already cancelled signal", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const loader = vi.fn(async () => undefined);
+
+    await expect(loadAppView("overview", createLoaders(loader), "2026-07-28", false, controller.signal))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(loader).not.toHaveBeenCalled();
+  });
+
   it("does not reuse a view cache entry after a session boundary", async () => {
     const loader = vi.fn(async () => undefined);
     const loaders = createLoaders(loader);
@@ -75,5 +96,6 @@ describe("loadAppView", () => {
     resolveLoader();
 
     await expect(staleLoad).rejects.toMatchObject({ name: "AbortError" });
+    await expect(staleLoad).rejects.toBeInstanceOf(DOMException);
   });
 });

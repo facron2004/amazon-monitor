@@ -50,6 +50,30 @@ describe("QueueStore", () => {
     expect(claimedForced.forceRefresh).toBe(true);
   });
 
+  it("drains normal and forced jobs queued before either is claimed", () => {
+    const normal = store.pushJob("keyword", 42, "2026-06-11");
+    const forced = store.pushJob("keyword", 42, "2026-06-11", 1, { forceRefresh: true });
+
+    const claimed = store.claimNextJob("test-worker", 60_000);
+    expect(claimed?.id).toBe(normal.id);
+    expect(store.claimNextJob("other-worker", 60_000)).toBeNull();
+    store.completeJob(claimed!.id, claimed!.leaseOwner, claimed!.leaseToken);
+    expect(store.claimNextJob("other-worker", 60_000)?.id).toBe(forced.id);
+  });
+
+  it("retries a normal job before its queued forced rerun", () => {
+    const normal = store.pushJob("keyword", 42, "2026-06-11");
+    const claimed = store.claimNextJob("test-worker", 60_000)!;
+    const forced = store.pushJob("keyword", 42, "2026-06-11", 1, { forceRefresh: true });
+    store.failJob(claimed.id, claimed.leaseOwner, claimed.leaseToken, "temporary failure", 3);
+
+    const retry = store.claimNextJob("test-worker", 60_000);
+    expect(retry?.id).toBe(normal.id);
+    expect(store.claimNextJob("other-worker", 60_000)).toBeNull();
+    store.completeJob(retry!.id, retry!.leaseOwner, retry!.leaseToken);
+    expect(store.claimNextJob("other-worker", 60_000)?.id).toBe(forced.id);
+  });
+
   it("rolls back transaction work when the ownership guard is lost before commit", () => {
     expect(() => store.runInTransaction(
       () => {

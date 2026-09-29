@@ -188,6 +188,8 @@ app.whenReady().then(async () => {
   const handleUrlOpening = (url: string) => {
     void resolveExternalUrl(url, rendererOrigin).then((targetUrl) => {
       if (targetUrl) void shell.openExternal(targetUrl);
+    }).catch((error: unknown) => {
+      console.warn(`[Shell] Failed to open external URL ${url}:`, error);
     });
   };
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

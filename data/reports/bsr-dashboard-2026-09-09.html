@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>每日 BSR 榜单看板 — 2026-09-09</title>
+<style>
+  :root{
+    --bg:#f5f7fb; --card:#ffffff; --ink:#1a2233; --muted:#6b7689;
+    --line:#e6eaf2; --up:#e23b3b; --down:#15a86a; --accent:#3b6fff;
+    --grad:linear-gradient(135deg,#3b6fff 0%,#7a5cff 100%);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+        background:var(--bg);color:var(--ink);line-height:1.5;padding:28px 18px 60px}
+  .wrap{max-width:1080px;margin:0 auto}
+  header.hero{background:var(--grad);border-radius:18px;padding:26px 30px;color:#fff;
+        box-shadow:0 10px 30px rgba(59,111,255,.25);margin-bottom:24px}
+  header.hero h1{font-size:24px;font-weight:700;letter-spacing:.3px}
+  header.hero .date{font-size:14px;opacity:.9;margin-top:4px}
+  .kpis{display:flex;gap:14px;flex-wrap:wrap;margin-top:18px}
+  .kpi{background:rgba(255,255,255,.16);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.25);
+        border-radius:12px;padding:12px 18px;min-width:120px}
+  .kpi .v{font-size:22px;font-weight:700}
+  .kpi .l{font-size:12px;opacity:.85;margin-top:2px}
+  .cat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-bottom:22px;
+        box-shadow:0 4px 16px rgba(20,30,60,.04)}
+  .cat-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;
+        border-bottom:1px solid var(--line);padding-bottom:12px}
+  .cat-head h2{font-size:19px;font-weight:700}
+  .cat-meta{font-size:13px;color:var(--muted)}
+  .grid{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;margin-bottom:16px}
+  @media(max-width:780px){.grid{grid-template-columns:1fr}}
+  .mv-grid{margin-bottom:8px}
+  .card{background:#fbfcfe;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h3{font-size:15px;font-weight:700;margin-bottom:12px}
+  .card h3 .sub{font-size:12px;color:var(--muted);font-weight:500;margin-left:6px}
+  table.prod{width:100%;border-collapse:collapse;font-size:13px}
+  table.prod th{text-align:left;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}
+  table.prod td{padding:7px 8px;border-bottom:1px solid #f0f3f8;vertical-align:top}
+  table.prod .rk{font-weight:700;color:var(--accent)}
+  table.prod .asin{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--muted)}
+  table.prod .ttl{font-size:12.5px}
+  table.prod .brand{color:var(--muted);font-size:12px}
+  table.prod .price{font-weight:600;white-space:nowrap}
+  table.prod .rating{white-space:nowrap}
+  table.prod .rev{color:var(--muted);font-size:11px}
+  .bars{display:flex;flex-direction:column;gap:9px}
+  .bar-row{display:grid;grid-template-columns:120px 1fr 78px;align-items:center;gap:10px;font-size:12.5px}
+  .bar-label{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+  .bar-track{background:#eef1f7;border-radius:6px;height:14px;overflow:hidden}
+  .bar-fill{background:var(--grad);height:100%;border-radius:6px}
+  .bar-val{text-align:right;font-weight:600;font-size:12px}
+  .bar-val .avgr{color:var(--muted);font-weight:500;font-size:11px}
+  .mv-list{list-style:none;display:flex;flex-direction:column;gap:8px}
+  .mv-list li{display:grid;grid-template-columns:104px 1fr 44px;align-items:center;gap:8px;font-size:12.5px}
+  .mv-list .m-asin{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
+  .mv-list .m-ttl{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mv-list .m-delta{font-weight:700;text-align:right;border-radius:6px;padding:2px 0}
+  .mv.up .m-delta{color:var(--up)} .mv.down .m-delta{color:var(--down)}
+  .mv-list .empty{color:var(--muted);grid-template-columns:1fr}
+  .churn{margin-top:6px;font-size:13px;color:var(--muted)}
+  .churn b{color:var(--ink)}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <h1>每日 BSR 榜单看板</h1>
+    <div class="date">采集日期 2026-09-09 · 对比基准 2026-09-08</div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">2</div><div class="l">监控类目</div></div>
+      <div class="kpi"><div class="v">200</div><div class="l">商品快照</div></div>
+      <div class="kpi"><div class="v">ok</div><div class="l">采集质量</div></div>
+      <div class="kpi"><div class="v">0</div><div class="l">失败</div></div>
+    </div>
+  </header>
+  
+  <section class="cat">
+    <div class="cat-head">
+      <h2>Ice makers</h2>
+      <span class="cat-meta">100 条 · 排名 1–100</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Top 10 商品</h3>
+        <table class="prod">
+          <thead><tr><th>#</th><th>ASIN</th><th>标题</th><th>品牌</th><th>价格</th><th>评分</th></tr></thead>
+          <tbody>
+    <tr>
+      <td class="rk">1</td>
+      <td class="asin">B0BWHZJHPL</td>
+      <td class="ttl">EUHOMY Countertop Ice Maker Machine with Handle, 26l…</td>
+      <td class="brand">EUHOMY</td>
+      <td class="price">$69.78</td>
+      <td class="rating">4.2 <span class="rev">(16217)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">2</td>
+      <td class="asin">B0H1LYHQ41</td>
+      <td class="ttl">Sweetcrispy Countertop Ice Maker with Scoop, Basket …</td>
+      <td class="brand">Sweetcrispy</td>
+      <td class="price">$49.93</td>
+      <td class="rating">4.4 <span class="rev">(30)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">3</td>
+      <td class="asin">B0BXXKFJK2</td>
+      <td class="ttl">Silonn Ice Maker Countertop, Portable Ice Machine wi…</td>
+      <td class="brand">Silonn</td>
+      <td class="price">$68.98</td>
+      <td class="rating">4.2 <span class="rev">(11889)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">4</td>
+      <td class="asin">B07JBJWP2W</td>
+      <td class="ttl">Frigidaire 26 Lbs per Day Portable Compact Maker, Ic…</td>
+      <td class="brand">Frigidaire</td>
+      <td class="price">$99.99</td>
+      <td class="rating">4.3 <span class="rev">(11041)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">5</td>
+      <td class="asin">B0C9SWH3RC</td>
+      <td class="ttl">Nugget Ice Maker Countertop, Silonn Chewable Pellet …</td>
+      <td class="brand">Silonn</td>
+      <td class="price">$144.97</td>
+      <td class="rating">4.2 <span class="rev">(28691)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">6</td>
+      <td class="asin">B0C32SGKMJ</td>
+      <td class="ttl">EUHOMY Nugget Ice Maker Countertop with Handle, Read…</td>
+      <td class="brand">EUHOMY</td>
+      <td class="price">$136.77</td>
+      <td class="rating">4.1 <span class="rev">(17113)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">7</td>
+      <td class="asin">B0DCJ78D27</td>
+      <td class="ttl">EUHOMY Ice Maker Countertop, 9 Cubes Ready in 6 Mins…</td>
+      <td class="brand">EUHOMY</td>
+      <td class="price">$69.97</td>
+      <td class="rating">4.2 <span class="rev">(2280)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">8</td>
+      <td class="asin">B0GX9G2Q1N</td>
+      <td class="ttl">Euhomy Countertop Nugget Ice Maker, 35lbs Daily Soni…</td>
+      <td class="brand">EUHOMY</td>
+      <td class="price">$169.96</td>
+      <td class="rating">4.4 <span class="rev">(1753)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">9</td>
+      <td class="asin">B0GVYRDGS4</td>
+      <td class="ttl">EUHOMY Nugget Ice Maker Countertop, 44Lbs/24H Sonic …</td>
+      <td class="brand">EUHOMY</td>
+      <td class="price">$199.92</td>
+      <td class="rating">4 <span class="rev">(2449)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">10</td>
+      <td class="asin">B0G4VFK3ZW</td>
+      <td class="ttl">EUHOMY Nugget Ice Maker Countertop, Ready in 7 Mins,…</td>
+      <td class="brand">EUHOMY</td>
+      <td class="price">$149.89</td>
+      <td class="rating">4.1 <span class="rev">(4978)</span></td>
+    </tr></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>品牌矩阵 Top 10</h3>
+        <div class="bars">
+    <div class="bar-row">
+      <div class="bar-label">EUHOMY</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100.0%"></div></div>
+      <div class="bar-val">19 <span class="avgr">avg #48</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Frigidaire</div>
+      <div class="bar-track"><div class="bar-fill" style="width:57.9%"></div></div>
+      <div class="bar-val">11 <span class="avgr">avg #54</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Silonn</div>
+      <div class="bar-track"><div class="bar-fill" style="width:36.8%"></div></div>
+      <div class="bar-val">7 <span class="avgr">avg #35</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Profile</div>
+      <div class="bar-track"><div class="bar-fill" style="width:36.8%"></div></div>
+      <div class="bar-val">7 <span class="avgr">avg #51</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">ecozy</div>
+      <div class="bar-track"><div class="bar-fill" style="width:31.6%"></div></div>
+      <div class="bar-val">6 <span class="avgr">avg #64</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">DUMOS</div>
+      <div class="bar-track"><div class="bar-fill" style="width:26.3%"></div></div>
+      <div class="bar-val">5 <span class="avgr">avg #71</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">SenCre</div>
+      <div class="bar-track"><div class="bar-fill" style="width:21.1%"></div></div>
+      <div class="bar-val">4 <span class="avgr">avg #27</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Antarctic Star</div>
+      <div class="bar-track"><div class="bar-fill" style="width:21.1%"></div></div>
+      <div class="bar-val">4 <span class="avgr">avg #46</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Sweetcrispy</div>
+      <div class="bar-track"><div class="bar-fill" style="width:15.8%"></div></div>
+      <div class="bar-val">3 <span class="avgr">avg #29</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">GoveeLife</div>
+      <div class="bar-track"><div class="bar-fill" style="width:15.8%"></div></div>
+      <div class="bar-val">3 <span class="avgr">avg #38</span></div>
+    </div></div>
+      </div>
+    </div>
+
+    <div class="grid mv-grid">
+      <div class="card mv up">
+        <h3>上升 Top 5 <span class="sub">vs 2026-09-08</span></h3>
+        <ul class="mv-list"><li><span class="m-asin">B0H727HX3Z</span><span class="m-ttl">Ice Maker Countertop, 9 Bullet Ice…</span><span class="m-delta up">▲21</span></li><li><span class="m-asin">B0GYRM3YGC</span><span class="m-ttl">Ice Maker Countertop 26lbs/24H Ice…</span><span class="m-delta up">▲17</span></li><li><span class="m-asin">B0G259S2QJ</span><span class="m-ttl">NEWBULIG Ice Makers Countertop wit…</span><span class="m-delta up">▲11</span></li><li><span class="m-asin">B0CWQ5B71R</span><span class="m-ttl">Ice Maker Countertop, Efficient Ea…</span><span class="m-delta up">▲10</span></li><li><span class="m-asin">B07F3FFFRC</span><span class="m-ttl">GE Profile Opal | Cleaning Supplie…</span><span class="m-delta up">▲10</span></li></ul>
+      </div>
+      <div class="card mv down">
+        <h3>下降 Top 5 <span class="sub">vs 2026-09-08</span></h3>
+        <ul class="mv-list"><li><span class="m-asin">B0GX9YHN4R</span><span class="m-ttl">EUHOMY Smart Nugget Ice Maker Coun…</span><span class="m-delta down">▼26</span></li><li><span class="m-asin">B0GF1PR72P</span><span class="m-ttl">4317943 Ice Maker Kit, for Whirlpo…</span><span class="m-delta down">▼18</span></li><li><span class="m-asin">B0H494C4F7</span><span class="m-ttl">Countertop Ice Maker, 26.5 lbs/Day…</span><span class="m-delta down">▼16</span></li><li><span class="m-asin">B0GX9WYR23</span><span class="m-ttl">EUHOMY 2.4&quot; Clear Ice Ball Ma…</span><span class="m-delta down">▼16</span></li><li><span class="m-asin">B0H6X3MMDK</span><span class="m-ttl">AGLUCKY Nugget Ice Maker Counterto…</span><span class="m-delta down">▼14</span></li></ul>
+      </div>
+    </div>
+
+    <div class="churn">
+      新进榜 <b>9</b> 个 · 退出榜 <b>9</b> 个
+    </div>
+  </section>
+
+  <section class="cat">
+    <div class="cat-head">
+      <h2>Sports &amp; Action Video Cameras</h2>
+      <span class="cat-meta">100 条 · 排名 1–100</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Top 10 商品</h3>
+        <table class="prod">
+          <thead><tr><th>#</th><th>ASIN</th><th>标题</th><th>品牌</th><th>价格</th><th>评分</th></tr></thead>
+          <tbody>
+    <tr>
+      <td class="rk">1</td>
+      <td class="asin">B01HGM33HG</td>
+      <td class="ttl">AKASO EK7000 4K30FPS 20MP WiFi Action Camera with EI…</td>
+      <td class="brand">AKASO</td>
+      <td class="price">$52.99</td>
+      <td class="rating">4.4 <span class="rev">(39793)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">2</td>
+      <td class="asin">B0FH22RB4S</td>
+      <td class="ttl">Insta360 GO Ultra - Small 4K Vlogging Camera, Hands-…</td>
+      <td class="brand">Insta360</td>
+      <td class="price">$449.99</td>
+      <td class="rating">4.4 <span class="rev">(1234)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">3</td>
+      <td class="asin">B0DS2B3P2B</td>
+      <td class="ttl">DJI Osmo Action 4 Essential Combo, Waterproof Action…</td>
+      <td class="brand">DJI</td>
+      <td class="price">$199</td>
+      <td class="rating">4.7 <span class="rev">(2298)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">4</td>
+      <td class="asin">B0DZCBYCNY</td>
+      <td class="ttl">Insta360 X5 - Waterproof 8K 360° Action Camera, Lead…</td>
+      <td class="brand">Insta360</td>
+      <td class="price">$549.99</td>
+      <td class="rating">4.6 <span class="rev">(2532)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">5</td>
+      <td class="asin">B0H5CJRJV7</td>
+      <td class="ttl">Insta360 X6 Essentials Bundle - 8K 360 Camera with 1…</td>
+      <td class="brand">Insta360</td>
+      <td class="price">$799.99</td>
+      <td class="rating">4.5 <span class="rev">(241)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">6</td>
+      <td class="asin">B0FQNWDYMS</td>
+      <td class="ttl">Insta360 X4 Air Starter Bundle - Lightweight 165g 8K…</td>
+      <td class="brand">Insta360</td>
+      <td class="price">$439.99</td>
+      <td class="rating">4.6 <span class="rev">(1136)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">7</td>
+      <td class="asin">B0FNMPZ1RS</td>
+      <td class="ttl">DJI Osmo Action 6 Enhanced Combo, 8K Waterproof Acti…</td>
+      <td class="brand">DJI</td>
+      <td class="price">$466</td>
+      <td class="rating">4.5 <span class="rev">(2163)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">8</td>
+      <td class="asin">B0DYD56G2Y</td>
+      <td class="ttl">DJI Osmo Nano Standard Combo (128GB), 4K Wearable Ca…</td>
+      <td class="brand">DJI</td>
+      <td class="price">$368</td>
+      <td class="rating">4.4 <span class="rev">(2263)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">9</td>
+      <td class="asin">B0DS2DF5S5</td>
+      <td class="ttl">DJI Osmo Action 5 Pro Essential Combo, Waterproof Ac…</td>
+      <td class="brand">DJI</td>
+      <td class="price">$309</td>
+      <td class="rating">4.6 <span class="rev">(1843)</span></td>
+    </tr>
+    <tr>
+      <td class="rk">10</td>
+      <td class="asin">B0CZMG5L6X</td>
+      <td class="ttl">GoPro HERO12 Black - Waterproof Action Camera with 5…</td>
+      <td class="brand">GoPro</td>
+      <td class="price">$314.99</td>
+      <td class="rating">4.5 <span class="rev">(1061)</span></td>
+    </tr></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>品牌矩阵 Top 10</h3>
+        <div class="bars">
+    <div class="bar-row">
+      <div class="bar-label">GoPro</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100.0%"></div></div>
+      <div class="bar-val">17 <span class="avgr">avg #47</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Insta360</div>
+      <div class="bar-track"><div class="bar-fill" style="width:88.2%"></div></div>
+      <div class="bar-val">15 <span class="avgr">avg #30</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">AKASO</div>
+      <div class="bar-track"><div class="bar-fill" style="width:64.7%"></div></div>
+      <div class="bar-val">11 <span class="avgr">avg #48</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">DJI</div>
+      <div class="bar-track"><div class="bar-fill" style="width:58.8%"></div></div>
+      <div class="bar-val">10 <span class="avgr">avg #31</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Amazon Renewed</div>
+      <div class="bar-track"><div class="bar-fill" style="width:23.5%"></div></div>
+      <div class="bar-val">4 <span class="avgr">avg #83</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">XbotGo</div>
+      <div class="bar-track"><div class="bar-fill" style="width:11.8%"></div></div>
+      <div class="bar-val">2 <span class="avgr">avg #22</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Sixmou</div>
+      <div class="bar-track"><div class="bar-fill" style="width:11.8%"></div></div>
+      <div class="bar-val">2 <span class="avgr">avg #49</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Xilecam</div>
+      <div class="bar-track"><div class="bar-fill" style="width:11.8%"></div></div>
+      <div class="bar-val">2 <span class="avgr">avg #50</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">HolyEye</div>
+      <div class="bar-track"><div class="bar-fill" style="width:11.8%"></div></div>
+      <div class="bar-val">2 <span class="avgr">avg #69</span></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Xtra Edge</div>
+      <div class="bar-track"><div class="bar-fill" style="width:11.8%"></div></div>
+      <div class="bar-val">2 <span class="avgr">avg #78</span></div>
+    </div></div>
+      </div>
+    </div>
+
+    <div class="grid mv-grid">
+      <div class="card mv up">
+        <h3>上升 Top 5 <span class="sub">vs 2026-09-08</span></h3>
+        <ul class="mv-list"><li><span class="m-asin">B0DFJ2V9MM</span><span class="m-ttl">GoPro HERO13 Black Accessory Bundl…</span><span class="m-delta up">▲22</span></li><li><span class="m-asin">B0DBQBMQH2</span><span class="m-ttl">Insta360 X4 Standard Bundle - Wate…</span><span class="m-delta up">▲22</span></li><li><span class="m-asin">B09HC51L11</span><span class="m-ttl">AKASO Brave 4 Pro Action Camera 4K…</span><span class="m-delta up">▲18</span></li><li><span class="m-asin">B0DGH11YRH</span><span class="m-ttl">GoPro Hero (Go Pro Hero) Black Com…</span><span class="m-delta up">▲16</span></li><li><span class="m-asin">B0FMYXTTK8</span><span class="m-ttl">Insta360 X5 Waterproof 8K 360° Act…</span><span class="m-delta up">▲14</span></li></ul>
+      </div>
+      <div class="card mv down">
+        <h3>下降 Top 5 <span class="sub">vs 2026-09-08</span></h3>
+        <ul class="mv-list"><li><span class="m-asin">B0H5D1XQ3T</span><span class="m-ttl">4K Vlogging Camera with Magnetic M…</span><span class="m-delta down">▼20</span></li><li><span class="m-asin">B0GWPPLKN8</span><span class="m-ttl">Xilecam Mini Body Camera Magnetic,…</span><span class="m-delta down">▼19</span></li><li><span class="m-asin">B08B3MFDQL</span><span class="m-ttl">AKASO Brave 7 LE 4K30FPS 20MP WiFi…</span><span class="m-delta down">▼16</span></li><li><span class="m-asin">B0FF29D7K1</span><span class="m-ttl">SVBONY SVGo2 Underwater Camera for…</span><span class="m-delta down">▼15</span></li><li><span class="m-asin">B0FTCK7TNH</span><span class="m-ttl">GoPro MAX2 + Accessory Bundle - In…</span><span class="m-delta down">▼15</span></li></ul>
+      </div>
+    </div>
+
+    <div class="churn">
+      新进榜 <b>13</b> 个 · 退出榜 <b>13</b> 个
+    </div>
+  </section>
+  <footer>数据来源 amazon_bestseller_rank_snapshot · 自动生成于监控服务（端口 4000）</footer>
+</div>
+</body>
+</html>

@@ -33,6 +33,9 @@ export interface GenerateInsightEventsOptions {
   orgId?: number;
 }
 
+/** 洞察生成阶段每类证据的单次查询行数上限。 */
+const INSIGHT_EVENT_LOOKUP_LIMIT = 1000;
+
 export interface CategoryInsightContext extends CategoryInsightBuildContext {
   category: CategoryMonitor;
   keyword: null;
@@ -60,24 +63,24 @@ export function generateInsightEvents(store: Store, date: string, options: Gener
   const watchByAsin = new Map(watchStates.map((item) => [item.asin, item]));
 
   for (const category of categories) {
-    const snapshots = store.listCategorySnapshots({ orgId, date, categoryId: category.id, limit: category.crawlTopN || 1000 });
+    const snapshots = store.listCategorySnapshots({ orgId, date, categoryId: category.id, limit: category.crawlTopN || INSIGHT_EVENT_LOOKUP_LIMIT });
     if (snapshots.length === 0) {
       continue;
     }
 
-    const priceHistory = store.listProductPriceHistory({ orgId, date, categoryId: category.id, limit: 1000 });
-    const activityEvents = store.listCategoryActivityEvents({ orgId, date, categoryId: category.id, limit: 1000 });
+    const priceHistory = store.listProductPriceHistory({ orgId, date, categoryId: category.id, limit: INSIGHT_EVENT_LOOKUP_LIMIT });
+    const activityEvents = store.listCategoryActivityEvents({ orgId, date, categoryId: category.id, limit: INSIGHT_EVENT_LOOKUP_LIMIT });
     const rankChanges = store.listBsrRankChanges({
       date,
       sourceType: "category_bestseller",
       sourceId: category.id,
       includeUnchanged: false,
-      limit: 1000
+      limit: INSIGHT_EVENT_LOOKUP_LIMIT
     });
     const brandMatrix = store.listBrandMatrix({ orgId, date, categoryId: category.id });
     const previousSnapshots = store.getPreviousCategorySnapshots(category.id, date, orgId);
     const recentSnapshots = store.listCategorySnapshots({ orgId, categoryId: category.id, startDate: isoDateOffset(date, -2), endDate: date });
-    const categorySignals = store.listCategorySignals({ orgId, date, categoryId: category.id, limit: 1000 });
+    const categorySignals = store.listCategorySignals({ orgId, date, categoryId: category.id, limit: INSIGHT_EVENT_LOOKUP_LIMIT });
     const context: CategoryInsightContext = {
       category,
       keyword: null,

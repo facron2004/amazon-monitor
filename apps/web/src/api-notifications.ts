@@ -23,5 +23,5 @@ export const notificationApi = {
       method: "POST",
       body: JSON.stringify({ date })
     }),
-  notificationLogs: () => request<NotificationSendLog[]>("/notifications/logs?limit=30")
+  notificationLogs: () => request<NotificationSendLog[]>("/notifications/logs?limit=200")
 };

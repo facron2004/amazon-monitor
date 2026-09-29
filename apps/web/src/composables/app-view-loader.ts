@@ -54,6 +54,7 @@ export async function loadAppView(
   force = false,
   signal?: AbortSignal
 ): Promise<{ cached: boolean }> {
+  signal?.throwIfAborted();
   const namespace = getSessionCacheNamespace();
   const key = cacheKey(activeTab, namespace);
   const entry = cache.get(key);
@@ -62,10 +63,9 @@ export async function loadAppView(
   }
 
   await loaders[activeTab](signal);
+  signal?.throwIfAborted();
   if (namespace !== getSessionCacheNamespace()) {
-    const error = new Error("The session changed before the view completed loading.");
-    error.name = "AbortError";
-    throw error;
+    throw new DOMException("The session changed before the view completed loading.", "AbortError");
   }
   cache.set(key, { loadedAt: Date.now(), date });
   return { cached: false };

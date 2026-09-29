@@ -28,6 +28,13 @@ import type { Store } from "./store.js";
 import { isoDate } from "./pipeline.js";
 import { intEnv } from "./amazon/config.js";
 
+/**
+ * 类目采集数据质量分级阈值（与 CLAUDE.md 文档约定一致）：
+ * TopN 采集率 >=95% 判定 ok，>=80% 判定 partial（仍保存），<80% 判定 fail（抛 StrictBsrCountError）。
+ */
+const BSR_QUALITY_OK_RATIO = 0.95;
+const BSR_QUALITY_PARTIAL_RATIO = 0.8;
+
 export interface CollectedBestSellerPage {
   pageNo: number;
   products: BestSellerProductInput[];
@@ -141,9 +148,9 @@ export async function runCategoryCollectionForMonitor(
     // Data quality grading: save partial data instead of failing hard
     const ratio = category.crawlTopN > 0 ? products.length / category.crawlTopN : 1;
     let dataQuality: "ok" | "partial";
-    if (ratio >= 0.95) {
+    if (ratio >= BSR_QUALITY_OK_RATIO) {
       dataQuality = "ok";
-    } else if (ratio >= 0.8) {
+    } else if (ratio >= BSR_QUALITY_PARTIAL_RATIO) {
       dataQuality = "partial";
     } else {
       throw new StrictBsrCountError(category, pages, products);

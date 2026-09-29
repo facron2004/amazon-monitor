@@ -463,7 +463,12 @@ const isDirectRun = workerEntryName === "worker.ts" || workerEntryName === "work
 
 if (isDirectRun) {
   const exitOnSignal = () => {
-    void stopWorker().then(() => process.exit(0));
+    void stopWorker()
+      .then(() => process.exit(0))
+      .catch((error: unknown) => {
+        console.error("[Worker] Graceful shutdown failed, forcing exit:", error);
+        process.exit(1);
+      });
   };
   process.once("SIGTERM", exitOnSignal);
   process.once("SIGINT", exitOnSignal);

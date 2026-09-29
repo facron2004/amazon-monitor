@@ -121,9 +121,13 @@ export function normalizeBestSellerPageRanks(products: BestSellerProductInput[],
 
 // 导出仅供单元测试使用(测试 validPromoText 各种 allowlist 文本)。
 // 业务调用应使用 preserveKnownCommercialFields。
+
+/** Amazon 页面上 promo/coupon/deal 标签的文本长度上界（超过视为噪声）。 */
+const MAX_PROMO_TEXT_LENGTH = 90;
+
 export function validPromoText(value: string | null | undefined): string | null {
   const text = value?.trim();
-  if (!text || text.length > 90) {
+  if (!text || text.length > MAX_PROMO_TEXT_LENGTH) {
     return null;
   }
   if (/\b(coupon|save)\b/i.test(text)) {

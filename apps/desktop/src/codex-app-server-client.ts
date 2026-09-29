@@ -251,7 +251,8 @@ export class CodexAppServerClient {
     let message: unknown;
     try {
       message = JSON.parse(line);
-    } catch {
+    } catch (error) {
+      console.warn("[Codex app-server] Dropping unparseable message line:", line.slice(0, 200), error);
       return;
     }
     if (!isRecord(message)) return;

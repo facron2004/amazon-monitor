@@ -128,8 +128,10 @@ export function addDays(date: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
+const MS_PER_HOUR = 3_600_000;
+
 function hoursBetween(fromDate: string, toDate: string): number {
-  return Math.max(0, (Date.parse(`${toDate}T00:00:00.000Z`) - Date.parse(`${fromDate}T00:00:00.000Z`)) / 3_600_000);
+  return Math.max(0, (Date.parse(`${toDate}T00:00:00.000Z`) - Date.parse(`${fromDate}T00:00:00.000Z`)) / MS_PER_HOUR);
 }
 
 export function formatNumber(value: number | null): string {

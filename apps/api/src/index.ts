@@ -46,7 +46,12 @@ if (!process.env.WEB_DIST_PATH) {
 const storeHandle = openAppStoreHandle(process.env.DB_PATH ?? defaultDbPath);
 const store = storeHandle.store;
 configureDesktopAgentStore(store);
-recoverInterruptedAgentRuns(store);
+try {
+  recoverInterruptedAgentRuns(store);
+} catch (error) {
+  // 恢复中断的 Agent run 失败不应阻止 API 启动（这些 run 会在下次重启时再次被拾起）。
+  console.error("[API] Failed to recover interrupted agent runs:", error);
+}
 const agentRuntime = new AgentRuntimeService(store);
 configureDesktopAgentRecoveryStarter((run, freshnessInput) => {
   agentRuntime.start(run, freshnessInput);

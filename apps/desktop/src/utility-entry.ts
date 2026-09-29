@@ -129,7 +129,11 @@ async function initializeRole(port: MessagePortMain, setupToken?: string): Promi
         }));
     } else if (isBridgeMessage(data)) {
       if (role === "agent") agentRuntime?.handle(data);
-      else if (role === "api") void apiReceiver?.(data);
+      else if (role === "api") {
+        void apiReceiver?.(data).catch((error: unknown) => {
+          console.error("[Desktop bridge] API message handling failed:", error);
+        });
+      }
     } else if (isPingMessage(data)) {
       port.postMessage({ role, type: "pong" });
     }

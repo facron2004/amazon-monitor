@@ -128,6 +128,11 @@ function whereCoreOnly(): WhereBuilder {
 }
 
 function jsonArrayContainsClause(column: string, path?: string): string {
+  // path 被嵌入 SQL 字符串字面量（无法参数化），只允许静态 JSON-path 常量，
+  // 含单引号/反斜杠的值会破坏字面量边界，必须在开发期直接拒绝。
+  if (path !== undefined && !/^\$[A-Za-z0-9_.]*$/.test(path)) {
+    throw new Error(`Unsafe json_each path literal: ${JSON.stringify(path)}`);
+  }
   const pathArg = path ? `, '${path}'` : "";
   return `EXISTS (SELECT 1 FROM json_each(${column}${pathArg}) WHERE value = ?)`;
 }

@@ -166,7 +166,10 @@ export function createQueueStore(db: DatabaseSync): QueueStoreMethods {
                 AND active.task_type = queued.task_type
                 AND active.target_id = queued.target_id
                 AND active.date = queued.date
-                AND active.status IN ('pending', 'processing')
+                AND (
+                  active.status = 'processing'
+                  OR (active.status = 'pending' AND active.id < queued.id)
+                )
                 AND active.id <> queued.id
             )
           ORDER BY COALESCE(queued.next_attempt_at, queued.created_at) ASC, queued.id ASC

@@ -224,7 +224,10 @@ export function createBsrStore(db: DatabaseSync): BsrStoreMethods {
   };
 }
 
-function sourceOwnershipClause(alias: string, orgId?: number) {
+// alias 直接插值进 SQL，仅允许已知的静态表别名，防止未来误传动态值。
+type BsrSourceAlias = "h" | "q" | "i";
+
+function sourceOwnershipClause(alias: BsrSourceAlias, orgId?: number) {
   if (orgId === undefined) return undefined;
   return {
     clause: `(( ${alias}.source_type = 'keyword_detail' AND EXISTS (
