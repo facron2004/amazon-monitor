@@ -63,11 +63,12 @@ const systemTabs = computed(() => tabs.filter((tab) => ["rules", "data-sources",
 
     <div class="sidebar-nav-group">
       <p class="sidebar-section-label">监控视图</p>
-      <nav class="nav">
+      <nav class="nav" aria-label="监控视图">
         <button
           v-for="tab in monitorTabs"
           :key="tab.key"
           :class="{ active: activeTab === tab.key }"
+          :aria-current="activeTab === tab.key ? 'page' : undefined"
           type="button"
           @click="emit('update:activeTab', tab.key); emit('close')"
         >
@@ -79,11 +80,12 @@ const systemTabs = computed(() => tabs.filter((tab) => ["rules", "data-sources",
 
     <div class="sidebar-nav-group">
       <p class="sidebar-section-label">跟进视图</p>
-      <nav class="nav nav-secondary">
+      <nav class="nav nav-secondary" aria-label="跟进视图">
         <button
           v-for="tab in followUpTabs"
           :key="tab.key"
           :class="{ active: activeTab === tab.key }"
+          :aria-current="activeTab === tab.key ? 'page' : undefined"
           type="button"
           @click="emit('update:activeTab', tab.key); emit('close')"
         >
@@ -95,8 +97,8 @@ const systemTabs = computed(() => tabs.filter((tab) => ["rules", "data-sources",
 
     <div class="sidebar-nav-group">
       <p class="sidebar-section-label">系统工具</p>
-      <nav class="nav nav-secondary">
-        <button v-for="tab in systemTabs" :key="tab.key" :class="{ active: activeTab === tab.key }" type="button" @click="emit('update:activeTab', tab.key); emit('close')">
+      <nav class="nav nav-secondary" aria-label="系统工具">
+        <button v-for="tab in systemTabs" :key="tab.key" :class="{ active: activeTab === tab.key }" :aria-current="activeTab === tab.key ? 'page' : undefined" type="button" @click="emit('update:activeTab', tab.key); emit('close')">
           <component :is="tab.icon" :size="18" />
           <span>{{ tab.label }}</span>
         </button>
