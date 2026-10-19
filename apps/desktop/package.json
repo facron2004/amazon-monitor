@@ -41,6 +41,7 @@
     "files": [
       "dist/**/*",
       "package.json",
+      "!**/*.log",
       "!node_modules/@amazon-monitor/api/src{,/**/*}",
       "!node_modules/@amazon-monitor/api/data{,/**/*}",
       "!node_modules/@amazon-monitor/agent/src{,/**/*}",
