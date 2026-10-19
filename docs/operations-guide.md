@@ -81,7 +81,7 @@ npm run verify:release:win
 
 Windows 发布 CI 先执行根级 `npm run verify`（生产构建、全量单测、浏览器测试、备份演练、发布门禁和生产依赖审计），再使用 `npm --workspace @amazon-monitor/desktop run package:win` 生成当前版本安装器，随后执行 `npm run verify:release:win`，并额外完成安装、恢复、升级、卸载和证据校验；同时强制验证 `win-unpacked/Amazon Monitor.exe` 和 `Amazon Monitor Setup <desktop-version>.exe`。仓库中的 `.github/workflows/windows-release-verify.yml` 仅支持手动触发，证书从 GitHub Actions secrets 注入。
 
-`verify:package-runtime`、`verify:package-agent-runtime`、`verify:package-notification-runtime`、`verify:package-api-recovery` 和 `verify:package-agent-crawler-recovery` 在 Windows 上执行：前者启动隔离 `win-unpacked`，检查真实 API/渲染页面就绪；Agent smoke 在同一隔离边界内配置临时本地 OpenAI 兼容流式模型，通过真实 preload/API 创建 Agent run，验证规划、freshness、模型和工具调用，在缺失新鲜度时进入 `waiting_approval`，批准 L2 recollect 后创建 recovery run，重复批准复用同一 execution，并检查 SSE 回放、审计导出、进程状态和输出脱敏；notification smoke 在隔离 userData 写入不含真实凭据的 `.env`，通过真实 API 创建邮件计划，并由本地假 SMTP 完成认证、收件和 MIME 数据接收，同时确认 SMTP 密码不出现在进程输出；API recovery smoke 会强杀 API utility，再验证原 Renderer origin 上的 readiness、bootId、页面和三 utility 状态恢复；Agent/Crawler recovery smoke 会识别三个 NodeService utility，排除持有监听端口的 API，分别强杀剩余两个并验证同一 Renderer、API readiness、三角色状态和替换进程恢复。所有 smoke 都会清理进程树与临时 userData。非 Windows 默认输出 skipped；设置对应的 `REQUIRE_PACKAGE_RUNTIME`、`REQUIRE_PACKAGE_AGENT_RUNTIME`、`REQUIRE_PACKAGE_NOTIFICATION_RUNTIME`、`REQUIRE_PACKAGE_API_RECOVERY` 或 `REQUIRE_PACKAGE_AGENT_CRAWLER_RECOVERY` 后，非 Windows 环境会将不支持视为失败。
+`verify:package-runtime`、`verify:package-agent-runtime`、`verify:package-notification-runtime`、`verify:package-api-recovery` 和 `verify:package-agent-crawler-recovery` 在 Windows 上执行：前者启动隔离 `win-unpacked`，检查真实 API/渲染页面就绪；Agent smoke 在同一隔离边界内配置临时本地 OpenAI 兼容流式模型，通过真实 preload/API 创建 Agent run，验证规划、freshness、模型和工具调用，在缺失新鲜度时进入 `waiting_approval`，批准 L2 recollect 后创建 recovery run，重复批准复用同一 execution，并检查 SSE 回放、审计导出、进程状态和输出脱敏；notification smoke 在隔离 userData 写入不含真实凭据的 `.env`，通过真实 API 创建邮件计划，并由本地假 SMTP 完成认证、收件和 MIME 数据接收，同时确认 SMTP 密码不出现在进程输出；API recovery smoke 会强杀 API utility，再验证原 Renderer origin 上的 readiness、bootId、页面和三 utility 状态恢复；Agent/Crawler recovery smoke 会识别三个 NodeService utility，排除持有监听端口的 API，分别强杀剩余两个并验证同一 Renderer、API readiness、三角色状态和替换进程恢复。所有 smoke 都会清理进程树与临时 userData。`verify:package-runtime` 同时支持 macOS；其余 smoke 在非 Windows 环境默认输出 skipped。设置对应的 `REQUIRE_PACKAGE_RUNTIME`、`REQUIRE_PACKAGE_AGENT_RUNTIME`、`REQUIRE_PACKAGE_NOTIFICATION_RUNTIME`、`REQUIRE_PACKAGE_API_RECOVERY` 或 `REQUIRE_PACKAGE_AGENT_CRAWLER_RECOVERY` 后，不支持的平台会视为失败。
 
 `verify:package-install` 仅在 Windows 执行：它把当前版本 NSIS 安装器安装到随机临时目录，复用页面级运行时 smoke 检查已安装 EXE 的真实 API 和渲染页面，然后静默卸载并确认安装目录为空。测试使用独立的 `--user-data-dir`，不会清理或修改现有 AppData；临时目录会在成功或失败后清理。`verify:package-install-recovery` 在同一安装目录流程中进一步调用 Agent approval、API、Agent/Crawler recovery 和 notification runtime smoke，确认安装版资源路径、userData `.env` 发现、审批/recovery、SMTP 配置传递、端口固定和三 utility 重启边界与 `win-unpacked` 一致。
 
@@ -100,6 +100,8 @@ npm --workspace @amazon-monitor/desktop run package:mac:arm64
 在 Agent 全量类型检查通过后，该命令会生成 `release/electron` 下的 macOS ARM64 DMG，并使用 `@openai/codex-darwin-arm64` 运行 Codex app-server。macOS 构建必须在 macOS runner 或 Mac 机器上执行；正式分发还需要 Developer ID 签名与 notarization。当前 Windows 主机只能完成源码、类型和打包配置验证，不能直接产出 macOS 安装包。
 
 仓库提供 `.github/workflows/macos-arm64-package.yml` 手动工作流；在 GitHub Actions 中运行 `workflow_dispatch` 后，构建出的未签名 DMG 会作为 artifact 下载。正式对外发布时，再配置 Developer ID 签名和 notarization。
+
+macOS 工作流在上传 DMG 前执行 `npm run verify:package-runtime`，使用隔离 userData 和数据库启动包内应用，验证页面、登录、业务 API 与就绪状态，并清理测试进程。
 
 ## CLI 采集、备份与 Shadow 验证
 

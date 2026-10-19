@@ -11,7 +11,9 @@ import {
   waitFor,
 } from "./package-smoke-utils.mjs";
 
-const DEFAULT_EXECUTABLE = "release/electron/win-unpacked/Amazon Monitor.exe";
+const DEFAULT_EXECUTABLE = process.platform === "darwin"
+  ? "release/electron/mac-arm64/Amazon Monitor.app/Contents/MacOS/Amazon Monitor"
+  : "release/electron/win-unpacked/Amazon Monitor.exe";
 const desktopRequire = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
 
 function isRequired() {
@@ -154,7 +156,7 @@ async function inspectAuthenticatedBusinessApi(debugPort, origin) {
 }
 
 function waitForExit(child, timeoutMilliseconds = 15_000) {
-  if (child.exitCode !== null) return Promise.resolve();
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolvePromise) => {
     const timeout = setTimeout(resolvePromise, timeoutMilliseconds);
     child.once("exit", () => {
@@ -194,6 +196,7 @@ async function runSmoke(executablePath, requestedUserDataRoot) {
       env: { ...process.env, NODE_ENV: "production", DB_PATH: databasePath },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
+      detached: process.platform === "darwin",
     },
   );
   child.stdout?.on("data", (chunk) => output.push(String(chunk)));
@@ -235,24 +238,34 @@ async function runSmoke(executablePath, requestedUserDataRoot) {
       outputLines: output.join("").trim().split(/\r?\n/).filter(Boolean).slice(-10),
     };
   } finally {
-    const terminated = terminateProcessTree(child.pid);
+    let terminated;
+    if (process.platform === "darwin" && child.pid) {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+        terminated = true;
+      } catch (error) {
+        terminated = error.code === "ESRCH";
+      }
+    } else {
+      terminated = terminateProcessTree(child.pid);
+    }
     await waitForExit(child);
     if (ownsUserDataRoot) rmSync(userDataRoot, { force: true, recursive: true });
-    if (child.exitCode === null) {
+    if (child.exitCode === null && child.signalCode === null) {
       throw new Error(
         `Could not terminate packaged process tree rooted at PID ${child.pid}`
-        + (terminated ? " after taskkill returned success" : " after taskkill failed"),
+        + (terminated ? " after process termination returned success" : " after process termination failed"),
       );
     }
   }
 }
 
 async function main() {
-  if (process.platform !== "win32") {
+  if (process.platform !== "win32" && process.platform !== "darwin") {
     const result = {
       ok: !isRequired(),
       skipped: true,
-      reason: "Packaged Electron runtime smoke is only supported on Windows.",
+      reason: "Packaged Electron runtime smoke is only supported on Windows and macOS.",
     };
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) process.exitCode = 1;

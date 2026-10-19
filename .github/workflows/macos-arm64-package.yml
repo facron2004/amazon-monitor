@@ -27,6 +27,11 @@ jobs:
       - name: Build unsigned ARM64 DMG
         run: npm --workspace @amazon-monitor/desktop run package:mac:arm64
 
+      - name: Verify packaged app runtime
+        env:
+          REQUIRE_PACKAGE_RUNTIME: "true"
+        run: npm run verify:package-runtime
+
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
