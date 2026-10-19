@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createStore, configureDatabase, initSchema } from "../apps/api/src/store.js";
-import { backupSqliteDatabaseFile } from "../apps/api/src/store/db-backup.js";
 import type { ShadowEvidenceCollectorConfig } from "./sp-api-shadow-evidence-collector-types.js";
 import { runShadowPreflight } from "./verify-sp-api-shadow-preflight.js";
 
@@ -14,7 +13,7 @@ const dates = [
 ];
 
 describe("SP-API shadow preflight", () => {
-  it("passes for an isolated WAL database with scoped source, store, and connection", async () => {
+  it("passes for an isolated WAL database with scoped source, store, and connection", () => {
     const root = mkdtempSync(join(tmpdir(), "amazon-monitor-shadow-preflight-"));
     const databasePath = join(root, "shadow.sqlite");
     const productionDatabasePath = join(root, "production.sqlite");
@@ -50,7 +49,7 @@ describe("SP-API shadow preflight", () => {
       });
       database.close();
       const backupPath = join(root, "backup.sqlite");
-      await backupSqliteDatabaseFile(databasePath, backupPath);
+      createPreflightBackup(databasePath, backupPath);
 
       const result = runShadowPreflight(buildConfig(databasePath, source.id, commerceStore.id), {
         productionDatabasePath,
@@ -82,7 +81,7 @@ describe("SP-API shadow preflight", () => {
     }
   });
 
-  it("fails when storage thresholds are exceeded and records the applied bounds", async () => {
+  it("fails when storage thresholds are exceeded and records the applied bounds", () => {
     const root = mkdtempSync(join(tmpdir(), "amazon-monitor-shadow-preflight-storage-"));
     const databasePath = join(root, "shadow.sqlite");
     try {
@@ -91,7 +90,7 @@ describe("SP-API shadow preflight", () => {
       initSchema(database);
       database.close();
       const backupPath = join(root, "backup.sqlite");
-      await backupSqliteDatabaseFile(databasePath, backupPath);
+      createPreflightBackup(databasePath, backupPath);
 
       const result = runShadowPreflight(buildConfig(databasePath, 1, 1), {
         productionDatabasePath: join(root, "production.sqlite"),
@@ -118,7 +117,7 @@ describe("SP-API shadow preflight", () => {
     }
   });
 
-  it("fails when the shadow path is production and unsafe runtime modes are enabled", async () => {
+  it("fails when the shadow path is production and unsafe runtime modes are enabled", () => {
     const root = mkdtempSync(join(tmpdir(), "amazon-monitor-shadow-preflight-"));
     const databasePath = join(root, "shadow.sqlite");
     try {
@@ -127,7 +126,7 @@ describe("SP-API shadow preflight", () => {
       initSchema(database);
       database.close();
       const backupPath = join(root, "backup.sqlite");
-      await backupSqliteDatabaseFile(databasePath, backupPath);
+      createPreflightBackup(databasePath, backupPath);
 
       const result = runShadowPreflight(buildConfig(databasePath, 1, 1), {
         productionDatabasePath: databasePath,
@@ -148,7 +147,7 @@ describe("SP-API shadow preflight", () => {
     }
   });
 
-  it("fails when source and store belong to another organization", async () => {
+  it("fails when source and store belong to another organization", () => {
     const root = mkdtempSync(join(tmpdir(), "amazon-monitor-shadow-preflight-"));
     const databasePath = join(root, "shadow.sqlite");
     try {
@@ -183,7 +182,7 @@ describe("SP-API shadow preflight", () => {
       });
       database.close();
       const backupPath = join(root, "backup.sqlite");
-      await backupSqliteDatabaseFile(databasePath, backupPath);
+      createPreflightBackup(databasePath, backupPath);
 
       const result = runShadowPreflight(buildConfig(databasePath, source.id, commerceStore.id), {
         productionDatabasePath: join(root, "production.sqlite"),
@@ -207,7 +206,7 @@ describe("SP-API shadow preflight", () => {
     }
   });
 
-  it("detects a fact row that crosses the scoped commerce store boundary", async () => {
+  it("detects a fact row that crosses the scoped commerce store boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "amazon-monitor-shadow-preflight-"));
     const databasePath = join(root, "shadow.sqlite");
     try {
@@ -277,7 +276,7 @@ describe("SP-API shadow preflight", () => {
       );
       database.close();
       const backupPath = join(root, "backup.sqlite");
-      await backupSqliteDatabaseFile(databasePath, backupPath);
+      createPreflightBackup(databasePath, backupPath);
 
       const result = runShadowPreflight(buildConfig(databasePath, source.id, scopedStore.id), {
         productionDatabasePath: join(root, "production.sqlite"),
@@ -299,6 +298,15 @@ describe("SP-API shadow preflight", () => {
     }
   });
 });
+
+function createPreflightBackup(sourcePath: string, targetPath: string): void {
+  const database = new DatabaseSync(sourcePath);
+  try {
+    database.prepare("VACUUM INTO ?").run(targetPath);
+  } finally {
+    database.close();
+  }
+}
 
 function buildConfig(databasePath: string, dataSourceId: number, commerceStoreId: number): ShadowEvidenceCollectorConfig {
   return {

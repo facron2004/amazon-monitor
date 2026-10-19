@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Amazon Intelligence Brief 邮件**：SMTP 邮件升级为 720px、table/inline CSS 的 HTML 简报，增加 30 秒执行摘要、合并后的 Critical Alerts、市场 KPI、BSR Top Movers、价格/Coupon/Deal、关键词变化和普通变化汇总。
 - **Agent OS Signal Feed**：基于真实 `InsightEvent(RANK_SURGE)` 的组织级 `RANKING_JUMP` 信号、证据展示、状态更新和幂等 `ranking-jump-analysis` Workflow；研究结果保持人工审批边界。
 - **macOS ARM64 打包入口**：Electron Builder 增加 `package:mac:arm64`、DMG 目标和 macOS ARM64 Codex 二进制解析；实际 DMG 仍需在 macOS runner 上构建、签名和公证。
+- **macOS 安装包运行验收**：工作流在上传 DMG 前，使用隔离 userData 和数据库验证包内应用的页面、初始化登录与业务 API，并清理测试进程。
 
 ### Changed
 
@@ -31,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **采集数据可信度**：手动同日重抓通过 `forceRefresh` 贯穿队列、Worker 和详情采集器，跳过同日详情缓存；任务完成后清理前端请求/视图缓存，并避免强制任务与同目标普通任务并发写入。
+- **发布依赖安全维护（2026-10-19）**：更新 Electron 43.8.0、邮件与受影响的生产依赖，保留 Express 4.x，重新锁定依赖版本。
+- **Shadow 预检测试夹具**：使用同步 SQLite 快照准备备份证据，避免测试超时与异步备份任务相互干扰，保留完整性、路径和组织边界断言。
 
 ## [1.1.0] - 2026-07-30
 
